@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "caliche-balance",
+      "runtimeExecutable": "zsh",
+      "runtimeArgs": ["-ilc", "npm run dev"],
+      "port": 5173
+    }
+  ]
+}

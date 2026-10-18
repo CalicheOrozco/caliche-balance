@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+/*
+ * Caliche green on neutral surfaces. src/theme.ts sets data-theme on <html> from the saved
+ * choice, or from the system preference when nothing was chosen.
+ */
+:root {
+  --bg: #f6f8f7;
+  --surface: #ffffff;
+  --surface-2: #eef2f0;
+  --ink: #0f1a14;
+  --ink-2: #44524a;
+  --muted: #6b7a72;
+  --line: #dfe6e2;
+  --brand: #178a43;
+  --brand-ink: #ffffff;
+  /* Chart series, validated against the light surface. */
+  --series: #178a43;
+  --band: rgb(12 163 12 / 0.12);
+  /* Status colors always ship with an icon and a label. */
+  --good: #0ca30c;
+  --warn: #c98a00;
+  --bad: #d03b3b;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0b0f0d;
+  --surface: #141a17;
+  --surface-2: #1c2420;
+  --ink: #eef4f0;
+  --ink-2: #b6c2bb;
+  --muted: #84928a;
+  --line: #26302b;
+  --brand: #21b359;
+  --brand-ink: #04120a;
+  /* Validated against the dark surface (lightness band 0.48 to 0.67). */
+  --series: #1fa653;
+  --band: rgb(12 163 12 / 0.18);
+  --good: #0ca30c;
+  --warn: #fab219;
+  --bad: #e05a5a;
+  color-scheme: dark;
+}
+
+@theme {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --font-sans: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+select,
+button {
+  font: inherit;
+}
+
+/* iOS zooms into inputs smaller than 16px. */
+input,
+select {
+  font-size: 16px;
+}

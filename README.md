@@ -1,0 +1,180 @@
+<p align="center">
+  <img src="public/icon-512.png" width="112" alt="Logo de Caliche Balance">
+</p>
+
+# Caliche Balance
+
+Web app para iPhone que toma las mediciones de tu báscula Xiaomi Mi Body Composition Scale 2 (vía Zepp Life) y las compara con rangos de referencia de Norteamérica (México, EE. UU. y Canadá), en lugar de los rangos asiáticos que usa Zepp Life.
+
+Cada persona tiene su propia cuenta (nombre de usuario y contraseña) y sus datos se sincronizan entre dispositivos.
+
+## Qué hace
+
+- **Inicio:** tu última medición con peso, IMC, % de grasa y metabolismo basal. Cada valor se clasifica (Bien / Atención / Alto riesgo, siempre con ícono y texto) y muestra de dónde sale cada rango.
+- **Comparación asiática:** junto al IMC te dice cómo te clasificaría un rango asiático como el de Zepp Life, para que veas la diferencia.
+- **Historial:** gráfica de peso y una segunda gráfica para cualquier medida (grasa, músculo, agua, grasa visceral, proteína, edad corporal), con la banda saludable marcada donde existe, y la lista de mediciones.
+- **Agregar a mano:** como respaldo, acepta coma decimal ("74,5").
+- **Báscula Xiaomi vía Zepp Life:** trae todas tus pesadas con todos sus valores (grasa, músculo, agua, masa ósea, grasa visceral, proteína, metabolismo basal, edad corporal, puntuación, peso ideal e impedancia) y se sincroniza sola.
+- **Una báscula para toda la casa:** cada persona tiene su cuenta y recibe solo sus pesadas, con invitaciones y reasignación de pesadas.
+- **PWA completa:** se instala en la pantalla de inicio, abre al instante y funciona sin internet con tus pesadas de los últimos 3 meses.
+- **Español e inglés**, kg o lb, modo oscuro y claro.
+
+## Rangos de referencia
+
+Toda la lógica está en `shared/reference.ts`:
+
+| Medida | Fuente |
+|---|---|
+| IMC | Organización Mundial de la Salud (OMS): normal de 18.5 a 24.9, sobrepeso desde 25, obesidad desde 30. Es la que usan México, EE. UU. y Canadá. |
+| Comparación asiática | Consulta de expertos de la OMS para poblaciones asiáticas (Lancet, 2004): sobrepeso desde 23, obesidad desde 27.5. |
+| % de grasa | Gallagher y colaboradores (Am J Clin Nutr, 2000): rangos saludables por sexo y edad (20 a 39, 40 a 59, 60 a 79 años), basados en adultos blancos y afroamericanos de EE. UU. |
+| Categoría de condición física | American Council on Exercise (ACE). |
+| Metabolismo basal | Ecuación de Mifflin-St Jeor (1990). |
+
+Músculo, agua, masa ósea y grasa visceral los calcula Zepp Life con su propia referencia. La app los muestra tal cual, porque recalibrarlos necesitaría los datos crudos de impedancia de la báscula.
+
+No existe una tabla oficial única para todo el continente; estas son las referencias más usadas en la región. Caliche Balance es una herramienta personal, no un dispositivo médico.
+
+## Tecnologías
+
+- Node.js 24 LTS (ver `.nvmrc`)
+- React 19, React Router, TanStack Query y Recharts
+- Tailwind CSS 4 y Vite 8
+- Express 5 y el driver oficial de MongoDB
+- Contraseñas con argon2; sesiones en cookie `HttpOnly`
+- Vitest para las pruebas
+
+## Correr en tu Mac
+
+1. Usa Node 24 e instala dependencias:
+
+```bash
+cd "/Users/calicheorozco/Documents/Web Development/caliche-balance" && nvm use && npm install
+```
+
+2. Arranca la API y la web juntas:
+
+```bash
+cd "/Users/calicheorozco/Documents/Web Development/caliche-balance" && npm run dev
+```
+
+3. Abre http://localhost:5173 y crea una cuenta.
+
+Sin configurar nada, la API usa un MongoDB local que guarda los datos en `.data/` (no se sube a git). Para usar tu MongoDB Atlas en desarrollo, copia `.env.example` a `.env.local`, llena `MONGODB_URI` y arranca con:
+
+```bash
+cd "/Users/calicheorozco/Documents/Web Development/caliche-balance" && node --env-file=.env.local scripts/dev.mjs
+```
+
+### Pruebas y revisión de tipos
+
+```bash
+cd "/Users/calicheorozco/Documents/Web Development/caliche-balance" && npm test && npm run typecheck
+```
+
+Las pruebas cubren los rangos de referencia, la conexión con Zepp (con una Zepp falsa de 3 personas: importar, invitar, unirse, privacidad, "No es mía", reasignar, token caducado, cron y borrar cuenta) y el flujo completo de la API contra un MongoDB real en memoria: registro, perfil, mediciones a mano (con coma decimal y libras), que cada persona solo vea sus datos, límite de intentos, recuperación de contraseña y borrar cuenta.
+
+## Publicar (MongoDB Atlas + Vercel)
+
+### 1. Base de datos en MongoDB Atlas
+
+1. Crea una cuenta en https://www.mongodb.com/cloud/atlas y un cluster **M0 (gratis)**.
+2. En **Database Access**, crea un usuario con una contraseña larga y aleatoria.
+3. En **Network Access**, permite `0.0.0.0/0`. Vercel no tiene IPs fijas en el plan gratis, así que el acceso queda protegido por el usuario y la contraseña.
+4. En **Connect > Drivers**, copia la cadena de conexión `mongodb+srv://...` y pon tu contraseña en ella.
+
+Alternativa: en Vercel puedes agregar la integración de MongoDB Atlas desde el Marketplace, y crea el cluster y la variable `MONGODB_URI` por ti.
+
+### 2. Vercel
+
+1. Sube este proyecto a un repositorio de GitHub.
+2. En https://vercel.com, **Add New > Project** e importa el repositorio. Vercel detecta Vite solo.
+3. En **Environment Variables** agrega:
+   - `MONGODB_URI`: la cadena de Atlas.
+   - `MONGODB_DB` (opcional): `caliche-balance`.
+   - `ZEPP_TOKEN_KEY`: llave para cifrar los tokens de Zepp. Genera una con `openssl rand -base64 32`. Usa la misma de tu `.env` si ya conectaste Zepp localmente contra la misma base; si la cambias, hay que volver a conectar Zepp.
+   - `CRON_SECRET`: una cadena larga y aleatoria. Vercel la manda a la sincronización diaria con Zepp (`vercel.json` la programa a las 12:00 UTC).
+4. Dale **Deploy**.
+
+`vercel.json` manda todo lo que empieza con `/api` a la función `api/index.ts` (la API de Express) y el resto a la web app. Las cookies de sesión son `Secure`, así que en producción la app debe abrirse por HTTPS (Vercel ya lo da).
+
+## Instalar en el iPhone
+
+1. Abre la dirección de Vercel en **Safari**.
+2. Toca **Compartir > Agregar a pantalla de inicio**.
+3. Queda con el ícono de Caliche Balance y se abre como app, sin barra de Safari.
+
+## Sin conexión (PWA)
+
+- Un service worker (generado por `vite-plugin-pwa`) guarda la app completa, así que abre al instante y sin internet. Las respuestas de `/api` nunca se guardan en el service worker.
+- La app guarda en el teléfono (IndexedDB) tu perfil y tus pesadas de los **últimos 3 meses**, más tu última pesada y tu última pesada completa aunque sean más viejas. Sin internet ves esos datos con un aviso de "Sin conexión". Lo guardado caduca a los 90 días sin abrir la app con internet.
+- Al cerrar sesión o borrar la cuenta, se borra lo guardado en el teléfono.
+- Sin internet no se puede agregar ni sincronizar; la app lo indica.
+- El service worker solo existe en la versión compilada. Para probarlo en tu Mac:
+
+```bash
+cd "/Users/calicheorozco/Documents/Web Development/caliche-balance" && npm run build && npx vite preview --port 4173
+```
+
+(con la API corriendo en otra terminal con `node --env-file=.env scripts/dev.mjs`). Safari en iPhone necesita HTTPS para el service worker, así que en el iPhone funciona una vez publicada en Vercel.
+
+## Conectar la báscula Xiaomi (Zepp Life)
+
+Caliche Balance lee tus pesadas de la nube de Zepp, la misma que usa la app Zepp Life. **Es una conexión no oficial** (descubierta por el proyecto [zepp-life-mcp](https://github.com/kubulashvili/zepp-life-mcp)): Zepp puede cambiarla o bloquearla sin aviso.
+
+### Quien tiene la báscula ligada a su Zepp Life
+
+1. En una computadora, entra a `https://user.huami.com/privacy2/index.html` e inicia sesión con tu cuenta de Zepp Life.
+2. Abre las herramientas de desarrollador (en Chrome: ⌥⌘I), ve a **Application > Cookies** y copia los valores de `apptoken` y `userid`.
+3. En Caliche Balance, ve a **Ajustes > Báscula Xiaomi (Zepp Life)**, pégalos y toca **Conectar**. Se importa todo tu historial.
+
+El token da acceso a tu cuenta de Zepp: se guarda cifrado (AES-256-GCM) y la llave solo vive en el servidor. Si caduca, la app lo indica y pegas uno nuevo en el mismo lugar.
+
+### Para los demás de la casa
+
+1. En **Zepp Life**, agrega a cada persona como **miembro de la familia** (nombre, sexo, fecha de nacimiento y estatura). Zepp asigna cada pesada a la persona con el peso más parecido.
+2. En Caliche Balance, cada persona crea su propia cuenta.
+3. Quien conectó Zepp toca **Invitar** junto a cada persona en **Ajustes** y le comparte el código (sirve una vez y vence en 7 días).
+4. La otra persona lo escribe en **Ajustes > Unirme a la báscula de mi casa**. Sus pesadas anteriores y futuras llegan a su cuenta.
+
+Cada quien solo ve sus propias pesadas. Quien conectó Zepp ve la lista de personas y las pesadas sin asignar, pero no las pesadas de los demás dentro de Caliche Balance.
+
+Si Zepp asigna una pesada a la persona equivocada (pasa cuando dos personas pesan parecido), la persona toca **No es mía** en su historial y quien conectó Zepp la reasigna desde **Ajustes > Pesadas sin asignar**.
+
+### Sincronización
+
+- Cada vez que abres la app, vuelves a ella desde otra app o recuperas internet (el servidor hace una sincronización real como máximo cada 2 minutos).
+- Con **Sincronizar ahora** en Ajustes.
+- Una vez al día con Vercel Cron.
+
+Las pesadas no se duplican.
+
+## Cuentas y seguridad
+
+- Registro abierto con nombre de usuario y contraseña (mínimo 8 caracteres). No se pide correo.
+- Al registrarte recibes un **código de recuperación**. Es la única forma de recuperar la cuenta si olvidas la contraseña. Al usarlo, se genera uno nuevo y se cierran las demás sesiones.
+- Límite de intentos: 10 registros por hora por IP, 10 inicios de sesión cada 15 minutos por usuario e IP, y 5 recuperaciones por hora.
+- Cada persona solo ve y borra sus propios datos. En **Ajustes > Borrar mi cuenta** se eliminan la cuenta, las mediciones y las sesiones. Si esa persona conectó Zepp, también se eliminan la conexión y las pesadas sin asignar.
+
+## Estructura
+
+| Carpeta | Qué contiene |
+|---|---|
+| `shared/` | Rangos de referencia (`reference.ts`) y validación de datos (`schemas.ts`), compartidos por la web y la API |
+| `server/` | API de Express, conexión a MongoDB y sesiones; `zepp.ts` (cliente de Zepp y cifrado), `zeppSync.ts` (importación) y `zeppRoutes.ts` (conexión, casa e invitaciones) |
+| `api/index.ts` | Punto de entrada de la API en Vercel |
+| `src/` | Web app de React (pantallas en `src/pages/`, textos en español e inglés en `src/i18n.tsx`, datos sin conexión en `src/offline.ts`) |
+| `public/` | Íconos (el manifiesto y el service worker se configuran en `vite.config.ts`) |
+| `assets/icon-source.png` | Logo original en 1024×1024, del que salen todos los íconos |
+| `scripts/` | Arranque local (`dev.mjs`) y generador de íconos (`make-icons.sh`) |
+| `tests/` | Pruebas de los rangos y de la API |
+
+## Cambiar el logo
+
+El logo vive en `assets/icon-source.png` (cuadrado, mínimo 1024×1024, con el fondo verde hasta las orillas y sin esquinas redondeadas; el iPhone las redondea solo). Si lo reemplazas, genera de nuevo los íconos de `public/`:
+
+```bash
+cd "/Users/calicheorozco/Documents/Web Development/caliche-balance" && ./scripts/make-icons.sh
+```
+
+Hecho con 💚 por Caliche.
