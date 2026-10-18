@@ -12,7 +12,7 @@ import type { MeasurementDto } from "../shared/schemas.ts";
 export const OFFLINE_DAYS = 90;
 const KEY = "caliche-balance-offline";
 /** Bump when the shape of stored data changes; older copies are discarded. */
-export const OFFLINE_VERSION = "1";
+export const OFFLINE_VERSION = "2"; // 2: the user now carries goals
 export const OFFLINE_MAX_AGE_MS = OFFLINE_DAYS * 24 * 60 * 60 * 1000;
 export const PERSISTED_QUERIES = new Set(["me", "measurements"]);
 

@@ -2,8 +2,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { useNavigate } from "react-router";
 import { parseDecimal, type ProfileDto, toKilograms } from "../../shared/schemas.ts";
-import { api, errorKey } from "../api.ts";
-import { type MessageKey, useI18n } from "../i18n.tsx";
+import { api } from "../api.ts";
+import { useI18n } from "../i18n.tsx";
 import { DatePicker } from "../DatePicker.tsx";
 import { Button, Card, Field } from "../ui.tsx";
 
@@ -24,7 +24,7 @@ function massInKg(s: string, unit: "kg" | "lb"): unknown {
 }
 
 export function AddPage({ profile }: { profile: ProfileDto }) {
-  const { t } = useI18n();
+  const { t, te } = useI18n();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [date, setDate] = useState(() => nowLocal().date);
@@ -54,7 +54,7 @@ export function AddPage({ profile }: { profile: ProfileDto }) {
       await queryClient.invalidateQueries({ queryKey: ["measurements"] });
       navigate("/");
     },
-    onError: (e) => setError(t(errorKey(e) as MessageKey)),
+    onError: (e) => setError(te(e)),
   });
 
   return (

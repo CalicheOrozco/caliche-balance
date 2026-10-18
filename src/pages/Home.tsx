@@ -1,10 +1,131 @@
 import { Link } from "react-router";
 import { assess, type SourceId } from "../../shared/reference.ts";
-import type { MeasurementDto, ProfileDto } from "../../shared/schemas.ts";
+import { dailyTrend, estimateEta, goalProgress } from "../../shared/goals.ts";
+import { fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
 import { Card, RangeBar, StatusBadge, useFormat } from "../ui.tsx";
 
-export function HomePage({ profile, measurements, username }: { profile: ProfileDto; measurements: MeasurementDto[]; username: string }) {
+/** One goal: progress bar, distance left, starting point and the estimate at the recent pace. */
+function GoalRow({
+  label,
+  start,
+  current,
+  target,
+  setAt,
+  points,
+  format,
+}: {
+  label: string;
+  start: number | null;
+  current: number;
+  target: number;
+  setAt: string;
+  points: { time: number; value: number }[];
+  format: (n: number) => string;
+}) {
+  const { t, tf } = useI18n();
+  const f = useFormat();
+  const progress = goalProgress(start, current, target);
+  const eta = estimateEta(progress, dailyTrend(points));
+  const etaText =
+    eta.kind === "weeks"
+      ? tf("goalEtaWeeks", { n: eta.weeks })
+      : eta.kind === "wrong-way"
+        ? t("goalEtaWrongWay")
+        : eta.kind === "unknown"
+          ? t("goalEtaUnknown")
+          : null;
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="font-semibold">{label}</p>
+        <p className="text-sm text-ink-2">{tf("goalOf", { target: format(target) })}</p>
+      </div>
+      <div
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(progress.fraction * 100)}
+        className="mt-2 h-3 overflow-hidden rounded-full bg-surface-2"
+      >
+        <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${Math.max(progress.fraction * 100, 2)}%` }} />
+      </div>
+      <p className="mt-2 text-lg font-bold">
+        {progress.reached ? t("goalReached") : tf("goalRemaining", { value: format(progress.remaining) })}
+        <span className="ml-2 text-sm font-medium text-muted">{Math.round(progress.fraction * 100)} %</span>
+      </p>
+      {start !== null && <p className="text-sm text-muted">{tf("goalFrom", { start: format(start), date: f.date(setAt) })}</p>}
+      {etaText && <p className="mt-1 text-sm text-ink-2">{etaText}</p>}
+    </div>
+  );
+}
+
+function GoalsCard({ goals, measurements, unit }: { goals: GoalsDto; measurements: MeasurementDto[]; unit: "kg" | "lb" }) {
+  const { t } = useI18n();
+  const f = useFormat();
+  const latest = measurements[0];
+  const latestFat = measurements.find((m) => m.bodyFatPct !== null);
+  const editLink = (
+    <Link to="/ajustes#metas" className="text-sm font-medium text-brand">
+      {t("editGoals")}
+    </Link>
+  );
+
+  if (!goals.weight && !goals.bodyFat) {
+    return (
+      <Card className="flex items-center justify-between gap-3">
+        <p className="text-sm text-ink-2">{t("goalNone")}</p>
+        <Link to="/ajustes#metas" className="shrink-0 rounded-2xl bg-surface-2 px-4 py-2.5 text-sm font-medium">
+          {t("setGoal")}
+        </Link>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="space-y-5">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">{t("goalsTitle")}</h2>
+        {editLink}
+      </div>
+      {goals.weight && latest && (
+        <GoalRow
+          label={t("weight")}
+          start={goals.weight.startKg === null ? null : fromKilograms(goals.weight.startKg, unit)}
+          current={fromKilograms(latest.weightKg, unit)}
+          target={fromKilograms(goals.weight.targetKg, unit)}
+          setAt={goals.weight.setAt}
+          points={measurements.map((m) => ({ time: new Date(m.measuredAt).getTime(), value: fromKilograms(m.weightKg, unit) }))}
+          format={(n) => `${f.number(n)} ${unit}`}
+        />
+      )}
+      {goals.bodyFat && latestFat && (
+        <GoalRow
+          label={t("bodyFat")}
+          start={goals.bodyFat.startPct}
+          current={latestFat.bodyFatPct!}
+          target={goals.bodyFat.targetPct}
+          setAt={goals.bodyFat.setAt}
+          points={measurements.flatMap((m) => (m.bodyFatPct === null ? [] : [{ time: new Date(m.measuredAt).getTime(), value: m.bodyFatPct }]))}
+          format={(n) => `${f.number(n)} %`}
+        />
+      )}
+    </Card>
+  );
+}
+
+export function HomePage({
+  profile,
+  measurements,
+  username,
+  goals,
+}: {
+  profile: ProfileDto;
+  measurements: MeasurementDto[];
+  username: string;
+  goals: GoalsDto;
+}) {
   const { t } = useI18n();
   const f = useFormat();
   const latest = measurements[0];
@@ -81,6 +202,8 @@ export function HomePage({ profile, measurements, username }: { profile: Profile
           {t("healthyWeight")}: {f.weight(result.healthyWeight.min, profile.unit)} {t("rangeTo")} {f.weight(result.healthyWeight.max, profile.unit)}
         </p>
       </Card>
+
+      <GoalsCard goals={goals} measurements={measurements} unit={profile.unit} />
 
       <Card>
         <div className="flex items-start justify-between gap-3">

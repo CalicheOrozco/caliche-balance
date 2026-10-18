@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { FiRefreshCw } from "react-icons/fi";
 import type { ZeppStatusDto } from "../../shared/schemas.ts";
-import { api, errorKey } from "../api.ts";
+import { api } from "../api.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
 import { Button, Card, CopyButton, Field, PasswordField, useFormat } from "../ui.tsx";
 
@@ -41,11 +41,11 @@ function useRefreshAll() {
 }
 
 function ErrorText({ error }: { error: unknown }) {
-  const { t } = useI18n();
+  const { te } = useI18n();
   if (!error) return null;
   return (
     <p role="alert" className="rounded-2xl bg-bad/15 px-4 py-3 text-sm text-bad">
-      {t(errorKey(error) as MessageKey)}
+      {te(error)}
     </p>
   );
 }

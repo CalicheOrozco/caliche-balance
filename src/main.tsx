@@ -32,7 +32,8 @@ createRoot(document.getElementById("root")!).render(
         dehydrateOptions: {
           // Keep whatever data a query has even if its last refresh failed (offline, server down);
           // saving only successful queries would overwrite the stored copy with nothing.
-          shouldDehydrateQuery: (query) => query.state.data !== undefined && PERSISTED_QUERIES.has(String(query.queryKey[0])),
+          // "Signed out" (null) is never saved, so a stale copy cannot hide a valid session.
+          shouldDehydrateQuery: (query) => query.state.data != null && PERSISTED_QUERIES.has(String(query.queryKey[0])),
         },
       }}
     >

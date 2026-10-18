@@ -1,14 +1,14 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { api, errorKey } from "../api.ts";
-import { type MessageKey, useI18n } from "../i18n.tsx";
+import { api } from "../api.ts";
+import { useI18n } from "../i18n.tsx";
 import { Controls } from "../Controls.tsx";
 import { Button, Card, CopyButton, Field, Logo, PasswordField } from "../ui.tsx";
 
 type Mode = "login" | "register" | "recover";
 
 export function AuthPage() {
-  const { t } = useI18n();
+  const { t, te } = useI18n();
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<Mode>("login");
   const [username, setUsername] = useState("");
@@ -33,7 +33,7 @@ export function AuthPage() {
         setNewCode({ code: result.recoveryCode, finish: () => queryClient.setQueryData(["me"], result.user) });
       }
     } catch (e) {
-      setError(t(errorKey(e) as MessageKey));
+      setError(te(e));
     } finally {
       setBusy(false);
     }

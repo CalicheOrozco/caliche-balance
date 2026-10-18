@@ -1,17 +1,20 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
+import { useLocation } from "react-router";
+import { ageAt, bodyFatBands, healthyWeightRange } from "../../shared/reference.ts";
+import { fromKilograms } from "../../shared/schemas.ts";
 import type { UserDto } from "../../shared/schemas.ts";
-import { api, errorKey } from "../api.ts";
+import { api } from "../api.ts";
 import { clearOfflineData } from "../offline.ts";
-import { type MessageKey, useI18n } from "../i18n.tsx";
+import { useI18n } from "../i18n.tsx";
 import { DatePicker } from "../DatePicker.tsx";
 import { ZeppCard } from "./Zepp.tsx";
-import { Button, Card, Field, Segmented } from "../ui.tsx";
+import { Button, Card, Field, Segmented, useFormat } from "../ui.tsx";
 
 /** Profile form; also the first screen after registering, when the profile is still empty. */
 export function ProfileForm({ user, onSaved }: { user: UserDto; onSaved?: () => void }) {
   // Language is not part of this form: the switch at the top of every screen owns it.
-  const { t, lang } = useI18n();
+  const { t, te, lang } = useI18n();
   const queryClient = useQueryClient();
   const p = user.profile;
   const [displayName, setDisplayName] = useState(p?.displayName ?? "");
@@ -36,7 +39,7 @@ export function ProfileForm({ user, onSaved }: { user: UserDto; onSaved?: () => 
       setStatus(t("saved"));
       onSaved?.();
     },
-    onError: (e) => setStatus(t(errorKey(e) as MessageKey)),
+    onError: (e) => setStatus(te(e)),
   });
 
   return (
@@ -90,7 +93,96 @@ export function ProfileForm({ user, onSaved }: { user: UserDto; onSaved?: () => 
   );
 }
 
+/** Weight and body fat goals; each one optional. */
+function GoalsForm({ user }: { user: UserDto }) {
+  const { t, tf, te } = useI18n();
+  const f = useFormat();
+  const queryClient = useQueryClient();
+  const profile = user.profile!;
+  const unit = profile.unit;
+  const toInput = (n: number | undefined | null) => (n === undefined || n === null ? "" : String(Math.round(n * 10) / 10));
+  const [weight, setWeight] = useState(toInput(user.goals.weight && fromKilograms(user.goals.weight.targetKg, unit)));
+  const [bodyFat, setBodyFat] = useState(toInput(user.goals.bodyFat?.targetPct));
+  const [status, setStatus] = useState<string | null>(null);
+
+  const healthy = healthyWeightRange(profile.heightCm);
+  const age = ageAt(new Date(`${profile.birthDate}T00:00:00Z`), new Date());
+  const fatHealthy = bodyFatBands(profile.sex, age).find((b) => b.key === "healthy")!;
+
+  const save = useMutation({
+    mutationFn: (next: { weight: string; bodyFat: string }) =>
+      api.saveGoals({
+        weight: next.weight.trim() ? { value: next.weight, unit } : null,
+        bodyFatPct: next.bodyFat.trim() ? next.bodyFat : null,
+      }),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(["me"], saved);
+      setStatus(t("saved"));
+    },
+    onError: (e) => setStatus(te(e)),
+  });
+  const submit = (next = { weight, bodyFat }) => {
+    setStatus(null);
+    save.mutate(next);
+  };
+
+  return (
+    <form
+      onSubmit={(e: FormEvent) => {
+        e.preventDefault();
+        submit();
+      }}
+      className="space-y-4"
+    >
+      <p className="text-sm text-ink-2">{t("goalsIntro")}</p>
+      <div>
+        <Field
+          label={tf("goalWeight", { unit })}
+          inputMode="decimal"
+          value={weight}
+          onChange={(e) => setWeight(e.target.value)}
+          help={tf("goalWeightHint", { min: f.weight(healthy.min, unit), max: f.weight(healthy.max, unit) })}
+        />
+        {user.goals.weight && (
+          <Button type="button" variant="dangerText" onClick={() => {
+              setWeight("");
+              submit({ weight: "", bodyFat });
+            }}>
+            {t("removeGoal")}
+          </Button>
+        )}
+      </div>
+      <div>
+        <Field
+          label={t("goalBodyFat")}
+          inputMode="decimal"
+          value={bodyFat}
+          onChange={(e) => setBodyFat(e.target.value)}
+          help={tf("goalFatHint", { min: fatHealthy.min!, max: fatHealthy.max! })}
+        />
+        {user.goals.bodyFat && (
+          <Button type="button" variant="dangerText" onClick={() => {
+              setBodyFat("");
+              submit({ weight, bodyFat: "" });
+            }}>
+            {t("removeGoal")}
+          </Button>
+        )}
+      </div>
+      {status && <p className="text-sm text-ink-2">{status}</p>}
+      <Button type="submit" disabled={save.isPending} className="w-full">
+        {t("save")}
+      </Button>
+    </form>
+  );
+}
+
 export function SettingsPage({ user }: { user: UserDto }) {
+  const location = useLocation();
+  // Home links to /ajustes#metas; scroll to the goals card once it is on screen.
+  useEffect(() => {
+    if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: "start" });
+  }, [location.hash]);
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const signOut = async (action: () => Promise<void>) => {
@@ -109,6 +201,12 @@ export function SettingsPage({ user }: { user: UserDto }) {
         <h2 className="mb-4 text-lg font-semibold">{t("profileTitle")}</h2>
         <ProfileForm user={user} />
       </Card>
+      <div id="metas" className="scroll-mt-4">
+        <Card>
+          <h2 className="mb-2 text-lg font-semibold">{t("goalsTitle")}</h2>
+          <GoalsForm user={user} />
+        </Card>
+      </div>
       <ZeppCard />
       <Card>
         <h2 className="text-lg font-semibold">{t("account")}</h2>

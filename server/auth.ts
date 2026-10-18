@@ -32,13 +32,6 @@ export function hashSecret(secret: string): string {
 export const hashPassword = (password: string) => hash(password);
 export const verifyPassword = (passwordHash: string, password: string) => verify(passwordHash, password);
 
-/** Verifying against a fixed hash keeps login time the same whether or not the user exists. */
-let dummyHash: Promise<string> | undefined;
-export function verifyAgainstDummy(password: string): Promise<boolean> {
-  dummyHash ??= hash(newSecret());
-  return dummyHash.then((h) => verify(h, password));
-}
-
 export async function startSession(c: Collections, res: Response, userId: ObjectId, secure: boolean): Promise<void> {
   const token = newSecret();
   const now = new Date();

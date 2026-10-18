@@ -1,4 +1,5 @@
 import { createContext, type ReactNode, useContext, useMemo, useState } from "react";
+import { describeError } from "./api.ts";
 
 export type Language = "es" | "en";
 
@@ -28,10 +29,12 @@ const es = {
   copy: "Copiar",
   copied: "¡Copiado!",
   // Errors
-  "error.invalid-credentials": "Usuario o contraseña incorrectos.",
-  "error.username-taken": "Ese nombre de usuario ya existe.",
-  "error.rate-limited": "Demasiados intentos. Espera unos minutos.",
-  "error.invalid-recovery-code": "El código de recuperación no es válido.",
+  "error.user-not-found": "No existe una cuenta con el usuario «{username}». Revisa cómo lo escribiste o crea una cuenta nueva.",
+  "error.wrong-password": "La contraseña no es correcta. Te quedan {n} intentos antes de que se bloquee por 15 minutos.",
+  "error.username-taken": "Ese nombre de usuario ya existe. Elige otro o inicia sesión.",
+  "error.rate-limited": "Demasiados intentos. Vuelve a intentar en {minutes} min.",
+  "error.invalid-recovery-code": "El código de recuperación no es correcto (te quedan {n} intentos). Usa el que guardaste al crear la cuenta.",
+  "error.server": "El servidor no respondió. Intenta de nuevo en un momento.",
   "error.username": "Usa de 3 a 32 caracteres: letras, números, punto, guion o guion bajo.",
   "error.password-length": "La contraseña debe tener al menos 8 caracteres.",
   "error.invalid": "Revisa los datos.",
@@ -197,6 +200,25 @@ const es = {
   impedance: "Impedancia",
   metric: "Medida",
   compositionFrom: "Composición de tu pesada del {date}",
+  // Goals
+  goalsTitle: "Metas",
+  goalsIntro: "Opcionales. Tu avance se mide desde tu pesada más reciente al momento de guardar la meta.",
+  goalWeight: "Meta de peso ({unit})",
+  goalBodyFat: "Meta de grasa corporal (%)",
+  goalWeightHint: "Rango saludable para tu estatura: {min} a {max}.",
+  goalFatHint: "Rango saludable para tu sexo y edad: {min} % a {max} %.",
+  removeGoal: "Quitar meta",
+  goalNone: "Ponte una meta de peso o de grasa corporal para ver aquí tu avance.",
+  setGoal: "Poner una meta",
+  editGoals: "Editar",
+  goalOf: "Meta: {target}",
+  goalRemaining: "Te faltan {value}",
+  goalReached: "¡Meta cumplida!",
+  goalFrom: "Empezaste en {start} el {date}",
+  goalEtaWeeks: "A tu ritmo de las últimas 4 semanas, la alcanzarías en unas {n} semanas.",
+  goalEtaWrongWay: "En las últimas 4 semanas vas en sentido contrario a tu meta.",
+  goalEtaUnknown: "Todavía no hay suficientes pesadas en las últimas 4 semanas para estimar cuándo llegarás.",
+  goalLine: "Línea punteada: tu meta",
   madeBy: "Hecho con 💚 por Caliche",
 };
 
@@ -227,10 +249,12 @@ const en: Messages = {
   recoverySaved: "I saved it",
   copy: "Copy",
   copied: "Copied!",
-  "error.invalid-credentials": "Wrong username or password.",
-  "error.username-taken": "That username is already taken.",
-  "error.rate-limited": "Too many attempts. Wait a few minutes.",
-  "error.invalid-recovery-code": "That recovery code is not valid.",
+  "error.user-not-found": "There is no account with the username “{username}”. Check the spelling or create a new account.",
+  "error.wrong-password": "The password is not correct. You have {n} attempts left before a 15-minute lock.",
+  "error.username-taken": "That username is already taken. Pick another or sign in.",
+  "error.rate-limited": "Too many attempts. Try again in {minutes} min.",
+  "error.invalid-recovery-code": "The recovery code is not correct ({n} attempts left). Use the one you saved when you created the account.",
+  "error.server": "The server did not respond. Try again in a moment.",
   "error.username": "Use 3 to 32 characters: letters, numbers, dot, dash or underscore.",
   "error.password-length": "The password needs at least 8 characters.",
   "error.invalid": "Please check the values.",
@@ -388,6 +412,24 @@ const en: Messages = {
   impedance: "Impedance",
   metric: "Measure",
   compositionFrom: "Body composition from your {date} weigh-in",
+  goalsTitle: "Goals",
+  goalsIntro: "Optional. Progress is measured from your latest weigh-in when you save the goal.",
+  goalWeight: "Weight goal ({unit})",
+  goalBodyFat: "Body fat goal (%)",
+  goalWeightHint: "Healthy range for your height: {min} to {max}.",
+  goalFatHint: "Healthy range for your sex and age: {min} % to {max} %.",
+  removeGoal: "Remove goal",
+  goalNone: "Set a weight or body fat goal to see your progress here.",
+  setGoal: "Set a goal",
+  editGoals: "Edit",
+  goalOf: "Goal: {target}",
+  goalRemaining: "{value} to go",
+  goalReached: "Goal reached!",
+  goalFrom: "You started at {start} on {date}",
+  goalEtaWeeks: "At your pace over the last 4 weeks, you would get there in about {n} weeks.",
+  goalEtaWrongWay: "Over the last 4 weeks you are moving away from your goal.",
+  goalEtaUnknown: "Not enough weigh-ins in the last 4 weeks yet to estimate when you will get there.",
+  goalLine: "Dashed line: your goal",
   madeBy: "Made with 💚 by Caliche",
 };
 
@@ -397,11 +439,19 @@ interface I18n {
   lang: Language;
   setLang: (lang: Language) => void;
   t: (key: MessageKey) => string;
+  /** A message with {placeholders} filled in. */
+  tf: (key: MessageKey, vars: Record<string, string | number>) => string;
+  /** The translated message for any failure, with its details filled in. */
+  te: (error: unknown) => string;
   zeppSteps: string[];
   locale: string;
 }
 
 const I18nContext = createContext<I18n | null>(null);
+
+function fill(text: string, vars: Record<string, string | number>): string {
+  return text.replace(/\{(\w+)\}/g, (_, name: string) => String(vars[name] ?? ""));
+}
 
 function initialLanguage(): Language {
   try {
@@ -430,6 +480,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       },
       // Unknown keys (for example an unexpected API error code) fall back to a generic message.
       t: (key) => (m[key] as string | undefined) ?? m["error.generic"],
+      tf: (key, vars) => fill((m[key] as string | undefined) ?? "", vars),
+      te: (error) => {
+        const { key, vars } = describeError(error);
+        return fill((m[key as MessageKey] as string | undefined) ?? m["error.generic"], vars);
+      },
       zeppSteps: m.zeppSteps,
       locale: lang === "es" ? "es-MX" : "en-US",
     };

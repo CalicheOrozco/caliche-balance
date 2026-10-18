@@ -5,7 +5,7 @@ import { z } from "zod";
 import { joinCodeSchema, type ZeppMemberDto, type ZeppStatusDto, zeppConnectSchema } from "../shared/schemas.ts";
 import { hashSecret, newRecoveryCode, normalizeRecoveryCode } from "./auth.ts";
 import type { Collections, ZeppConnectionDoc } from "./db.ts";
-import { asyncRoute, hitRateLimit, toMeasurementDto } from "./http.ts";
+import { asyncRoute, hitRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
 import { type ZeppClient, ZeppError, encryptToken } from "./zepp.ts";
 import { syncConnection } from "./zeppSync.ts";
 
@@ -108,9 +108,8 @@ export function zeppRoutes({ collections, withUser, zepp, cronSecret }: Context)
     asyncRoute(async (req, res) => {
       const c = collections();
       const { appToken, zeppUserId } = zeppConnectSchema.parse(req.body);
-      if (await hitRateLimit(c, `zepp-connect:${req.user!._id.toHexString()}`, 10, 60 * 60 * 1000)) {
-        return res.status(429).json({ error: "rate-limited" });
-      }
+      const limit = await hitRateLimit(c, `zepp-connect:${req.user!._id.toHexString()}`, 10, 60 * 60 * 1000);
+      if (limit.limited) return sendRateLimited(res, limit);
       if (await c.zeppMembers.findOne({ linkedUserId: req.user!._id, memberId: { $ne: "-1" } })) {
         return res.status(409).json({ error: "already-member" });
       }
@@ -210,9 +209,8 @@ export function zeppRoutes({ collections, withUser, zepp, cronSecret }: Context)
     withUser(),
     asyncRoute(async (req, res) => {
       const c = collections();
-      if (await hitRateLimit(c, `zepp-join:${req.user!._id.toHexString()}`, 10, 60 * 60 * 1000)) {
-        return res.status(429).json({ error: "rate-limited" });
-      }
+      const limit = await hitRateLimit(c, `zepp-join:${req.user!._id.toHexString()}`, 10, 60 * 60 * 1000);
+      if (limit.limited) return sendRateLimited(res, limit);
       const { code } = joinCodeSchema.parse(req.body);
       if (await connectionFor(c, req.user!._id)) return res.status(409).json({ error: "already-member" });
       const member = await c.zeppMembers.findOneAndUpdate(

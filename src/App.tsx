@@ -95,12 +95,12 @@ function SignedIn({ user }: { user: UserDto }) {
         <p className="py-10 text-center text-muted">…</p>
       ) : (
         <Routes>
-          <Route path="/" element={<HomePage profile={profile} measurements={list} username={user.username} />} />
+          <Route path="/" element={<HomePage profile={profile} measurements={list} username={user.username} goals={user.goals} />} />
           <Route
             path="/historial"
             element={
               <Suspense fallback={<p className="py-10 text-center text-muted">…</p>}>
-                <HistoryPage profile={profile} measurements={list} />
+                <HistoryPage profile={profile} measurements={list} goals={user.goals} />
               </Suspense>
             }
           />

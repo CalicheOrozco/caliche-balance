@@ -4,6 +4,7 @@ import { ObjectId } from "mongodb";
 import { z } from "zod";
 import {
   credentialsSchema,
+  goalsInputSchema,
   measurementInputSchema,
   profileSchema,
   toKilograms,
@@ -18,11 +19,10 @@ import {
   normalizeRecoveryCode,
   requireUser,
   startSession,
-  verifyAgainstDummy,
   verifyPassword,
 } from "./auth.ts";
 import type { Collections, UserDoc } from "./db.ts";
-import { asyncRoute, clientIp, hitRateLimit, toMeasurementDto } from "./http.ts";
+import { asyncRoute, clientIp, hitRateLimit, peekRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
 import { type ZeppClient, zeppClient } from "./zepp.ts";
 import { deleteZeppDataFor, zeppRoutes } from "./zeppRoutes.ts";
 
@@ -38,9 +38,19 @@ export interface AppOptions {
 }
 
 const MAX_MEASUREMENTS_PAGE = 1000;
+const LOGIN_ATTEMPTS = 10;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 
 function toUserDto(user: UserDoc): UserDto {
-  return { username: user.username, profile: user.profile };
+  const g = user.goals;
+  return {
+    username: user.username,
+    profile: user.profile,
+    goals: {
+      weight: g?.weight ? { ...g.weight, setAt: g.weight.setAt.toISOString() } : null,
+      bodyFat: g?.bodyFat ? { ...g.bodyFat, setAt: g.bodyFat.setAt.toISOString() } : null,
+    },
+  };
 }
 
 export function createApp({ getCollections, secureCookies, zepp = zeppClient, cronSecret }: AppOptions) {
@@ -69,9 +79,8 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
   router.post(
     "/auth/register",
     asyncRoute(async (req, res) => {
-      if (await hitRateLimit(collections, `register:${clientIp(req)}`, 10, 60 * 60 * 1000)) {
-        return res.status(429).json({ error: "rate-limited" });
-      }
+      const limit = await hitRateLimit(collections, `register:${clientIp(req)}`, 10, 60 * 60 * 1000);
+      if (limit.limited) return sendRateLimited(res, limit);
       const { username, password } = credentialsSchema.parse(req.body);
       const recoveryCode = newRecoveryCode();
       const user: UserDoc = {
@@ -96,13 +105,23 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
   router.post(
     "/auth/login",
     asyncRoute(async (req, res) => {
-      const { username, password } = credentialsSchema.parse(req.body);
-      if (await hitRateLimit(collections, `login:${clientIp(req)}:${username}`, 10, 15 * 60 * 1000)) {
-        return res.status(429).json({ error: "rate-limited" });
-      }
+      // Any password length is accepted here: the 8-character rule is for new passwords.
+      const { username, password } = z.object({ username: usernameSchema, password: z.string().min(1).max(200) }).parse(req.body);
+      // Only failed attempts count toward the lock, so a correct password always gets in until then.
+      const key = `login:${clientIp(req)}:${username}`;
+      const current = await peekRateLimit(collections, key, LOGIN_ATTEMPTS);
+      if (current?.limited) return sendRateLimited(res, current);
+      // Registration already reveals whether a username exists, so saying which part failed costs nothing.
       const user = await collections.users.findOne({ username });
-      const valid = user ? await verifyPassword(user.passwordHash, password) : await verifyAgainstDummy(password);
-      if (!user || !valid) return res.status(401).json({ error: "invalid-credentials" });
+      if (!user) {
+        const limit = await hitRateLimit(collections, key, LOGIN_ATTEMPTS, LOGIN_WINDOW_MS);
+        return res.status(404).json({ error: "user-not-found", username, attemptsLeft: limit.remaining });
+      }
+      if (!(await verifyPassword(user.passwordHash, password))) {
+        const limit = await hitRateLimit(collections, key, LOGIN_ATTEMPTS, LOGIN_WINDOW_MS);
+        if (limit.limited) return sendRateLimited(res, limit);
+        return res.status(401).json({ error: "wrong-password", attemptsLeft: limit.remaining });
+      }
       await startSession(collections, res, user._id, secureCookies);
       res.json({ user: toUserDto(user) });
     }),
@@ -114,12 +133,12 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
       const body = z
         .object({ username: usernameSchema, recoveryCode: z.string().min(1).max(64), newPassword: credentialsSchema.shape.password })
         .parse(req.body);
-      if (await hitRateLimit(collections, `recover:${clientIp(req)}:${body.username}`, 5, 60 * 60 * 1000)) {
-        return res.status(429).json({ error: "rate-limited" });
-      }
+      const limit = await hitRateLimit(collections, `recover:${clientIp(req)}:${body.username}`, 5, 60 * 60 * 1000);
+      if (limit.limited) return sendRateLimited(res, limit);
       const user = await collections.users.findOne({ username: body.username });
-      if (!user || user.recoveryHash !== hashSecret(normalizeRecoveryCode(body.recoveryCode))) {
-        return res.status(401).json({ error: "invalid-recovery-code" });
+      if (!user) return res.status(404).json({ error: "user-not-found", username: body.username });
+      if (user.recoveryHash !== hashSecret(normalizeRecoveryCode(body.recoveryCode))) {
+        return res.status(401).json({ error: "invalid-recovery-code", attemptsLeft: limit.remaining });
       }
       // The code is single use: issue a new one and sign out every other device.
       const recoveryCode = newRecoveryCode();
@@ -153,6 +172,36 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
       const profile = { ...input, displayName: input.displayName || null };
       await collections.users.updateOne({ _id: req.user!._id }, { $set: { profile } });
       res.json(toUserDto({ ...req.user!, profile }));
+    }),
+  );
+
+  router.put(
+    "/me/goals",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const input = goalsInputSchema.parse(req.body);
+      const user = req.user!;
+      const previous = user.goals;
+      // The starting point is the latest reading when the goal is set; an unchanged target keeps it.
+      const latest = await collections.measurements.findOne({ userId: user._id }, { sort: { measuredAt: -1 } });
+      const latestFat = await collections.measurements.findOne({ userId: user._id, bodyFatPct: { $ne: null } }, { sort: { measuredAt: -1 } });
+      const targetKg = input.weight ? Math.round(toKilograms(input.weight.value, input.weight.unit) * 100) / 100 : null;
+      const goals: NonNullable<UserDoc["goals"]> = {
+        weight:
+          targetKg === null
+            ? null
+            : previous?.weight && Math.abs(previous.weight.targetKg - targetKg) < 0.01
+              ? previous.weight
+              : { targetKg, startKg: latest?.weightKg ?? null, setAt: new Date() },
+        bodyFat:
+          input.bodyFatPct === null
+            ? null
+            : previous?.bodyFat && previous.bodyFat.targetPct === input.bodyFatPct
+              ? previous.bodyFat
+              : { targetPct: input.bodyFatPct, startPct: latestFat?.bodyFatPct ?? null, setAt: new Date() },
+      };
+      await collections.users.updateOne({ _id: user._id }, { $set: { goals } });
+      res.json(toUserDto({ ...user, goals }));
     }),
   );
 

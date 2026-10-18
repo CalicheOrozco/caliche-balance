@@ -1,11 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import type { MeasurementDto, MeasurementInput, ProfileInput, UserDto, ZeppStatusDto } from "../shared/schemas.ts";
+import type { GoalsInput, MeasurementDto, MeasurementInput, ProfileInput, UserDto, ZeppStatusDto } from "../shared/schemas.ts";
 
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
     readonly fields: { path: string; code: string }[] = [],
+    /** Extra facts the server sends with an error, like attempts left. */
+    readonly details: Record<string, unknown> = {},
   ) {
     super(code);
   }
@@ -20,7 +22,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   });
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error ?? "generic", data.fields);
+  if (!res.ok) throw new ApiError(res.status, data.error ?? "generic", data.fields, data);
   return data as T;
 }
 
@@ -33,6 +35,7 @@ export const api = {
     call<{ user: UserDto; recoveryCode: string }>("POST", "/auth/recover", { username, recoveryCode, newPassword }),
   logout: () => call<void>("POST", "/auth/logout"),
   saveProfile: (profile: ProfileInput) => call<UserDto>("PUT", "/me/profile", profile),
+  saveGoals: (goals: GoalsInput) => call<UserDto>("PUT", "/me/goals", goals),
   deleteAccount: () => call<void>("DELETE", "/me"),
   measurements: () => call<MeasurementDto[]>("GET", "/measurements?limit=1000"),
   addMeasurement: (input: MeasurementInput) => call<MeasurementDto>("POST", "/measurements", input),
@@ -60,7 +63,9 @@ export function useMe() {
         if (error instanceof ApiError && error.status === 401) return null;
         throw error;
       }),
-    staleTime: Infinity,
+    // Re-checked every time the app opens: a session can expire or start elsewhere.
+    // Offline, the saved copy stays on screen.
+    refetchOnMount: "always",
   });
 }
 
@@ -68,13 +73,22 @@ export function useMeasurements() {
   return useQuery({ queryKey: ["measurements"], queryFn: api.measurements });
 }
 
-/** Turns an API error into a message key the UI can translate. */
-export function errorKey(error: unknown): string {
+export interface ErrorDescription {
+  key: string;
+  vars: Record<string, string | number>;
+}
+
+/** Turns any failure into a message key plus the values the message mentions. */
+export function describeError(error: unknown): ErrorDescription {
   // fetch rejects with a TypeError when there is no network at all.
-  if (error instanceof TypeError || !navigator.onLine) return "error.offline";
-  if (error instanceof ApiError) {
-    if (error.code === "invalid" && error.fields[0]) return `error.${error.fields[0].code}`;
-    return `error.${error.code}`;
-  }
-  return "error.generic";
+  if (error instanceof TypeError || !navigator.onLine) return { key: "error.offline", vars: {} };
+  if (!(error instanceof ApiError)) return { key: "error.generic", vars: {} };
+  if (error.status >= 500) return { key: "error.server", vars: {} };
+  if (error.code === "invalid" && error.fields[0]) return { key: `error.${error.fields[0].code}`, vars: {} };
+  const d = error.details;
+  const vars: Record<string, string | number> = {};
+  if (typeof d.attemptsLeft === "number") vars.n = d.attemptsLeft;
+  if (typeof d.username === "string") vars.username = d.username;
+  if (typeof d.retryAfterSeconds === "number") vars.minutes = Math.ceil(d.retryAfterSeconds / 60);
+  return { key: `error.${error.code}`, vars };
 }

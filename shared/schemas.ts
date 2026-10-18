@@ -74,10 +74,36 @@ export interface ProfileDto {
   unit: "kg" | "lb";
 }
 
+export interface WeightGoal {
+  targetKg: number;
+  /** Weight when the goal was set; null if there were no readings yet. */
+  startKg: number | null;
+  setAt: string;
+}
+
+export interface BodyFatGoal {
+  targetPct: number;
+  startPct: number | null;
+  setAt: string;
+}
+
+export interface GoalsDto {
+  weight: WeightGoal | null;
+  bodyFat: BodyFatGoal | null;
+}
+
 export interface UserDto {
   username: string;
   profile: ProfileDto | null;
+  goals: GoalsDto;
 }
+
+/** Each goal is optional; null removes it. Weight comes in the person's unit. */
+export const goalsInputSchema = z.object({
+  weight: z.object({ value: numeric(z.number().min(30).max(660)), unit: unitSchema }).nullable(),
+  bodyFatPct: numeric(z.number().min(3).max(60)).nullable(),
+});
+export type GoalsInput = z.input<typeof goalsInputSchema>;
 
 export interface MeasurementDto {
   id: string;

@@ -1,5 +1,5 @@
 import { type Collection, type Db, MongoClient, type ObjectId } from "mongodb";
-import type { ProfileDto } from "../shared/schemas.ts";
+import type { BodyFatGoal, ProfileDto, WeightGoal } from "../shared/schemas.ts";
 
 export interface UserDoc {
   _id: ObjectId;
@@ -7,6 +7,10 @@ export interface UserDoc {
   passwordHash: string;
   recoveryHash: string;
   profile: (Omit<ProfileDto, "displayName"> & { displayName: string | null }) | null;
+  goals?: {
+    weight: (Omit<WeightGoal, "setAt"> & { setAt: Date }) | null;
+    bodyFat: (Omit<BodyFatGoal, "setAt"> & { setAt: Date }) | null;
+  };
   createdAt: Date;
 }
 

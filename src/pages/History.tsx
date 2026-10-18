@@ -1,9 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { FiTrash2, FiUserX } from "react-icons/fi";
-import { CartesianGrid, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ageAt, bodyFatBands, healthyWeightRange } from "../../shared/reference.ts";
-import { fromKilograms, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
+import { fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { api } from "../api.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
 import { Card, Segmented, Select, useFormat } from "../ui.tsx";
@@ -21,19 +21,21 @@ function TrendChart({
   title,
   points,
   band,
+  goal = null,
   formatTick,
   formatValue,
 }: {
   title: string;
   points: Point[];
   band: { min: number; max: number } | null;
+  goal?: number | null;
   formatTick: (n: number) => string;
   formatValue: (n: number) => string;
 }) {
   const { t, locale } = useI18n();
   const values = points.map((p) => p.value);
-  const lo = Math.min(...values, ...(band ? [band.min] : []));
-  const hi = Math.max(...values, ...(band ? [band.max] : []));
+  const lo = Math.min(...values, ...(band ? [band.min] : []), ...(goal === null ? [] : [goal]));
+  const hi = Math.max(...values, ...(band ? [band.max] : []), ...(goal === null ? [] : [goal]));
   const pad = Math.max((hi - lo) * 0.1, 1);
   // Long histories need the year on the axis, or "8 jul" from two different years look the same.
   const times = points.map((p) => p.t);
@@ -54,6 +56,7 @@ function TrendChart({
               <LineChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
                 <CartesianGrid stroke="var(--line)" strokeDasharray="0" vertical={false} />
                 {band && <ReferenceArea y1={band.min} y2={band.max} fill="var(--band)" stroke="none" ifOverflow="hidden" />}
+                {goal !== null && <ReferenceLine y={goal} stroke="var(--ink-2)" strokeDasharray="6 4" strokeWidth={1.5} ifOverflow="extendDomain" />}
                 <XAxis
                   dataKey="t"
                   type="number"
@@ -96,14 +99,16 @@ function TrendChart({
               </LineChart>
             </ResponsiveContainer>
           </div>
-          {band && <p className="mt-2 text-xs text-muted">{t("healthyBand")}</p>}
+          {(band || goal !== null) && (
+            <p className="mt-2 text-xs text-muted">{[band && t("healthyBand"), goal !== null && t("goalLine")].filter(Boolean).join(" · ")}</p>
+          )}
         </>
       )}
     </Card>
   );
 }
 
-export function HistoryPage({ profile, measurements }: { profile: ProfileDto; measurements: MeasurementDto[] }) {
+export function HistoryPage({ profile, measurements, goals }: { profile: ProfileDto; measurements: MeasurementDto[]; goals: GoalsDto }) {
   const { t } = useI18n();
   const f = useFormat();
   const queryClient = useQueryClient();
@@ -150,6 +155,7 @@ export function HistoryPage({ profile, measurements }: { profile: ProfileDto; me
         title={`${t("weight")} (${profile.unit})`}
         points={weights}
         band={{ min: fromKilograms(healthy.min, profile.unit), max: fromKilograms(healthy.max, profile.unit) }}
+        goal={goals.weight ? fromKilograms(goals.weight.targetKg, profile.unit) : null}
         formatTick={(n) => f.number(n, 0)}
         formatValue={(n) => f.number(n)}
       />
@@ -166,6 +172,7 @@ export function HistoryPage({ profile, measurements }: { profile: ProfileDto; me
         title={selected.unit ? `${selected.label} (${selected.unit})` : selected.label}
         points={metricPoints}
         band={selected.band}
+        goal={metric === "bodyFat" ? (goals.bodyFat?.targetPct ?? null) : null}
         formatTick={(n) => f.number(n, 0)}
         formatValue={(n) => f.number(n)}
       />
