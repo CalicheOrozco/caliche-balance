@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { createApp } from "./app.ts";
 import { connect } from "./db.ts";
+import { webPushSender } from "./push.ts";
 
 /**
  * Local API on port 3001. Uses MONGODB_URI when set (for example your Atlas cluster);
@@ -19,5 +20,5 @@ if (!uri) {
   process.once("SIGTERM", stop);
 }
 
-const app = createApp({ getCollections: () => connect(uri), secureCookies: false });
+const app = createApp({ getCollections: () => connect(uri), secureCookies: false, push: webPushSender() });
 app.listen(3001, () => console.log("API lista en http://localhost:3001/api"));

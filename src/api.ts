@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { GoalsInput, MeasurementDto, MeasurementInput, ProfileInput, UserDto, ZeppStatusDto } from "../shared/schemas.ts";
+import type { GoalsInput, MeasurementDto, NotificationPrefs, MeasurementInput, ProfileInput, UserDto, ZeppStatusDto } from "../shared/schemas.ts";
 
 export class ApiError extends Error {
   constructor(
@@ -36,6 +36,11 @@ export const api = {
   logout: () => call<void>("POST", "/auth/logout"),
   saveProfile: (profile: ProfileInput) => call<UserDto>("PUT", "/me/profile", profile),
   saveGoals: (goals: GoalsInput) => call<UserDto>("PUT", "/me/goals", goals),
+  saveNotifications: (prefs: NotificationPrefs) => call<UserDto>("PUT", "/me/notifications", prefs),
+  pushKey: () => call<{ publicKey: string }>("GET", "/push/key"),
+  pushSubscribe: (subscription: PushSubscriptionJSON) => call<void>("POST", "/push/subscribe", subscription),
+  pushUnsubscribe: (endpoint: string) => call<void>("DELETE", "/push/subscribe", { endpoint }),
+  pushTest: () => call<{ sent: number }>("POST", "/push/test"),
   deleteAccount: () => call<void>("DELETE", "/me"),
   measurements: () => call<MeasurementDto[]>("GET", "/measurements?limit=1000"),
   addMeasurement: (input: MeasurementInput) => call<MeasurementDto>("POST", "/measurements", input),

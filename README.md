@@ -16,6 +16,8 @@ Cada persona tiene su propia cuenta (nombre de usuario y contraseña) y sus dato
 - **Agregar a mano:** como respaldo, acepta coma decimal ("74,5").
 - **Báscula Xiaomi vía Zepp Life:** trae todas tus pesadas con todos sus valores (grasa, músculo, agua, masa ósea, grasa visceral, proteína, metabolismo basal, edad corporal, puntuación, peso ideal e impedancia) y se sincroniza sola.
 - **Una báscula para toda la casa:** cada persona tiene su cuenta y recibe solo sus pesadas, con invitaciones y reasignación de pesadas.
+- **Composición recalculada con ecuaciones de Norteamérica:** con la impedancia que mide la báscula se recalculan el % de grasa, la masa libre de grasa, el agua corporal, el músculo esquelético y el metabolismo basal, en lugar de usar las fórmulas de Xiaomi.
+- **Notificaciones:** "Nueva pesada: 96.0 kg (−0.4 kg)" y "Tu token de Zepp caducó", en el iPhone con la app instalada (iOS 16.4+).
 - **Metas de peso y de % de grasa:** barra de avance, cuánto te falta, una estimación de cuándo llegarías según tu ritmo de las últimas 4 semanas, y una línea punteada en las gráficas.
 - **PWA completa:** se instala en la pantalla de inicio, abre al instante y funciona sin internet con tus pesadas de los últimos 3 meses.
 - **Español e inglés**, kg o lb, modo oscuro y claro.
@@ -32,7 +34,23 @@ Toda la lógica está en `shared/reference.ts`:
 | Categoría de condición física | American Council on Exercise (ACE). |
 | Metabolismo basal | Ecuación de Mifflin-St Jeor (1990). |
 
-Músculo, agua, masa ósea y grasa visceral los calcula Zepp Life con su propia referencia. La app los muestra tal cual, porque recalibrarlos necesitaría los datos crudos de impedancia de la báscula.
+### Composición recalculada (Norteamérica)
+
+La báscula solo mide peso e **impedancia**; todo lo demás lo calcula Zepp Life con fórmulas de Xiaomi. Caliche Balance recalcula la composición con la impedancia y ecuaciones hechas en población de EE. UU. (todo en `shared/composition.ts`):
+
+| Medida | Ecuación | Población |
+|---|---|---|
+| % de grasa, masa libre de grasa, masa grasa | Sun y col., Am J Clin Nutr 2003 (ecuaciones NHANES III) | 734 hombres y 1,095 mujeres de EE. UU. (blancos y afroamericanos), 12 a 94 años |
+| Agua corporal | Sun y col., 2003 | Igual |
+| Músculo esquelético | Janssen y col., J Appl Physiol 2000 | 388 adultos, 18 a 86 años, medidos con resonancia magnética |
+| Índice de músculo (kg/m²) y su clasificación | Janssen y col., Am J Epidemiol 2004 | NHANES III, 4,449 adultos de 60 años o más (por eso solo se clasifica desde los 60) |
+| Metabolismo basal por masa magra | Katch-McArdle: 370 + 21.6 × masa libre de grasa | |
+
+Los coeficientes de Sun se verificaron contra la tabla de ecuaciones de ESPEN (Kyle y col., Clin Nutr 2004).
+
+- **El % de grasa que usa toda la app** (clasificación, metas, gráficas) es el recalculado cuando la pesada tiene impedancia; si no la tiene (por ejemplo, una medición agregada a mano), se usa el valor de Xiaomi. Inicio dice cuál se usó y muestra el de Xiaomi como comparación.
+- **Limitaciones:** estas ecuaciones se hicieron con aparatos que miden de mano a pie a 50 kHz, y la báscula Xiaomi mide de pie a pie. Los resultados son estimaciones para seguir tendencias, no un diagnóstico. La muestra de Sun no incluyó población mexicana; no hay una ecuación equivalente validada para México y Canadá juntos.
+- Masa ósea, grasa visceral, proteína, edad corporal y puntuación no tienen ecuación de Norteamérica equivalente; se muestran como las calcula Xiaomi, marcadas "(Xiaomi)".
 
 No existe una tabla oficial única para todo el continente; estas son las referencias más usadas en la región. Caliche Balance es una herramienta personal, no un dispositivo médico.
 
@@ -94,6 +112,8 @@ Alternativa: en Vercel puedes agregar la integración de MongoDB Atlas desde el 
    - `MONGODB_URI`: la cadena de Atlas.
    - `MONGODB_DB` (opcional): `caliche-balance`.
    - `ZEPP_TOKEN_KEY`: llave para cifrar los tokens de Zepp. Genera una con `openssl rand -base64 32`. Usa la misma de tu `.env` si ya conectaste Zepp localmente contra la misma base; si la cambias, hay que volver a conectar Zepp.
+   - `VAPID_PUBLIC_KEY` y `VAPID_PRIVATE_KEY`: las llaves de notificaciones (las de tu `.env`, o genera unas nuevas con `npx web-push generate-vapid-keys`). Si las cambias, cada dispositivo tiene que volver a activar las notificaciones.
+   - `VAPID_SUBJECT`: la dirección `https://` de tu app en Vercel (Apple rechaza otros valores salvo `mailto:`).
    - `CRON_SECRET`: una cadena larga y aleatoria. Vercel la manda a la sincronización diaria con Zepp (`vercel.json` la programa a las 12:00 UTC).
 4. Dale **Deploy**.
 
@@ -104,6 +124,15 @@ Alternativa: en Vercel puedes agregar la integración de MongoDB Atlas desde el 
 1. Abre la dirección de Vercel en **Safari**.
 2. Toca **Compartir > Agregar a pantalla de inicio**.
 3. Queda con el ícono de Caliche Balance y se abre como app, sin barra de Safari.
+
+## Notificaciones
+
+- En **Ajustes > Notificaciones** se activan en cada dispositivo. En iPhone hace falta tener la app instalada en la pantalla de inicio (iOS 16.4+) y aceptar el permiso.
+- **Nueva pesada:** cuando la sincronización con Zepp trae una pesada de las últimas 48 horas, con la diferencia contra la anterior, en el idioma y la unidad de cada persona. La primera importación no notifica.
+- **Token de Zepp caducado:** se avisa una sola vez, a quien conectó Zepp.
+- Cada tipo se puede apagar, y hay un botón para enviar una notificación de prueba. Al cerrar sesión, el dispositivo deja de recibirlas.
+- Las notificaciones llegan cuando corre una sincronización: al abrir la app o con el cron diario de Vercel (una vez al día en el plan gratis). Para recibirlas más seguido sin abrir la app, un servicio externo (por ejemplo cron-job.org) puede llamar cada 15 minutos a `https://TU-APP.vercel.app/api/cron/zepp-sync` con el encabezado `Authorization: Bearer TU_CRON_SECRET`.
+- Requieren las variables `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` y `VAPID_SUBJECT` (ver Vercel abajo). Sin ellas, la app funciona igual pero sin notificaciones.
 
 ## Sin conexión (PWA)
 
@@ -162,7 +191,7 @@ Las pesadas no se duplican.
 
 | Carpeta | Qué contiene |
 |---|---|
-| `shared/` | Rangos de referencia (`reference.ts`), avance de metas (`goals.ts`) y validación de datos (`schemas.ts`), compartidos por la web y la API |
+| `shared/` | Rangos de referencia (`reference.ts`), composición recalculada (`composition.ts`), avance de metas (`goals.ts`) y validación de datos (`schemas.ts`), compartidos por la web y la API |
 | `server/` | API de Express, conexión a MongoDB y sesiones; `zepp.ts` (cliente de Zepp y cifrado), `zeppSync.ts` (importación) y `zeppRoutes.ts` (conexión, casa e invitaciones) |
 | `api/index.ts` | Punto de entrada de la API en Vercel |
 | `src/` | Web app de React (pantallas en `src/pages/`, textos en español e inglés en `src/i18n.tsx`, datos sin conexión en `src/offline.ts`) |

@@ -10,7 +10,15 @@ export type Sex = "male" | "female";
 /** good = within the healthy range, warn = one step outside it, bad = clearly outside it. */
 export type Status = "good" | "warn" | "bad";
 
-export type SourceId = "who-bmi" | "who-asian-bmi" | "gallagher-2000" | "ace" | "mifflin-st-jeor";
+export type SourceId =
+  | "who-bmi"
+  | "who-asian-bmi"
+  | "gallagher-2000"
+  | "ace"
+  | "mifflin-st-jeor"
+  | "sun-2003"
+  | "janssen"
+  | "katch-mcardle";
 
 export interface Band {
   key: string;

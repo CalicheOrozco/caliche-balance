@@ -7,6 +7,8 @@ export interface UserDoc {
   passwordHash: string;
   recoveryHash: string;
   profile: (Omit<ProfileDto, "displayName"> & { displayName: string | null }) | null;
+  /** Which notifications the person wants; missing means on. */
+  notifications?: { newWeighIn: boolean; zepp: boolean };
   goals?: {
     weight: (Omit<WeightGoal, "setAt"> & { setAt: Date }) | null;
     bodyFat: (Omit<BodyFatGoal, "setAt"> & { setAt: Date }) | null;
@@ -70,6 +72,15 @@ export interface ZeppMemberDoc {
   syncedUntil: number;
 }
 
+export interface PushSubscriptionDoc {
+  _id: ObjectId;
+  userId: ObjectId;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  createdAt: Date;
+}
+
 export interface RateLimitDoc {
   _id: string;
   count: number;
@@ -83,6 +94,7 @@ export interface Collections {
   rateLimits: Collection<RateLimitDoc>;
   zeppConnections: Collection<ZeppConnectionDoc>;
   zeppMembers: Collection<ZeppMemberDoc>;
+  pushSubscriptions: Collection<PushSubscriptionDoc>;
 }
 
 export function collections(db: Db): Collections {
@@ -93,6 +105,7 @@ export function collections(db: Db): Collections {
     rateLimits: db.collection("rateLimits"),
     zeppConnections: db.collection("zeppConnections"),
     zeppMembers: db.collection("zeppMembers"),
+    pushSubscriptions: db.collection("pushSubscriptions"),
   };
 }
 
@@ -112,6 +125,8 @@ export async function ensureIndexes(c: Collections): Promise<void> {
     // A person is linked to at most one Zepp member.
     c.zeppMembers.createIndex({ linkedUserId: 1 }, { unique: true, partialFilterExpression: { linkedUserId: { $type: "objectId" } } }),
     c.zeppMembers.createIndex({ inviteCodeHash: 1 }, { unique: true, partialFilterExpression: { inviteCodeHash: { $type: "string" } } }),
+    c.pushSubscriptions.createIndex({ endpoint: 1 }, { unique: true }),
+    c.pushSubscriptions.createIndex({ userId: 1 }),
   ]);
 }
 

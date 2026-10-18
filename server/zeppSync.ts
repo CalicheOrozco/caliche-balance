@@ -1,5 +1,6 @@
 import { type AnyBulkWriteOperation, MongoBulkWriteError, ObjectId } from "mongodb";
 import type { Collections, MeasurementDoc, ZeppConnectionDoc } from "./db.ts";
+import { messages, notifyUser, type PushSender } from "./push.ts";
 import { type ZeppClient, ZeppError, type ZeppRecord, decryptToken } from "./zepp.ts";
 
 export interface SyncResult {
@@ -36,7 +37,15 @@ export function zeppKey(zeppUserId: string, memberId: string, generatedTime: num
  * Imports new readings for every member of one household connection. Each reading is keyed by
  * Zepp's identity, so re-syncing updates values but never moves a reading someone reassigned.
  */
-export async function syncConnection(c: Collections, zepp: ZeppClient, connection: ZeppConnectionDoc): Promise<SyncResult> {
+/** Only readings this recent are announced; older ones arriving late are history, not news. */
+const ANNOUNCE_WITHIN_MS = 48 * 60 * 60 * 1000;
+
+export async function syncConnection(
+  c: Collections,
+  zepp: ZeppClient,
+  connection: ZeppConnectionDoc,
+  push?: PushSender,
+): Promise<SyncResult> {
   let imported = 0;
   try {
     const token = decryptToken(connection.tokenEncrypted);
@@ -92,13 +101,33 @@ export async function syncConnection(c: Collections, zepp: ZeppClient, connectio
           },
         };
       });
+      let insertedIndexes: number[] = [];
       try {
         const result = await c.measurements.bulkWrite(ops, { ordered: false });
         imported += result.upsertedCount;
+        insertedIndexes = Object.keys(result.upsertedIds).map(Number);
       } catch (error) {
         // A reading at the exact second of an existing one for the same person is skipped.
         if (!(error instanceof MongoBulkWriteError)) throw error;
         imported += error.result.upsertedCount;
+        insertedIndexes = Object.keys(error.result.upsertedIds).map(Number);
+      }
+
+      // Announce the newest new reading, except on the first import (that is history, not news).
+      const fresh = insertedIndexes
+        .map((i) => records[i]!)
+        .filter((r) => Date.now() - r.generatedTime * 1000 <= ANNOUNCE_WITHIN_MS)
+        .sort((a, b) => b.generatedTime - a.generatedTime)[0];
+      if (push && fresh && member.linkedUserId && member.syncedUntil > 0) {
+        const measuredAt = new Date(fresh.generatedTime * 1000);
+        const previous = await c.measurements.findOne(
+          { userId: member.linkedUserId, measuredAt: { $lt: measuredAt } },
+          { sort: { measuredAt: -1 } },
+        );
+        const weightKg = fresh.summary.weight;
+        await notifyUser(c, push, member.linkedUserId, "newWeighIn", (lang, unit) =>
+          messages.newWeighIn(lang, unit, weightKg, previous ? weightKg - previous.weightKg : null),
+        );
       }
 
       const newest = Math.max(...records.map((r) => r.generatedTime));
@@ -109,6 +138,10 @@ export async function syncConnection(c: Collections, zepp: ZeppClient, connectio
     return { imported, status: "ok" };
   } catch (error) {
     const status = error instanceof ZeppError && error.code === "invalid-token" ? "invalid-token" : "error";
+    // Tell the owner once, when the token stops working, not on every failed sync.
+    if (status === "invalid-token" && connection.status !== "invalid-token") {
+      await notifyUser(c, push, connection.ownerUserId, "zepp", messages.zeppExpired);
+    }
     await c.zeppConnections.updateOne(
       { _id: connection._id },
       { $set: { status, lastError: (error as Error).message.slice(0, 300), lastSyncAt: new Date() } },

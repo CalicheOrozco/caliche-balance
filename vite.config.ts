@@ -40,6 +40,8 @@ export default defineConfig({
         // the app persists only what it needs (see src/offline.ts).
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
+        // Shows push notifications and opens the app when one is tapped.
+        importScripts: ["/push-sw.js"],
       },
     }),
   ],

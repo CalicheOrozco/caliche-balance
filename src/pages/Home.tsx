@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { assess, type SourceId } from "../../shared/reference.ts";
+import { bodyFatOf, compositionOf } from "../../shared/composition.ts";
 import { dailyTrend, estimateEta, goalProgress } from "../../shared/goals.ts";
 import { fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
@@ -61,11 +62,16 @@ function GoalRow({
   );
 }
 
-function GoalsCard({ goals, measurements, unit }: { goals: GoalsDto; measurements: MeasurementDto[]; unit: "kg" | "lb" }) {
+function GoalsCard({ goals, measurements, profile }: { goals: GoalsDto; measurements: MeasurementDto[]; profile: ProfileDto }) {
   const { t } = useI18n();
   const f = useFormat();
+  const unit = profile.unit;
   const latest = measurements[0];
-  const latestFat = measurements.find((m) => m.bodyFatPct !== null);
+  // Body fat everywhere is the North American recalculation when the reading allows it.
+  const fats = measurements.flatMap((m) => {
+    const fat = bodyFatOf(profile, m);
+    return fat ? [{ time: new Date(m.measuredAt).getTime(), value: fat.value }] : [];
+  });
   const editLink = (
     <Link to="/ajustes#metas" className="text-sm font-medium text-brand">
       {t("editGoals")}
@@ -100,14 +106,14 @@ function GoalsCard({ goals, measurements, unit }: { goals: GoalsDto; measurement
           format={(n) => `${f.number(n)} ${unit}`}
         />
       )}
-      {goals.bodyFat && latestFat && (
+      {goals.bodyFat && fats[0] && (
         <GoalRow
           label={t("bodyFat")}
           start={goals.bodyFat.startPct}
-          current={latestFat.bodyFatPct!}
+          current={fats[0].value}
           target={goals.bodyFat.targetPct}
           setAt={goals.bodyFat.setAt}
-          points={measurements.flatMap((m) => (m.bodyFatPct === null ? [] : [{ time: new Date(m.measuredAt).getTime(), value: m.bodyFatPct }]))}
+          points={fats}
           format={(n) => `${f.number(n)} %`}
         />
       )}
@@ -154,13 +160,17 @@ export function HomePage({
   }
 
   // Weigh-ins without bare feet only have weight; body composition comes from the newest full one.
-  const comp = measurements.find((m) => m.bodyFatPct !== null) ?? null;
+  const comp = measurements.find((m) => m.bodyFatPct !== null || m.impedance !== null) ?? null;
+  // Recalculated from impedance with North American equations; Xiaomi's value only as a fallback.
+  const fat = comp ? bodyFatOf(profile, comp) : null;
+  const na = comp ? compositionOf(profile, comp) : null;
   const result = assess(
     { sex: profile.sex, birthDate: new Date(`${profile.birthDate}T00:00:00Z`), heightCm: profile.heightCm },
-    { measuredAt: new Date(latest.measuredAt), weightKg: latest.weightKg, bodyFatPct: comp?.bodyFatPct ?? null },
+    { measuredAt: new Date(latest.measuredAt), weightKg: latest.weightKg, bodyFatPct: fat?.value ?? null },
   );
   const sources: SourceId[] = ["who-bmi", "who-asian-bmi", "mifflin-st-jeor"];
   if (result.bodyFat) sources.splice(1, 0, "gallagher-2000", "ace");
+  if (na) sources.splice(1, 0, "sun-2003", "janssen", "katch-mcardle");
   const v = (n: number | null | undefined) => n !== null && n !== undefined;
   const xiaomi = comp
     ? [
@@ -203,7 +213,7 @@ export function HomePage({
         </p>
       </Card>
 
-      <GoalsCard goals={goals} measurements={measurements} unit={profile.unit} />
+      <GoalsCard goals={goals} measurements={measurements} profile={profile} />
 
       <Card>
         <div className="flex items-start justify-between gap-3">
@@ -230,10 +240,54 @@ export function HomePage({
             </div>
             <StatusBadge band={result.bodyFat.band} />
           </div>
+          <p className="mt-1 text-sm text-muted">{fat?.source === "north-america" ? t("fatSourceNA") : t("fatSourceXiaomi")}</p>
           <RangeBar classification={result.bodyFat} format={(n) => `${f.number(n, 0)}%`} />
           <p className="mt-4 flex flex-wrap items-center gap-2 text-sm text-ink-2">
             {t("aceCategory")} <StatusBadge band={result.bodyFatAce.band} />
           </p>
+          {fat?.source === "north-america" && comp?.bodyFatPct != null && (
+            <p className="mt-3 text-sm text-ink-2">
+              {t("xiaomiSays")} <strong className="text-ink">{f.number(comp.bodyFatPct)} %</strong>
+            </p>
+          )}
+        </Card>
+      )}
+
+      {na && (
+        <Card>
+          <h2 className="text-lg font-semibold">{t("naCompositionTitle")}</h2>
+          <p className="mt-1 text-sm text-ink-2">{t("naCompositionIntro")}</p>
+          <dl className="mt-3 grid grid-cols-2 gap-3">
+            {[
+              { label: t("fatFreeMass"), value: f.weight(na.fatFreeMassKg, profile.unit) },
+              { label: t("fatMass"), value: f.weight(na.fatMassKg, profile.unit) },
+              { label: t("bodyWater"), value: `${f.number(na.bodyWaterL)} L · ${f.number(na.bodyWaterPct, 0)} %` },
+              { label: t("skeletalMuscle"), value: f.weight(na.skeletalMuscleKg, profile.unit) },
+              { label: t("muscleIndex"), value: `${f.number(na.skeletalMuscleIndex)} kg/m²` },
+              { label: t("bmrKatch"), value: `${f.number(na.bmrKcal, 0)} kcal` },
+            ].map((x) => (
+              <div key={x.label} className="rounded-2xl bg-surface-2 p-3">
+                <dt className="text-sm text-ink-2">{x.label}</dt>
+                <dd className="text-xl font-semibold">{x.value}</dd>
+              </div>
+            ))}
+          </dl>
+          {na.muscleClass ? (
+            <p className="mt-3 flex flex-wrap items-center gap-2 text-sm text-ink-2">
+              {t("muscleIndex")}:{" "}
+              <StatusBadge
+                band={{
+                  key: na.muscleClass,
+                  min: null,
+                  max: null,
+                  status: na.muscleClass === "normal" ? "good" : na.muscleClass === "low" ? "bad" : "warn",
+                }}
+              />
+            </p>
+          ) : (
+            <p className="mt-3 text-sm text-muted">{t("muscleIndexNote")}</p>
+          )}
+          <p className="mt-2 text-sm text-muted">{t("naCompositionNote")}</p>
         </Card>
       )}
 

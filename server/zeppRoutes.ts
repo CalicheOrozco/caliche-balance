@@ -6,6 +6,7 @@ import { joinCodeSchema, type ZeppMemberDto, type ZeppStatusDto, zeppConnectSche
 import { hashSecret, newRecoveryCode, normalizeRecoveryCode } from "./auth.ts";
 import type { Collections, ZeppConnectionDoc } from "./db.ts";
 import { asyncRoute, hitRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
+import type { PushSender } from "./push.ts";
 import { type ZeppClient, ZeppError, encryptToken } from "./zepp.ts";
 import { syncConnection } from "./zeppSync.ts";
 
@@ -18,6 +19,7 @@ interface Context {
   withUser: () => RequestHandler;
   zepp: ZeppClient;
   cronSecret?: string;
+  push?: PushSender;
 }
 
 /** The connection a person owns, or the one whose member they are linked to. */
@@ -47,7 +49,7 @@ function secretMatches(given: string | undefined, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export function zeppRoutes({ collections, withUser, zepp, cronSecret }: Context) {
+export function zeppRoutes({ collections, withUser, zepp, cronSecret, push }: Context) {
   const router = express.Router();
 
   const ownerOnly = async (req: Request, res: Response, next: NextFunction) => {
@@ -135,7 +137,7 @@ export function zeppRoutes({ collections, withUser, zepp, cronSecret }: Context)
         { upsert: true },
       );
       const connection = (await c.zeppConnections.findOne({ ownerUserId: req.user!._id }))!;
-      const result = await syncConnection(c, zepp, connection);
+      const result = await syncConnection(c, zepp, connection, push);
       res.json({ ...(await status(req.user!._id)), imported: result.imported });
     }),
   );
@@ -152,7 +154,7 @@ export function zeppRoutes({ collections, withUser, zepp, cronSecret }: Context)
       if (recent || connection.status === "invalid-token") {
         return res.json({ imported: 0, status: connection.status, skipped: true });
       }
-      res.json(await syncConnection(c, zepp, connection));
+      res.json(await syncConnection(c, zepp, connection, push));
     }),
   );
 
@@ -295,7 +297,7 @@ export function zeppRoutes({ collections, withUser, zepp, cronSecret }: Context)
       const c = collections();
       const connections = await c.zeppConnections.find({ status: { $ne: "invalid-token" } }).toArray();
       let imported = 0;
-      for (const connection of connections) imported += (await syncConnection(c, zepp, connection)).imported;
+      for (const connection of connections) imported += (await syncConnection(c, zepp, connection, push)).imported;
       res.json({ connections: connections.length, imported });
     }),
   );

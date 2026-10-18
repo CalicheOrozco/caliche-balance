@@ -6,6 +6,8 @@ import {
   credentialsSchema,
   goalsInputSchema,
   measurementInputSchema,
+  notificationPrefsSchema,
+  pushSubscriptionSchema,
   profileSchema,
   toKilograms,
   type UserDto,
@@ -22,6 +24,8 @@ import {
   verifyPassword,
 } from "./auth.ts";
 import type { Collections, UserDoc } from "./db.ts";
+import { bodyFatOf } from "../shared/composition.ts";
+import { messages, notifyUser, type PushSender } from "./push.ts";
 import { asyncRoute, clientIp, hitRateLimit, peekRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
 import { type ZeppClient, zeppClient } from "./zepp.ts";
 import { deleteZeppDataFor, zeppRoutes } from "./zeppRoutes.ts";
@@ -35,6 +39,8 @@ export interface AppOptions {
   zepp?: ZeppClient;
   /** Secret Vercel Cron sends as a bearer token to the daily Zepp sync. */
   cronSecret?: string;
+  /** Web Push sender; undefined turns notifications off (no VAPID keys). */
+  push?: PushSender;
 }
 
 const MAX_MEASUREMENTS_PAGE = 1000;
@@ -46,6 +52,7 @@ function toUserDto(user: UserDoc): UserDto {
   return {
     username: user.username,
     profile: user.profile,
+    notifications: { newWeighIn: user.notifications?.newWeighIn ?? true, zepp: user.notifications?.zepp ?? true },
     goals: {
       weight: g?.weight ? { ...g.weight, setAt: g.weight.setAt.toISOString() } : null,
       bodyFat: g?.bodyFat ? { ...g.bodyFat, setAt: g.bodyFat.setAt.toISOString() } : null,
@@ -53,7 +60,7 @@ function toUserDto(user: UserDoc): UserDto {
   };
 }
 
-export function createApp({ getCollections, secureCookies, zepp = zeppClient, cronSecret }: AppOptions) {
+export function createApp({ getCollections, secureCookies, zepp = zeppClient, cronSecret, push }: AppOptions) {
   const app = express();
   app.set("trust proxy", true);
   app.disable("x-powered-by");
@@ -185,6 +192,9 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
       // The starting point is the latest reading when the goal is set; an unchanged target keeps it.
       const latest = await collections.measurements.findOne({ userId: user._id }, { sort: { measuredAt: -1 } });
       const latestFat = await collections.measurements.findOne({ userId: user._id, bodyFatPct: { $ne: null } }, { sort: { measuredAt: -1 } });
+      // Same body fat the app shows: recalculated from impedance when the reading has it.
+      const startFat =
+        latestFat && user.profile ? (bodyFatOf(user.profile, latestFat)?.value ?? null) : (latestFat?.bodyFatPct ?? null);
       const targetKg = input.weight ? Math.round(toKilograms(input.weight.value, input.weight.unit) * 100) / 100 : null;
       const goals: NonNullable<UserDoc["goals"]> = {
         weight:
@@ -198,7 +208,7 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
             ? null
             : previous?.bodyFat && previous.bodyFat.targetPct === input.bodyFatPct
               ? previous.bodyFat
-              : { targetPct: input.bodyFatPct, startPct: latestFat?.bodyFatPct ?? null, setAt: new Date() },
+              : { targetPct: input.bodyFatPct, startPct: startFat, setAt: new Date() },
       };
       await collections.users.updateOne({ _id: user._id }, { $set: { goals } });
       res.json(toUserDto({ ...user, goals }));
@@ -214,6 +224,7 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
       await Promise.all([
         collections.measurements.deleteMany({ userId }),
         collections.sessions.deleteMany({ userId }),
+        collections.pushSubscriptions.deleteMany({ userId }),
       ]);
       await collections.users.deleteOne({ _id: userId });
       res.clearCookie("cb_session", { path: "/" });
@@ -269,7 +280,61 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
     }),
   );
 
-  router.use(zeppRoutes({ collections: () => collections, withUser, zepp, cronSecret }));
+  router.get("/push/key", (_req, res) => {
+    if (!push) return res.status(404).json({ error: "push-unavailable" });
+    res.json({ publicKey: push.publicKey });
+  });
+
+  router.post(
+    "/push/subscribe",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const { endpoint, keys } = pushSubscriptionSchema.parse(req.body);
+      // A device belongs to whoever subscribed it last (signing in as someone else moves it).
+      await collections.pushSubscriptions.updateOne(
+        { endpoint },
+        {
+          $set: { userId: req.user!._id, p256dh: keys.p256dh, auth: keys.auth },
+          $setOnInsert: { _id: new ObjectId(), endpoint, createdAt: new Date() },
+        },
+        { upsert: true },
+      );
+      res.status(204).end();
+    }),
+  );
+
+  router.delete(
+    "/push/subscribe",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const { endpoint } = z.object({ endpoint: z.string().max(2000) }).parse(req.body);
+      await collections.pushSubscriptions.deleteOne({ endpoint, userId: req.user!._id });
+      res.status(204).end();
+    }),
+  );
+
+  router.post(
+    "/push/test",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const limit = await hitRateLimit(collections, `push-test:${req.user!._id.toHexString()}`, 10, 60 * 60 * 1000);
+      if (limit.limited) return sendRateLimited(res, limit);
+      const sent = await notifyUser(collections, push, req.user!._id, "test", messages.test);
+      res.json({ sent });
+    }),
+  );
+
+  router.put(
+    "/me/notifications",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const notifications = notificationPrefsSchema.parse(req.body);
+      await collections.users.updateOne({ _id: req.user!._id }, { $set: { notifications } });
+      res.json(toUserDto({ ...req.user!, notifications }));
+    }),
+  );
+
+  router.use(zeppRoutes({ collections: () => collections, withUser, zepp, cronSecret, push }));
 
   app.use("/api", router);
 

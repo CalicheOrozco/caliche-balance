@@ -92,11 +92,25 @@ export interface GoalsDto {
   bodyFat: BodyFatGoal | null;
 }
 
+export interface NotificationPrefs {
+  newWeighIn: boolean;
+  zepp: boolean;
+}
+
 export interface UserDto {
   username: string;
   profile: ProfileDto | null;
   goals: GoalsDto;
+  notifications: NotificationPrefs;
 }
+
+/** What a browser's PushManager returns, as sent to the API. */
+export const pushSubscriptionSchema = z.object({
+  endpoint: z.url().max(2000),
+  keys: z.object({ p256dh: z.string().min(10).max(200), auth: z.string().min(10).max(100) }),
+});
+
+export const notificationPrefsSchema = z.object({ newWeighIn: z.boolean(), zepp: z.boolean() });
 
 /** Each goal is optional; null removes it. Weight comes in the person's unit. */
 export const goalsInputSchema = z.object({

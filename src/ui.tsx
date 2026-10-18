@@ -78,6 +78,26 @@ export function PasswordField(props: Omit<FieldProps, "type">) {
   );
 }
 
+/** An on/off switch with its label, for settings. */
+export function Switch({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <label className="flex min-h-11 items-center justify-between gap-3">
+      <span className="text-ink">{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-50 ${checked ? "bg-brand" : "bg-surface-2 ring-1 ring-line"}`}
+      >
+        <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${checked ? "left-[22px]" : "left-0.5"}`} />
+      </button>
+    </label>
+  );
+}
+
 export function Select({ label, children, ...props }: SelectHTMLAttributes<HTMLSelectElement> & { label: string }) {
   const id = useId();
   return (

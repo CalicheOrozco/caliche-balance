@@ -30,7 +30,12 @@ describe("Caliche Balance API", () => {
 
     const register = await agent.post("/api/auth/register").send({ username: " Caliche ", password: "contraseña-segura" });
     expect(register.status).toBe(201);
-    expect(register.body.user).toEqual({ username: "caliche", profile: null, goals: { weight: null, bodyFat: null } });
+    expect(register.body.user).toEqual({
+      username: "caliche",
+      profile: null,
+      goals: { weight: null, bodyFat: null },
+      notifications: { newWeighIn: true, zepp: true },
+    });
     expect(register.body.recoveryCode).toMatch(/^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/);
     expect(register.headers["set-cookie"]?.[0]).toMatch(/cb_session=.*HttpOnly/);
 

@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { FiTrash2, FiUserX } from "react-icons/fi";
 import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { bodyFatOf, compositionOf } from "../../shared/composition.ts";
 import { ageAt, bodyFatBands, healthyWeightRange } from "../../shared/reference.ts";
 import { fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { api } from "../api.ts";
@@ -9,7 +10,16 @@ import { type MessageKey, useI18n } from "../i18n.tsx";
 import { Card, Segmented, Select, useFormat } from "../ui.tsx";
 
 type RangeKey = "30" | "90" | "365" | "all";
-type MetricKey = "bodyFat" | "muscle" | "water" | "visceral" | "protein" | "bodyAge";
+type MetricKey =
+  | "bodyFat"
+  | "skeletalMuscle"
+  | "bodyWater"
+  | "bodyFatXiaomi"
+  | "muscle"
+  | "water"
+  | "visceral"
+  | "protein"
+  | "bodyAge";
 
 interface Point {
   t: number;
@@ -129,12 +139,25 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
 
   // Second chart: any body measure. Only body fat has a North American healthy band.
   const metrics: Record<MetricKey, { label: string; unit: string; pick: (m: MeasurementDto) => number | null; band: { min: number; max: number } | null }> = {
-    bodyFat: { label: t("bodyFat"), unit: "%", pick: (m) => m.bodyFatPct, band: { min: fatHealthy.min!, max: fatHealthy.max! } },
-    muscle: { label: t("muscle"), unit: profile.unit, pick: (m) => (m.muscleKg === null ? null : fromKilograms(m.muscleKg, profile.unit)), band: null },
-    water: { label: t("water"), unit: "%", pick: (m) => m.waterPct, band: null },
-    visceral: { label: t("visceral"), unit: "", pick: (m) => m.visceralFat, band: null },
-    protein: { label: t("protein"), unit: "%", pick: (m) => m.proteinPct, band: null },
-    bodyAge: { label: t("bodyAge"), unit: "", pick: (m) => m.bodyAge, band: null },
+    // North American recalculation (falls back to the scale's value only for body fat without impedance).
+    bodyFat: { label: t("bodyFat"), unit: "%", pick: (m) => bodyFatOf(profile, m)?.value ?? null, band: { min: fatHealthy.min!, max: fatHealthy.max! } },
+    skeletalMuscle: {
+      label: t("skeletalMuscle"),
+      unit: profile.unit,
+      pick: (m) => {
+        const c = compositionOf(profile, m);
+        return c ? fromKilograms(c.skeletalMuscleKg, profile.unit) : null;
+      },
+      band: null,
+    },
+    bodyWater: { label: t("bodyWater"), unit: "%", pick: (m) => compositionOf(profile, m)?.bodyWaterPct ?? null, band: null },
+    // Xiaomi's own values, shown as they come.
+    bodyFatXiaomi: { label: `${t("bodyFat")} (Xiaomi)`, unit: "%", pick: (m) => m.bodyFatPct, band: null },
+    muscle: { label: `${t("muscle")} (Xiaomi)`, unit: profile.unit, pick: (m) => (m.muscleKg === null ? null : fromKilograms(m.muscleKg, profile.unit)), band: null },
+    water: { label: `${t("water")} (Xiaomi)`, unit: "%", pick: (m) => m.waterPct, band: null },
+    visceral: { label: `${t("visceral")} (Xiaomi)`, unit: "", pick: (m) => m.visceralFat, band: null },
+    protein: { label: `${t("protein")} (Xiaomi)`, unit: "%", pick: (m) => m.proteinPct, band: null },
+    bodyAge: { label: `${t("bodyAge")} (Xiaomi)`, unit: "", pick: (m) => m.bodyAge, band: null },
   };
   const selected = metrics[metric];
   const metricPoints = chronological.flatMap((m) => {

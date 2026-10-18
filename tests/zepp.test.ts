@@ -5,6 +5,7 @@ import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../server/app.ts";
 import { collections, ensureIndexes } from "../server/db.ts";
+import type { PushSender, PushTarget } from "../server/push.ts";
 import { type ZeppClient, ZeppError, type ZeppMember, type ZeppRecord, decryptToken } from "../server/zepp.ts";
 
 process.env.ZEPP_TOKEN_KEY = randomBytes(32).toString("base64");
@@ -37,6 +38,20 @@ class FakeZepp implements ZeppClient {
   }
 }
 
+/** Records what would be pushed; "gone" endpoints behave like an uninstalled app. */
+class FakePush implements PushSender {
+  publicKey = "test-public-key";
+  sent: { endpoint: string; body: string; url: string }[] = [];
+  gone = new Set<string>();
+  async send(target: PushTarget, payload: string) {
+    if (this.gone.has(target.endpoint)) return "gone" as const;
+    const { body, url } = JSON.parse(payload);
+    this.sent.push({ endpoint: target.endpoint, body, url });
+    return "sent" as const;
+  }
+}
+
+let push: FakePush;
 let mongo: MongoMemoryServer;
 let client: MongoClient;
 let zepp: FakeZepp;
@@ -52,7 +67,8 @@ beforeEach(async () => {
   const c = collections(client.db(`zepp${dbName++}`));
   await ensureIndexes(c);
   zepp = new FakeZepp();
-  app = createApp({ getCollections: async () => c, secureCookies: false, zepp, cronSecret: "cron-secreto" });
+  push = new FakePush();
+  app = createApp({ getCollections: async () => c, secureCookies: false, zepp, cronSecret: "cron-secreto", push });
 });
 
 afterAll(async () => {
@@ -198,5 +214,65 @@ describe("Zepp connection", () => {
     expect(await db.collection("zeppMembers").countDocuments()).toBe(0);
     expect(await db.collection("measurements").countDocuments()).toBe(0);
     expect((await ana.get("/api/zepp")).body.role).toBe("none");
+  });
+
+  it("notifies the person of a new weigh-in with the change, and the owner when the token expires", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const resync = () => client.db(`zepp${dbName - 1}`).collection("zeppConnections").updateMany({}, { $set: { lastSyncAt: null } });
+    const subscribe = (agent: ReturnType<typeof request.agent>, endpoint: string) =>
+      agent.post("/api/push/subscribe").send({ endpoint, keys: { p256dh: "p256dh-de-prueba-123", auth: "auth-de-prueba-1" } });
+
+    zepp.add("-1", now - 3 * 86400, 99.5);
+    zepp.add("111", now - 2 * 86400, 61.2);
+    const caliche = await signUp("caliche");
+    await caliche.put("/api/me/profile").send({ sex: "male", birthDate: "1996-01-01", heightCm: 185, language: "es", unit: "kg" });
+    expect((await subscribe(caliche, "https://push.example/caliche")).status).toBe(204);
+    await connect(caliche);
+    expect(push.sent).toEqual([]); // the first import is history, not news
+
+    const invite = await caliche.post("/api/zepp/members/111/invite");
+    const ana = await signUp("ana");
+    await ana.put("/api/me/profile").send({ sex: "female", birthDate: "1995-05-05", heightCm: 162, language: "en", unit: "lb" });
+    await ana.post("/api/zepp/join").send({ code: invite.body.code });
+    await subscribe(ana, "https://push.example/ana");
+
+    zepp.add("111", now - 60, 60.8);
+    await resync();
+    await ana.post("/api/zepp/sync");
+    // In Ana's language and unit, with the change since her previous weigh-in.
+    expect(push.sent).toEqual([{ endpoint: "https://push.example/ana", body: "New weigh-in: 134.0 lb (\u22120.9 lb)", url: "/" }]);
+
+    // Turning the kind off stops it.
+    await ana.put("/api/me/notifications").send({ newWeighIn: false, zepp: true });
+    zepp.add("111", now - 30, 60.5);
+    await resync();
+    await ana.post("/api/zepp/sync");
+    expect(push.sent).toHaveLength(1);
+
+    // The token expires: the owner hears once, not on every failed sync.
+    zepp.members = async () => {
+      throw new ZeppError("invalid-token", "expired");
+    };
+    await resync();
+    await caliche.post("/api/zepp/sync");
+    await resync();
+    await caliche.post("/api/zepp/sync");
+    expect(push.sent.slice(1)).toEqual([
+      { endpoint: "https://push.example/caliche", body: "Tu token de Zepp caducó. Pega uno nuevo en Ajustes para seguir recibiendo tus pesadas.", url: "/ajustes" },
+    ]);
+  });
+
+  it("sends a test notification and forgets devices that unsubscribed", async () => {
+    const caliche = await signUp("caliche");
+    expect((await request(app).get("/api/push/key")).body).toEqual({ publicKey: "test-public-key" });
+    await caliche.post("/api/push/subscribe").send({ endpoint: "https://push.example/a", keys: { p256dh: "p256dh-de-prueba-123", auth: "auth-de-prueba-1" } });
+    await caliche.post("/api/push/subscribe").send({ endpoint: "https://push.example/b", keys: { p256dh: "p256dh-de-prueba-123", auth: "auth-de-prueba-1" } });
+    push.gone.add("https://push.example/b");
+
+    expect((await caliche.post("/api/push/test")).body).toEqual({ sent: 1 });
+    expect(await client.db(`zepp${dbName - 1}`).collection("pushSubscriptions").countDocuments()).toBe(1);
+
+    await caliche.delete("/api/push/subscribe").send({ endpoint: "https://push.example/a" });
+    expect((await caliche.post("/api/push/test")).body).toEqual({ sent: 0 });
   });
 });

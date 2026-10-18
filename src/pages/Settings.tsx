@@ -6,10 +6,11 @@ import { fromKilograms } from "../../shared/schemas.ts";
 import type { UserDto } from "../../shared/schemas.ts";
 import { api } from "../api.ts";
 import { clearOfflineData } from "../offline.ts";
+import { disablePush, enablePush, type PushState, pushState } from "../push.ts";
 import { useI18n } from "../i18n.tsx";
 import { DatePicker } from "../DatePicker.tsx";
 import { ZeppCard } from "./Zepp.tsx";
-import { Button, Card, Field, Segmented, useFormat } from "../ui.tsx";
+import { Button, Card, Field, Segmented, Switch, useFormat } from "../ui.tsx";
 
 /** Profile form; also the first screen after registering, when the profile is still empty. */
 export function ProfileForm({ user, onSaved }: { user: UserDto; onSaved?: () => void }) {
@@ -177,6 +178,101 @@ function GoalsForm({ user }: { user: UserDto }) {
   );
 }
 
+/** Push notifications for this device, plus which kinds the person wants on all devices. */
+function NotificationsCard({ user }: { user: UserDto }) {
+  const { t, te } = useI18n();
+  const queryClient = useQueryClient();
+  const [state, setState] = useState<PushState | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void pushState().then(setState);
+  }, []);
+
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await action();
+    } catch (e) {
+      setMessage(te(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const prefs = useMutation({
+    mutationFn: api.saveNotifications,
+    onSuccess: (saved) => queryClient.setQueryData(["me"], saved),
+  });
+
+  const note =
+    state === "needs-install"
+      ? t("notificationsInstall")
+      : state === "unsupported"
+        ? t("notificationsUnsupported")
+        : state === "unavailable"
+          ? t("notificationsUnavailable")
+          : state === "denied"
+            ? t("notificationsDenied")
+            : null;
+
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold">{t("notificationsTitle")}</h2>
+      <p className="mt-1 text-sm text-ink-2">{t("notificationsIntro")}</p>
+      {note && <p className="mt-3 rounded-2xl bg-warn/15 px-4 py-3 text-sm text-ink">{note}</p>}
+      {state === "off" && (
+        <Button className="mt-4 w-full" disabled={busy} onClick={() => run(async () => setState(await enablePush()))}>
+          {t("enableNotifications")}
+        </Button>
+      )}
+      {state === "on" && (
+        <>
+          <p className="mt-3 text-sm font-medium text-good">{t("notificationsOn")}</p>
+          <div className="mt-2 divide-y divide-line">
+            <Switch
+              label={t("notifyNewWeighIn")}
+              checked={user.notifications.newWeighIn}
+              disabled={prefs.isPending}
+              onChange={(v) => prefs.mutate({ ...user.notifications, newWeighIn: v })}
+            />
+            <Switch
+              label={t("notifyZepp")}
+              checked={user.notifications.zepp}
+              disabled={prefs.isPending}
+              onChange={(v) => prefs.mutate({ ...user.notifications, zepp: v })}
+            />
+          </div>
+          <div className="mt-4 flex flex-col gap-3">
+            <Button variant="secondary" disabled={busy} onClick={() =>
+                run(async () => {
+                  await api.pushTest();
+                  setMessage(t("testSent"));
+                })
+              }>
+              {t("sendTest")}
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  await disablePush();
+                  setState("off");
+                })
+              }
+            >
+              {t("disableNotifications")}
+            </Button>
+          </div>
+        </>
+      )}
+      {message && <p className="mt-3 text-sm text-ink-2">{message}</p>}
+    </Card>
+  );
+}
+
 export function SettingsPage({ user }: { user: UserDto }) {
   const location = useLocation();
   // Home links to /ajustes#metas; scroll to the goals card once it is on screen.
@@ -186,6 +282,8 @@ export function SettingsPage({ user }: { user: UserDto }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const signOut = async (action: () => Promise<void>) => {
+    // This device stops receiving the account's notifications before the session ends.
+    await disablePush().catch(() => undefined);
     await action();
     await clearOfflineData();
     // Setting "me" to null switches the app to the sign-in screen; clear() alone would not
@@ -208,6 +306,7 @@ export function SettingsPage({ user }: { user: UserDto }) {
         </Card>
       </div>
       <ZeppCard />
+      <NotificationsCard user={user} />
       <Card>
         <h2 className="text-lg font-semibold">{t("account")}</h2>
         <p className="mt-1 text-ink-2">
