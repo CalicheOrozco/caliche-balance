@@ -35,6 +35,9 @@ export function AddPage({ profile }: { profile: ProfileDto }) {
   const [water, setWater] = useState("");
   const [bone, setBone] = useState("");
   const [visceral, setVisceral] = useState("");
+  const [waist, setWaist] = useState("");
+  // Waist goes in inches for people who weigh in pounds, centimeters otherwise.
+  const waistUnit = profile.unit === "lb" ? "in" : "cm";
   const [error, setError] = useState<string | null>(null);
 
   const save = useMutation({
@@ -49,6 +52,8 @@ export function AddPage({ profile }: { profile: ProfileDto }) {
         waterPct: optional(water),
         boneKg: massInKg(bone, profile.unit),
         visceralFat: optional(visceral),
+        waist: optional(waist),
+        waistUnit,
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["measurements"] });
@@ -80,6 +85,13 @@ export function AddPage({ profile }: { profile: ProfileDto }) {
             <Field label={`${t("weight")} (${profile.unit})`} inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} required />
             <Field label={`${t("bodyFat")} (%)`} inputMode="decimal" value={bodyFat} onChange={(e) => setBodyFat(e.target.value)} />
           </div>
+          <Field
+            label={`${t("waist")} (${waistUnit})`}
+            inputMode="decimal"
+            value={waist}
+            onChange={(e) => setWaist(e.target.value)}
+            help={t("waistHowTo")}
+          />
           <p className="pt-2 text-sm font-semibold text-ink-2">{t("optionalXiaomi")}</p>
           <div className="grid grid-cols-2 gap-3">
             <Field label={`${t("muscle")} (${profile.unit})`} inputMode="decimal" value={muscle} onChange={(e) => setMuscle(e.target.value)} />

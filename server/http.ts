@@ -18,6 +18,7 @@ export function toMeasurementDto(m: MeasurementDoc): MeasurementDto {
     bodyScore: m.bodyScore ?? null,
     impedance: m.impedance ?? null,
     idealWeightKg: m.idealWeightKg ?? null,
+    waistCm: m.waistCm ?? null,
     source: m.source,
   };
 }

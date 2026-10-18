@@ -1,13 +1,18 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { type FormEvent, useState } from "react";
 import { Link } from "react-router";
+import { type BodyFatAge, bodyFatAge } from "../../shared/bodyAge.ts";
+import { assessWaist, WHTR_BANDS } from "../../shared/waist.ts";
+import { api } from "../api.ts";
 import { ageAt, assess, bmi, type SourceId } from "../../shared/reference.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
 import { useCompareXiaomi } from "../compare.ts";
 import { bmiPercentile } from "../../shared/percentiles.ts";
 import { scoreOf } from "../../shared/score.ts";
 import { dailyTrend, estimateEta, goalProgress } from "../../shared/goals.ts";
-import { fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
+import { CM_PER_IN, fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
-import { Card, RangeBar, StatusBadge, signed, useFormat } from "../ui.tsx";
+import { Button, Card, Field, RangeBar, StatusBadge, signed, useFormat } from "../ui.tsx";
 
 /** One goal: progress bar, distance left, starting point and the estimate at the recent pace. */
 function GoalRow({
@@ -245,6 +250,113 @@ function PercentileCard({ profile, latest }: { profile: ProfileDto; latest: Meas
   );
 }
 
+/** Waist-based visceral fat risk; the waist can be added to the latest weigh-in right here. */
+function WaistCard({ profile, measurements }: { profile: ProfileDto; measurements: MeasurementDto[] }) {
+  const { t, tf, te } = useI18n();
+  const f = useFormat();
+  const queryClient = useQueryClient();
+  const unit = profile.unit === "lb" ? "in" : "cm";
+  const [value, setValue] = useState("");
+  const [editing, setEditing] = useState(false);
+  const withWaist = measurements.find((m) => m.waistCm !== null);
+  const latest = measurements[0]!;
+  const save = useMutation({
+    mutationFn: () => api.setWaist(latest.id, value, unit),
+    onSuccess: () => {
+      setValue("");
+      setEditing(false);
+      void queryClient.invalidateQueries({ queryKey: ["measurements"] });
+    },
+  });
+  const show = (cm: number) => (unit === "in" ? `${f.number(cm / CM_PER_IN)} in` : `${f.number(cm, 0)} cm`);
+  const a = withWaist ? assessWaist(withWaist.waistCm!, profile.heightCm, profile.sex) : null;
+
+  const form = (
+    <form
+      className="mt-4 flex items-end gap-3"
+      onSubmit={(e: FormEvent) => {
+        e.preventDefault();
+        save.mutate();
+      }}
+    >
+      <div className="flex-1">
+        <Field label={`${t("waist")} (${unit})`} inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} required />
+      </div>
+      <Button type="submit" disabled={save.isPending}>
+        {t("save")}
+      </Button>
+    </form>
+  );
+
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold">{t("waistTitle")}</h2>
+      {a && withWaist ? (
+        <>
+          <div className="mt-3 flex items-start justify-between gap-3">
+            <div>
+              <p className="text-3xl font-bold">{show(a.waistCm)}</p>
+              <p className="text-sm text-ink-2">
+                {t("waistRatio")}: <strong className="text-ink">{f.number(a.ratio, 2)}</strong>
+              </p>
+            </div>
+            <StatusBadge band={a.band} />
+          </div>
+          <RangeBar classification={{ value: a.ratio, bands: WHTR_BANDS }} format={(n) => f.number(n, 1)} />
+          <ul className="mt-4 space-y-1 text-sm text-ink-2">
+            <li>
+              {tf("waistUsCanada", { cutoff: show(a.usCanada.cutoffCm) })} <strong className="text-ink">{a.usCanada.above ? t("waistAbove") : t("waistBelow")}</strong>
+            </li>
+            <li>
+              {tf("waistMexico", { cutoff: show(a.mexico.cutoffCm) })} <strong className="text-ink">{a.mexico.above ? t("waistAbove") : t("waistBelow")}</strong>
+            </li>
+          </ul>
+          <p className="mt-2 text-sm text-muted">{tf("waistFrom", { date: f.date(withWaist.measuredAt) })}</p>
+          {editing ? form : (
+            <Button variant="secondary" className="mt-3 w-full" onClick={() => setEditing(true)}>
+              {t("waistUpdate")}
+            </Button>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="mt-1 text-sm text-ink-2">{t("waistIntro")}</p>
+          <p className="mt-2 text-sm text-ink-2">{t("waistHowTo")}</p>
+          {form}
+        </>
+      )}
+      {save.error && <p className="mt-2 text-sm text-bad">{te(save.error)}</p>}
+      <p className="mt-3 text-sm text-muted">{t("waistSources")}</p>
+    </Card>
+  );
+}
+
+/** Age at which the typical North American of the same sex has this body fat (NHANES DXA medians). */
+function BodyAgeCard({ profile, reading }: { profile: ProfileDto; reading: MeasurementDto }) {
+  const { t, tf } = useI18n();
+  const [compare] = useCompareXiaomi();
+  const fat = bodyFatOf(profile, reading);
+  if (!fat) return null;
+  const text = (r: BodyFatAge) =>
+    r.kind === "over" ? tf("bodyAgeOver", { age: r.age }) : r.kind === "under" ? tf("bodyAgeUnder", { age: r.age }) : tf("bodyAgeYears", { age: r.age });
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold">{t("bodyAgeTitle")}</h2>
+      <p className="mt-1 text-sm text-ink-2">{t("bodyAgeIntro")}</p>
+      <dl className="mt-3 space-y-2">
+        {(["mexican-american", "white"] as const).map((g) => (
+          <div key={g} className="flex items-baseline justify-between gap-3">
+            <dt className="text-sm text-ink-2">{t(`bodyAgeGroup.${g}` as MessageKey)}</dt>
+            <dd className="text-xl font-semibold">{text(bodyFatAge(fat.value, profile.sex, g))}</dd>
+          </div>
+        ))}
+      </dl>
+      {compare && reading.bodyAge !== null && <p className="mt-3 text-sm text-ink-2">{tf("bodyAgeXiaomi", { age: reading.bodyAge })}</p>}
+      <p className="mt-3 text-sm text-muted">{t("bodyAgeNote")}</p>
+    </Card>
+  );
+}
+
 /** The same weigh-in computed by Caliche Balance and by Xiaomi, side by side with the difference. */
 function ComparisonCard({ profile, reading }: { profile: ProfileDto; reading: MeasurementDto }) {
   const { t, locale } = useI18n();
@@ -262,6 +374,13 @@ function ComparisonCard({ profile, reading }: { profile: ProfileDto; reading: Me
     },
     { label: `${t("bodyWater")} (%)`, c: na.bodyWaterPct, x: x.bodyWaterPct, format: (n) => f.number(n) },
     { label: `${t("bmr")} (kcal)`, c: na.bmrKcal, x: x.bmrKcal, format: (n) => f.number(n, 0) },
+    {
+      label: `${t("leanSoftMass")} (${unit})`,
+      c: fromKilograms(na.leanSoftKg, unit),
+      x: x.muscleKg === null ? null : fromKilograms(x.muscleKg, unit),
+      format: (n) => f.number(n),
+    },
+    ...(na.proteinPct === null ? [] : [{ label: `${t("proteinExperimental")} (%)`, c: na.proteinPct, x: x.proteinPct, format: (n: number) => f.number(n) }]),
   ];
   return (
     <Card>
@@ -454,6 +573,10 @@ export function HomePage({
               { label: t("skeletalMuscle"), value: f.weight(na.skeletalMuscleKg, profile.unit) },
               { label: t("muscleIndex"), value: `${f.number(na.skeletalMuscleIndex)} kg/m²` },
               { label: t("bmrKatch"), value: `${f.number(na.bmrKcal, 0)} kcal` },
+              { label: t("leanSoftMass"), value: f.weight(na.leanSoftKg, profile.unit) },
+              ...(na.proteinKg === null || na.proteinPct === null
+                ? []
+                : [{ label: t("proteinExperimental"), value: `${f.weight(na.proteinKg, profile.unit)} · ${f.number(na.proteinPct)} %` }]),
             ].map((x) => (
               <div key={x.label} className="rounded-2xl bg-surface-2 p-3">
                 <dt className="text-sm text-ink-2">{x.label}</dt>
@@ -477,8 +600,13 @@ export function HomePage({
             <p className="mt-3 text-sm text-muted">{t("muscleIndexNote")}</p>
           )}
           <p className="mt-2 text-sm text-muted">{t("naCompositionNote")}</p>
+          {na.proteinPct !== null && <p className="mt-2 text-sm text-muted">{t("proteinNote")}</p>}
         </Card>
       )}
+
+      {comp && <BodyAgeCard profile={profile} reading={comp} />}
+
+      <WaistCard profile={profile} measurements={measurements} />
 
       <Card>
         <p className="text-sm font-medium text-ink-2">{t("bmr")}</p>

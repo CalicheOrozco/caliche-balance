@@ -42,6 +42,7 @@ export interface MeasurementDoc {
   bodyScore?: number | null;
   impedance?: number | null;
   idealWeightKg?: number | null;
+  waistCm?: number | null;
   source: "manual" | "zepp";
   zepp?: { connectionId: ObjectId; memberId: string; key: string };
   createdAt: Date;

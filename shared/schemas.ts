@@ -50,7 +50,22 @@ export const measurementInputSchema = z.object({
   waterPct: optionalNumber(20, 80),
   boneKg: optionalNumber(0.5, 10),
   visceralFat: optionalNumber(1, 60),
+  // Measured with a tape; in the person's preferred length unit.
+  waist: optionalNumber(15, 250),
+  waistUnit: z.enum(["cm", "in"]).default("cm"),
 });
+
+/** Adds, changes or removes (null) the waist of a reading that already exists. */
+export const waistInputSchema = z.object({
+  waist: numeric(z.number().min(15).max(250)).nullable(),
+  waistUnit: z.enum(["cm", "in"]).default("cm"),
+});
+
+export const CM_PER_IN = 2.54;
+
+export function waistToCm(value: number, unit: "cm" | "in"): number {
+  return unit === "in" ? value * CM_PER_IN : value;
+}
 
 export type Credentials = z.infer<typeof credentialsSchema>;
 export type ProfileInput = z.infer<typeof profileSchema>;
@@ -134,6 +149,7 @@ export interface MeasurementDto {
   bodyScore: number | null;
   impedance: number | null;
   idealWeightKg: number | null;
+  waistCm: number | null;
   source: "manual" | "zepp";
 }
 

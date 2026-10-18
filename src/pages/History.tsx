@@ -1,15 +1,16 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { FiTrash2, FiUserX } from "react-icons/fi";
+import { type FormEvent, useMemo, useState } from "react";
+import { FiEdit2, FiTrash2, FiUserX } from "react-icons/fi";
 import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { bodyFatAge } from "../../shared/bodyAge.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
 import { ageAt, bodyFatBands, healthyWeightRange } from "../../shared/reference.ts";
 import { scoreOf } from "../../shared/score.ts";
-import { fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
+import { CM_PER_IN, fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { api } from "../api.ts";
 import { useCompareXiaomi } from "../compare.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
-import { Card, Segmented, Switch, signed, useFormat } from "../ui.tsx";
+import { Button, Card, Field, Segmented, Switch, signed, useFormat } from "../ui.tsx";
 
 type RangeKey = "30" | "90" | "365" | "all";
 
@@ -98,6 +99,8 @@ function TrendChart({
             />
             <YAxis
               domain={[Math.floor(lo - pad), Math.ceil(hi + pad)]}
+              // Ticks are shown as whole numbers; half steps would print the same label twice.
+              allowDecimals={false}
               tickFormatter={(n: number) => formatTick(n)}
               tick={{ fill: "var(--muted)", fontSize: 12 }}
               axisLine={false}
@@ -168,6 +171,16 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
   const cutoff = range === "all" ? -Infinity : Date.now() - Number(range) * 24 * 60 * 60 * 1000;
   const visible = useMemo(() => measurements.filter((m) => new Date(m.measuredAt).getTime() >= cutoff), [measurements, cutoff]);
   const unit = profile.unit;
+  const waistUnit = unit === "lb" ? "in" : "cm";
+  const [waistFor, setWaistFor] = useState<string | null>(null);
+  const [waistValue, setWaistValue] = useState("");
+  const saveWaist = useMutation({
+    mutationFn: ({ id, value }: { id: string; value: string }) => api.setWaist(id, value.trim() ? value : null, waistUnit),
+    onSuccess: () => {
+      setWaistFor(null);
+      void refresh();
+    },
+  });
   const mass = (kg: number | null | undefined) => (kg === null || kg === undefined ? null : fromKilograms(kg, unit));
 
   // Every value is computed once per weigh-in; the charts below only pick columns.
@@ -176,10 +189,11 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
       [...visible].reverse().map((m) => {
         const na = compositionOf(profile, m);
         const x = xiaomiComparable(m);
+        const fat = bodyFatOf(profile, m);
         return {
           t: new Date(m.measuredAt).getTime(),
           weight: mass(m.weightKg),
-          "fat.c": bodyFatOf(profile, m)?.value ?? null,
+          "fat.c": fat?.value ?? null,
           "fat.x": x.bodyFatPct,
           "ffm.c": mass(na?.fatFreeMassKg),
           "ffm.x": mass(x.fatFreeMassKg),
@@ -188,10 +202,15 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
           "bmr.c": na?.bmrKcal ?? null,
           "bmr.x": x.bmrKcal,
           skeletalMuscle: mass(na?.skeletalMuscleKg),
-          muscleX: mass(m.muscleKg),
+          "lean.c": mass(na?.leanSoftKg),
+          "lean.x": mass(x.muscleKg),
+          "protein.c": na?.proteinPct ?? null,
+          "protein.x": x.proteinPct,
+          // Body fat age against Mexican American medians; "or older" readings chart at the peak age.
+          "age.c": fat ? bodyFatAge(fat.value, profile.sex, "mexican-american").age : null,
+          "age.x": m.bodyAge,
+          waist: m.waistCm === null ? null : waistUnit === "in" ? m.waistCm / CM_PER_IN : m.waistCm,
           visceral: m.visceralFat,
-          protein: m.proteinPct,
-          bodyAge: m.bodyAge,
           // Weight-only weigh-ins would score on BMI alone and jump; only full ones are charted.
           "score.c": m.bodyFatPct !== null || m.impedance !== null ? scoreOf(profile, m).score : null,
           "score.x": m.bodyScore,
@@ -256,13 +275,20 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
         formatValue={(n) => f.number(n, 0)}
       />
       <TrendChart title={`${t("skeletalMuscle")} (${unit})`} rows={rows} series={one("skeletalMuscle", t("skeletalMuscle"))} {...plain} />
+      <TrendChart title={`${t("leanSoftVsXiaomi")} (${unit})`} rows={rows} series={paired("lean.c", "lean.x")} {...plain} />
+      <TrendChart title={`${t("proteinExperimental")} (%)`} rows={rows} series={paired("protein.c", "protein.x")} {...plain} />
+      <TrendChart
+        title={t("bodyAgeTitle")}
+        rows={rows}
+        series={paired("age.c", "age.x")}
+        formatTick={(n) => f.number(n, 0)}
+        formatValue={(n) => f.number(n, 0)}
+      />
+      <TrendChart title={`${t("waist")} (${waistUnit})`} rows={rows} series={one("waist", t("waist"))} {...plain} />
 
       <h2 className="px-1 pt-2 text-lg font-semibold">{t("xiaomiOnlyTitle")}</h2>
       <p className="-mt-2 px-1 text-sm text-muted">{t("xiaomiOnlyHint")}</p>
-      <TrendChart title={`${t("muscle")} (${unit})`} rows={rows} series={[xiaomi("muscleX")]} {...plain} />
       <TrendChart title={t("visceral")} rows={rows} series={[xiaomi("visceral")]} formatTick={(n) => f.number(n, 0)} formatValue={(n) => f.number(n, 0)} />
-      <TrendChart title={`${t("protein")} (%)`} rows={rows} series={[xiaomi("protein")]} {...plain} />
-      <TrendChart title={t("bodyAge")} rows={rows} series={[xiaomi("bodyAge")]} formatTick={(n) => f.number(n, 0)} formatValue={(n) => f.number(n, 0)} />
 
       <Card padded={false}>
         <h2 className="px-5 pt-5 text-lg font-semibold">{t("measurements")}</h2>
@@ -278,8 +304,38 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
                   </p>
                   <p className="text-sm text-muted">
                     {f.dateTime(m.measuredAt)} · {t(`source.${m.source}` as MessageKey)}
+                    {m.waistCm !== null &&
+                      ` · ${t("waist")} ${waistUnit === "in" ? f.number(m.waistCm / CM_PER_IN) : f.number(m.waistCm, 0)} ${waistUnit}`}
                   </p>
+                  {waistFor === m.id && (
+                    <form
+                      className="mt-2 flex items-end gap-2"
+                      onSubmit={(e: FormEvent) => {
+                        e.preventDefault();
+                        saveWaist.mutate({ id: m.id, value: waistValue });
+                      }}
+                    >
+                      <div className="flex-1">
+                        <Field label={`${t("waist")} (${waistUnit})`} inputMode="decimal" value={waistValue} onChange={(e) => setWaistValue(e.target.value)} autoFocus />
+                      </div>
+                      <Button type="submit" disabled={saveWaist.isPending}>
+                        {t("save")}
+                      </Button>
+                    </form>
+                  )}
                 </div>
+                <button
+                  type="button"
+                  aria-label={`${t("editWaist")}: ${f.dateTime(m.measuredAt)}`}
+                  title={t("editWaist")}
+                  onClick={() => {
+                    setWaistFor(waistFor === m.id ? null : m.id);
+                    setWaistValue(m.waistCm === null ? "" : String(Math.round((waistUnit === "in" ? m.waistCm / CM_PER_IN : m.waistCm) * 10) / 10));
+                  }}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-ink active:scale-95"
+                >
+                  <FiEdit2 size={18} aria-hidden />
+                </button>
                 {m.source === "zepp" && (
                   <button
                     type="button"

@@ -21,6 +21,7 @@ function reading(daysAgo: number, bodyFatPct: number | null): MeasurementDto {
     bodyScore: null,
     impedance: null,
     idealWeightKg: null,
+    waistCm: null,
     source: "zepp",
   };
 }

@@ -15,6 +15,9 @@ import { ageAt, type Sex } from "./reference.ts";
  * - Skeletal muscle index cut points: Janssen I et al. Am J Epidemiol 2004;159:413-21 (NHANES III,
  *   4,449 adults aged 60 or more).
  * - Basal metabolic rate from fat-free mass: Katch-McArdle, 370 + 21.6 x FFM.
+ * - Protein and lean soft mass (experimental): fat-free mass is water, protein and minerals; minerals
+ *   taken as 6.5 % of it, after ICRP Reference Man as cited by Heymsfield SB et al., J Endocr Soc
+ *   2024;8:bvae164. Protein is what remains after water and minerals, so errors add up.
  *
  * Limitation: these equations were built with hand-to-foot resistance at 50 kHz. The Xiaomi scale
  * measures foot to foot, so results are estimates, not a validated measurement for this device.
@@ -41,7 +44,15 @@ export interface Composition {
   /** Janssen 2004 class; only defined from age 60, the population it was derived from. */
   muscleClass: "normal" | "moderately-low" | "low" | null;
   bmrKcal: number;
+  /** Experimental: fat-free mass minus water and minerals; null when the estimate is not plausible. */
+  proteinKg: number | null;
+  proteinPct: number | null;
+  /** Fat-free mass without minerals: the closest equivalent to what Xiaomi calls "muscle". */
+  leanSoftKg: number;
 }
+
+/** Share of fat-free mass that is mineral (bone and soft tissue), ICRP Reference Man. */
+export const MINERAL_FRACTION_OF_FFM = 0.065;
 
 /** Impedance outside this window is a failed or partial reading, not a body. */
 const MIN_IMPEDANCE = 200;
@@ -70,7 +81,15 @@ export function recalculate(input: CompositionInput): Composition | null {
   const muscleClass =
     age < 60 ? null : skeletalMuscleIndex <= low ? "low" : skeletalMuscleIndex <= moderate ? "moderately-low" : "normal";
 
+  const mineralKg = MINERAL_FRACTION_OF_FFM * fatFreeMassKg;
+  const protein = fatFreeMassKg - bodyWaterL - mineralKg; // 1 L of body water is about 1 kg
+  // Protein below ~5 % of weight means the water and fat-free estimates disagree too much to use.
+  const proteinKg = protein / weightKg >= 0.05 ? protein : null;
+
   return {
+    proteinKg,
+    proteinPct: proteinKg === null ? null : (proteinKg / weightKg) * 100,
+    leanSoftKg: fatFreeMassKg - mineralKg,
     fatFreeMassKg,
     fatMassKg: weightKg - fatFreeMassKg,
     bodyFatPct: ((weightKg - fatFreeMassKg) / weightKg) * 100,
@@ -135,6 +154,9 @@ export interface XiaomiComparable {
   fatFreeMassKg: number | null;
   bodyWaterPct: number | null;
   bmrKcal: number | null;
+  proteinPct: number | null;
+  /** Xiaomi's "muscle": its fat-free mass minus bone, compared with our lean soft mass. */
+  muscleKg: number | null;
 }
 
 export function xiaomiComparable(reading: {
@@ -142,8 +164,12 @@ export function xiaomiComparable(reading: {
   bodyFatPct: number | null;
   waterPct?: number | null;
   bmrKcal?: number | null;
+  proteinPct?: number | null;
+  muscleKg?: number | null;
 }): XiaomiComparable {
   return {
+    proteinPct: reading.proteinPct ?? null,
+    muscleKg: reading.muscleKg ?? null,
     bodyFatPct: reading.bodyFatPct,
     fatFreeMassKg: reading.bodyFatPct === null ? null : reading.weightKg * (1 - reading.bodyFatPct / 100),
     bodyWaterPct: reading.waterPct ?? null,

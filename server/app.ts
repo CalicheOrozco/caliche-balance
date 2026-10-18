@@ -8,6 +8,8 @@ import {
   measurementInputSchema,
   notificationPrefsSchema,
   pushSubscriptionSchema,
+  waistInputSchema,
+  waistToCm,
   profileSchema,
   toKilograms,
   type UserDto,
@@ -259,6 +261,7 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
         waterPct: input.waterPct ?? null,
         boneKg: input.boneKg ?? null,
         visceralFat: input.visceralFat ?? null,
+        waistCm: input.waist == null ? null : Math.round(waistToCm(input.waist, input.waistUnit) * 10) / 10,
         source: "manual" as const,
       };
       const saved = await collections.measurements.findOneAndUpdate(
@@ -267,6 +270,24 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
         { upsert: true, returnDocument: "after" },
       );
       res.status(201).json(toMeasurementDto(saved!));
+    }),
+  );
+
+  router.patch(
+    "/measurements/:id/waist",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const id = z.string().regex(/^[0-9a-f]{24}$/).parse(req.params.id);
+      const { waist, waistUnit } = waistInputSchema.parse(req.body);
+      const waistCm = waist === null ? null : Math.round(waistToCm(waist, waistUnit) * 10) / 10;
+      // Zepp re-syncs only touch Zepp's own fields, so a waist added here stays.
+      const saved = await collections.measurements.findOneAndUpdate(
+        { _id: new ObjectId(id), userId: req.user!._id },
+        { $set: { waistCm } },
+        { returnDocument: "after" },
+      );
+      if (!saved) return res.status(404).json({ error: "not-found" });
+      res.json(toMeasurementDto(saved));
     }),
   );
 

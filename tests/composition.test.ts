@@ -44,12 +44,30 @@ describe("effectiveBodyFat", () => {
 
 describe("xiaomiComparable", () => {
   it("derives Xiaomi's fat-free mass from its own body fat, for a like-for-like comparison", () => {
-    expect(xiaomiComparable({ weightKg: 100, bodyFatPct: 30, waterPct: 50, bmrKcal: 1977 })).toEqual({
+    expect(xiaomiComparable({ weightKg: 100, bodyFatPct: 30, waterPct: 50, bmrKcal: 1977, proteinPct: 16.3, muscleKg: 65.9 })).toEqual({
       bodyFatPct: 30,
       fatFreeMassKg: 70,
       bodyWaterPct: 50,
       bmrKcal: 1977,
+      proteinPct: 16.3,
+      muscleKg: 65.9,
     });
-    expect(xiaomiComparable({ weightKg: 100, bodyFatPct: null })).toEqual({ bodyFatPct: null, fatFreeMassKg: null, bodyWaterPct: null, bmrKcal: null });
+    expect(xiaomiComparable({ weightKg: 100, bodyFatPct: null })).toEqual({
+      bodyFatPct: null,
+      fatFreeMassKg: null,
+      bodyWaterPct: null,
+      bmrKcal: null,
+      proteinPct: null,
+      muscleKg: null,
+    });
+  });
+});
+
+describe("protein and lean soft mass (experimental)", () => {
+  it("is fat-free mass minus water and 6.5 % minerals", () => {
+    const c = recalculate({ sex: "male", heightCm: 185, age: 28, weightKg: 99.55, impedance: 495 })!;
+    expect(c.leanSoftKg).toBeCloseTo(c.fatFreeMassKg * 0.935, 6);
+    expect(c.proteinKg).toBeCloseTo(c.fatFreeMassKg - c.bodyWaterL - 0.065 * c.fatFreeMassKg, 6);
+    expect(c.proteinPct).toBeCloseTo(13.79, 1);
   });
 });

@@ -1,7 +1,7 @@
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { MongoClient } from "mongodb";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../server/app.ts";
 import { collections, ensureIndexes } from "../server/db.ts";
 
@@ -15,6 +15,11 @@ beforeAll(async () => {
   const c = collections(client.db("test"));
   await ensureIndexes(c);
   app = createApp({ getCollections: async () => c, secureCookies: false });
+});
+
+// Every test registers from the same IP; start each one with fresh attempt counters.
+beforeEach(async () => {
+  await client.db("test").collection("rateLimits").deleteMany({});
 });
 
 afterAll(async () => {
@@ -110,6 +115,24 @@ describe("Caliche Balance API", () => {
     expect((await agent.get("/api/me")).body.goals.weight.targetKg).toBe(89.99);
 
     expect((await agent.put("/api/me/goals").send({ weight: { value: 10, unit: "kg" }, bodyFatPct: null })).status).toBe(400);
+  });
+
+  it("stores a waist when adding a reading or later on an existing one", async () => {
+    const agent = request.agent(app);
+    await agent.post("/api/auth/register").send({ username: "hugo", password: "contraseña-hugo" });
+    const withWaist = await agent.post("/api/measurements").send({ weight: 90, waist: "37,5", waistUnit: "in" });
+    expect(withWaist.body.waistCm).toBeCloseTo(95.3, 1);
+
+    const plain = await agent.post("/api/measurements").send({ weight: 89, measuredAt: "2026-10-01T08:00:00Z" });
+    expect(plain.body.waistCm).toBeNull();
+    const patched = await agent.patch(`/api/measurements/${plain.body.id}/waist`).send({ waist: 96, waistUnit: "cm" });
+    expect(patched.body.waistCm).toBe(96);
+    expect((await agent.patch(`/api/measurements/${plain.body.id}/waist`).send({ waist: null })).body.waistCm).toBeNull();
+
+    // Nobody else can touch it.
+    const other = request.agent(app);
+    await other.post("/api/auth/register").send({ username: "ines", password: "contraseña-ines" });
+    expect((await other.patch(`/api/measurements/${plain.body.id}/waist`).send({ waist: 80 })).status).toBe(404);
   });
 
   it("keeps each person's data private", async () => {

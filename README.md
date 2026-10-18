@@ -13,13 +13,15 @@ Cada persona tiene su propia cuenta (nombre de usuario y contraseña) y sus dato
 - **Inicio:** tu última medición con peso, IMC, % de grasa y metabolismo basal. Cada valor se clasifica (Bien / Atención / Alto riesgo, siempre con ícono y texto) y muestra de dónde sale cada rango.
 - **Comparación asiática:** junto al IMC te dice cómo te clasificaría un rango asiático como el de Zepp Life, para que veas la diferencia.
 - **Historial:** todas las gráficas en una sola página (peso, grasa, masa libre de grasa, agua, metabolismo basal, músculo esquelético y las medidas que solo da Xiaomi), con banda saludable y línea de meta donde aplica, y la lista de mediciones.
-- **Caliche Balance vs Xiaomi:** con el interruptor "Comparar con Xiaomi", las gráficas de grasa, masa libre de grasa, agua y metabolismo muestran las dos líneas (verde continua y azul punteada) y el tooltip da la diferencia. En Inicio, una tabla compara tu última pesada completa. Solo se comparan medidas que significan lo mismo: el "músculo" de Xiaomi no es músculo esquelético, así que van en gráficas separadas.
+- **Caliche Balance vs Xiaomi:** con el interruptor "Comparar con Xiaomi", las gráficas de grasa, masa libre de grasa, agua, metabolismo, masa magra, proteína y edad muestran las dos líneas (verde continua y azul punteada) y el tooltip da la diferencia. En Inicio, una tabla compara tu última pesada completa. Solo se comparan medidas que significan lo mismo: el "músculo" de Xiaomi no es músculo esquelético; se compara con la masa magra sin minerales, que es lo que sí mide.
 - **Agregar a mano:** como respaldo, acepta coma decimal ("74,5").
 - **Báscula Xiaomi vía Zepp Life:** trae todas tus pesadas con todos sus valores (grasa, músculo, agua, masa ósea, grasa visceral, proteína, metabolismo basal, edad corporal, puntuación, peso ideal e impedancia) y se sincroniza sola.
 - **Una báscula para toda la casa:** cada persona tiene su cuenta y recibe solo sus pesadas, con invitaciones y reasignación de pesadas.
 - **Puntuación Caliche (0 a 100)** al inicio, propia y transparente: combina % de grasa (50 %), IMC (30 %) e índice de músculo (20 %) con rangos publicados de Norteamérica, muestra cuánto aporta cada parte y la de Xiaomi como comparación.
 - **Tú comparado con Norteamérica:** en qué percentil de IMC estás entre adultos de tu sexo y edad en EE. UU. y entre mexicoamericanos (CDC, NHANES 2015-2018).
-- **Composición recalculada con ecuaciones de Norteamérica:** con la impedancia que mide la báscula se recalculan el % de grasa, la masa libre de grasa, el agua corporal, el músculo esquelético y el metabolismo basal, en lugar de usar las fórmulas de Xiaomi.
+- **Composición recalculada con ecuaciones de Norteamérica:** con la impedancia que mide la báscula se recalculan el % de grasa, la masa libre de grasa, el agua corporal, el músculo esquelético y el metabolismo basal, en lugar de usar las fórmulas de Xiaomi. También la masa magra sin minerales (comparable con el "músculo" de Xiaomi) y la proteína (experimental).
+- **Cintura y riesgo visceral:** la báscula no ve la grasa del abdomen, así que puedes anotar tu cintura al agregar una medición a mano o en cualquier pesada que ya exista (Inicio o Historial). Se calcula la relación cintura entre estatura y se compara con los cortes de EE. UU./Canadá y de México.
+- **Edad de tu grasa corporal:** la edad a la que un adulto típico de Norteamérica de tu sexo tiene tu % de grasa, comparando con mexicoamericanos y con estadounidenses blancos (NHANES, DXA), en lugar de la "edad corporal" de Xiaomi.
 - **Notificaciones:** "Nueva pesada: 96.0 kg (−0.4 kg)" y "Tu token de Zepp caducó", en el iPhone con la app instalada (iOS 16.4+).
 - **Metas de peso y de % de grasa:** barra de avance, cuánto te falta, una estimación de cuándo llegarías según tu ritmo de las últimas 4 semanas, y una línea punteada en las gráficas.
 - **PWA completa:** se instala en la pantalla de inicio, abre al instante y funciona sin internet con tus pesadas de los últimos 3 meses.
@@ -48,12 +50,31 @@ La báscula solo mide peso e **impedancia**; todo lo demás lo calcula Zepp Life
 | Músculo esquelético | Janssen y col., J Appl Physiol 2000 | 388 adultos, 18 a 86 años, medidos con resonancia magnética |
 | Índice de músculo (kg/m²) y su clasificación | Janssen y col., Am J Epidemiol 2004 | NHANES III, 4,449 adultos de 60 años o más (por eso solo se clasifica desde los 60) |
 | Metabolismo basal por masa magra | Katch-McArdle: 370 + 21.6 × masa libre de grasa | |
+| Masa magra sin minerales | Masa libre de grasa menos minerales (6.5 % de la masa libre de grasa, Hombre de Referencia ICRP; Heymsfield y col., J Endocr Soc 2024) | |
+| Proteína (experimental) | Masa libre de grasa menos agua menos minerales | Resta de dos estimaciones: el error se acumula |
 
 Los coeficientes de Sun se verificaron contra la tabla de ecuaciones de ESPEN (Kyle y col., Clin Nutr 2004).
 
 - **El % de grasa que usa toda la app** (clasificación, metas, gráficas) es el recalculado cuando la pesada tiene impedancia; si no la tiene (por ejemplo, una medición agregada a mano), se usa el valor de Xiaomi. Inicio dice cuál se usó y muestra el de Xiaomi como comparación.
 - **Limitaciones:** estas ecuaciones se hicieron con aparatos que miden de mano a pie a 50 kHz, y la báscula Xiaomi mide de pie a pie. Los resultados son estimaciones para seguir tendencias, no un diagnóstico. La muestra de Sun no incluyó población mexicana; no hay una ecuación equivalente validada para México y Canadá juntos.
-- Masa ósea, grasa visceral, proteína, edad corporal y puntuación no tienen ecuación de Norteamérica equivalente; se muestran como las calcula Xiaomi, marcadas "(Xiaomi)".
+- **Por qué Xiaomi da "músculo" y aquí no:** el "músculo" de Xiaomi es masa libre de grasa menos hueso (incluye órganos, piel y agua), no músculo esquelético. Su equivalente aquí es la masa magra sin minerales; el músculo esquelético (Janssen) es otra medida, mucho menor.
+- Masa ósea y grasa visceral no tienen ecuación de Norteamérica equivalente con impedancia de pie a pie; se muestran como las calcula Xiaomi. Para el riesgo visceral, usa la cintura.
+
+### Cintura y riesgo visceral
+
+Todo está en `shared/waist.ts`:
+
+| Medida | Corte | Fuente |
+|---|---|---|
+| Cintura entre estatura | Riesgo aumentado desde 0.5, alto desde 0.6 | Ashwell y Gibson, BMJ Open 2016 |
+| Cintura, EE. UU. y Canadá | Más de 102 cm (hombres) y 88 cm (mujeres) | NHLBI 1998; Health Canada 2003 |
+| Cintura, México | 90 cm (hombres) y 80 cm (mujeres) | NOM-008-SSA3-2017 |
+
+Se mide de pie, con la cinta horizontal justo arriba del hueso de la cadera, al final de una exhalación normal.
+
+### Edad de tu grasa corporal
+
+`shared/bodyAge.ts` usa la mediana de % de grasa por edad medida con DXA en NHANES 1999-2004 (Kelly, Wilson y Heymsfield, PLoS ONE 2009, tabla S2), para mexicoamericanos y para estadounidenses blancos. Tu edad de grasa es la edad en la que la mediana es igual a tu % de grasa (interpolando entre grupos de edad). La mediana deja de subir cerca de los 65 a 75 años; si tu % es mayor, se dice "esa edad o más". Es una aproximación: compara tu grasa estimada por impedancia con valores de DXA.
 
 No existe una tabla oficial única para todo el continente; estas son las referencias más usadas en la región. Caliche Balance es una herramienta personal, no un dispositivo médico.
 

@@ -149,7 +149,7 @@ const BAR_COLOR: Record<Status, string> = { good: "bg-good", warn: "bg-warn", ba
  * Horizontal scale of every band with a marker at the value. Open-ended bands get a
  * width equal to their neighbour so the scale stays readable.
  */
-export function RangeBar({ classification, format }: { classification: Classification; format: (n: number) => string }) {
+export function RangeBar({ classification, format }: { classification: Pick<Classification, "value" | "bands">; format: (n: number) => string }) {
   const { bands, value } = classification;
   const edges = bands.flatMap((b) => [b.min, b.max]).filter((n): n is number => n !== null);
   const span = Math.max(...edges) - Math.min(...edges);

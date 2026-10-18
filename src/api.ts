@@ -45,6 +45,8 @@ export const api = {
   measurements: () => call<MeasurementDto[]>("GET", "/measurements?limit=1000"),
   addMeasurement: (input: MeasurementInput) => call<MeasurementDto>("POST", "/measurements", input),
   deleteMeasurement: (id: string) => call<void>("DELETE", `/measurements/${id}`),
+  setWaist: (id: string, waist: string | null, waistUnit: "cm" | "in") =>
+    call<MeasurementDto>("PATCH", `/measurements/${id}/waist`, { waist, waistUnit }),
   zeppStatus: () => call<ZeppStatusDto>("GET", "/zepp"),
   zeppConnect: (appToken: string, zeppUserId: string) =>
     call<ZeppStatusDto & { imported: number }>("POST", "/zepp/connect", { appToken, zeppUserId }),
