@@ -229,10 +229,10 @@ function PercentileCard({ profile, latest }: { profile: ProfileDto; latest: Meas
           const ages = r.ageTo === null ? tf("percentileAgesOver", { from: r.ageFrom }) : tf("percentileAges", { from: r.ageFrom, to: r.ageTo });
           const sentence =
             r.beyond === "above"
-              ? tf("percentileAbove95", { who, ages })
+              ? tf("percentileAbove95", { who, ages, bmi: f.number(value) })
               : r.beyond === "below"
-                ? tf("percentileBelow5", { who, ages })
-                : tf("percentileHigher", { n: Math.round(r.percentile), who, ages });
+                ? tf("percentileBelow5", { who, ages, bmi: f.number(value) })
+                : tf("percentileHigher", { n: Math.round(r.percentile), who, ages, bmi: f.number(value) });
           return (
             <div key={r.group}>
               <p className="text-sm font-semibold">{t(`percentileGroup.${r.group}` as MessageKey)}</p>
@@ -441,7 +441,7 @@ export function HomePage({
   username: string;
   goals: GoalsDto;
 }) {
-  const { t } = useI18n();
+  const { t, tf } = useI18n();
   const f = useFormat();
   const [compare] = useCompareXiaomi();
   const latest = measurements[0];
@@ -478,7 +478,7 @@ export function HomePage({
     { sex: profile.sex, birthDate: new Date(`${profile.birthDate}T00:00:00Z`), heightCm: profile.heightCm },
     { measuredAt: new Date(latest.measuredAt), weightKg: latest.weightKg, bodyFatPct: fat?.value ?? null },
   );
-  const sources: SourceId[] = ["who-bmi", "who-asian-bmi", "mifflin-st-jeor"];
+  const sources: SourceId[] = ["who-bmi", ...(compare ? (["who-asian-bmi"] as const) : []), ...(na ? [] : (["mifflin-st-jeor"] as const))];
   if (result.bodyFat) sources.splice(1, 0, "gallagher-2000", "ace");
   if (na) sources.splice(1, 0, "sun-2003", "janssen", "katch-mcardle");
   const v = (n: number | null | undefined) => n !== null && n !== undefined;
@@ -537,9 +537,11 @@ export function HomePage({
           <StatusBadge band={result.bmi.band} />
         </div>
         <RangeBar classification={result.bmi} format={(n) => f.number(n)} />
-        <p className="mt-4 flex flex-wrap items-center gap-2 text-sm text-ink-2">
-          {t("asianComparison")} <StatusBadge band={result.bmiAsian.band} />
-        </p>
+        {compare && (
+          <p className="mt-4 flex flex-wrap items-center gap-2 text-sm text-ink-2">
+            {t("asianComparison")} <StatusBadge band={result.bmiAsian.band} />
+          </p>
+        )}
       </Card>
 
       {compNote && <p className="px-1 text-sm text-muted">{compNote}</p>}
@@ -558,7 +560,7 @@ export function HomePage({
           <p className="mt-4 flex flex-wrap items-center gap-2 text-sm text-ink-2">
             {t("aceCategory")} <StatusBadge band={result.bodyFatAce.band} />
           </p>
-          {fat?.source === "north-america" && comp?.bodyFatPct != null && (
+          {compare && fat?.source === "north-america" && comp?.bodyFatPct != null && (
             <p className="mt-3 text-sm text-ink-2">
               {t("xiaomiSays")} <strong className="text-ink">{f.number(comp.bodyFatPct)} %</strong>
             </p>
@@ -579,7 +581,6 @@ export function HomePage({
               { label: t("bodyWater"), value: `${f.number(na.bodyWaterL)} L · ${f.number(na.bodyWaterPct, 0)} %` },
               { label: t("skeletalMuscle"), value: f.weight(na.skeletalMuscleKg, profile.unit) },
               { label: t("muscleIndex"), value: `${f.number(na.skeletalMuscleIndex)} kg/m²` },
-              { label: t("bmrKatch"), value: `${f.number(na.bmrKcal, 0)} kcal` },
               { label: t("leanSoftMass"), value: f.weight(na.leanSoftKg, profile.unit) },
               ...(na.proteinKg === null || na.proteinPct === null
                 ? []
@@ -618,11 +619,15 @@ export function HomePage({
       <Card>
         <p className="text-sm font-medium text-ink-2">{t("bmr")}</p>
         <p className="mt-1 text-3xl font-bold">
-          {f.number(result.bmrKcal, 0)} <span className="text-lg font-medium text-ink-2">{t("kcalDay")}</span>
+          {f.number(na ? na.bmrKcal : result.bmrKcal, 0)} <span className="text-lg font-medium text-ink-2">{t("kcalDay")}</span>
         </p>
+        <p className="mt-1 text-sm text-muted">{na ? t("bmrSourceNA") : t("bmrSourceFormula")}</p>
+        {compare && comp?.bmrKcal != null && (
+          <p className="mt-2 text-sm text-ink-2">{tf("reportXiaomi", { value: `${f.number(comp.bmrKcal, 0)} kcal` })}</p>
+        )}
       </Card>
 
-      {xiaomi.length > 0 && (
+      {compare && xiaomi.length > 0 && (
         <Card>
           <h2 className="text-lg font-semibold">{t("xiaomiValues")}</h2>
           <dl className="mt-3 grid grid-cols-2 gap-3">

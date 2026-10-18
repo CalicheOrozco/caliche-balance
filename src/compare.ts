@@ -1,14 +1,14 @@
 import { useSyncExternalStore } from "react";
 
-/** Whether to show Xiaomi's values next to Caliche Balance's. Remembered on this device. */
+/** Whether to show Xiaomi's values next to Caliche Balance's. Off until turned on; remembered on this device. */
 const KEY = "compare-xiaomi";
 const EVENT = "compare-xiaomi-change";
 
 function read(): boolean {
   try {
-    return localStorage.getItem(KEY) !== "off";
+    return localStorage.getItem(KEY) === "on";
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -18,7 +18,7 @@ function subscribe(onChange: () => void) {
 }
 
 export function useCompareXiaomi(): [boolean, (on: boolean) => void] {
-  const on = useSyncExternalStore(subscribe, read, () => true);
+  const on = useSyncExternalStore(subscribe, read, () => false);
   const set = (next: boolean) => {
     try {
       localStorage.setItem(KEY, next ? "on" : "off");
