@@ -1,4 +1,4 @@
-import { ageAt, type Sex } from "./reference.ts";
+import { ageAt, type Band, type Sex } from "./reference.ts";
 
 /**
  * Body composition recalculated from the scale's raw impedance with equations developed in
@@ -59,6 +59,24 @@ const MIN_IMPEDANCE = 200;
 const MAX_IMPEDANCE = 1000;
 export const MIN_COMPOSITION_AGE = 18;
 
+/** Janssen 2004 skeletal muscle index cut points (kg/m²): high risk at or below low, moderate risk up to moderate. */
+export const MUSCLE_INDEX_CUTOFFS: Record<Sex, { low: number; moderate: number }> = {
+  male: { low: 8.5, moderate: 10.75 },
+  female: { low: 5.75, moderate: 6.75 },
+};
+
+/** Studied in adults aged 60 or more; younger people can use the bands only as a guide. */
+export const MUSCLE_INDEX_STUDIED_FROM_AGE = 60;
+
+export function muscleIndexBands(sex: Sex): Band[] {
+  const { low, moderate } = MUSCLE_INDEX_CUTOFFS[sex];
+  return [
+    { key: "low", min: null, max: low, status: "bad" },
+    { key: "moderately-low", min: low, max: moderate, status: "warn" },
+    { key: "normal", min: moderate, max: null, status: "good" },
+  ];
+}
+
 export function recalculate(input: CompositionInput): Composition | null {
   const { sex, heightCm, age, weightKg, impedance: r } = input;
   if (!r || r < MIN_IMPEDANCE || r > MAX_IMPEDANCE || age < MIN_COMPOSITION_AGE) return null;
@@ -77,9 +95,11 @@ export function recalculate(input: CompositionInput): Composition | null {
 
   const meters = heightCm / 100;
   const skeletalMuscleIndex = skeletalMuscleKg / (meters * meters);
-  const [low, moderate] = male ? [8.5, 10.75] : [5.75, 6.75];
   const muscleClass =
-    age < 60 ? null : skeletalMuscleIndex <= low ? "low" : skeletalMuscleIndex <= moderate ? "moderately-low" : "normal";
+    age < MUSCLE_INDEX_STUDIED_FROM_AGE
+      ? null
+      : (muscleIndexBands(sex).find((b) => (b.min === null || skeletalMuscleIndex >= b.min) && (b.max === null || skeletalMuscleIndex < b.max))!
+          .key as NonNullable<Composition["muscleClass"]>);
 
   const mineralKg = MINERAL_FRACTION_OF_FFM * fatFreeMassKg;
   const protein = fatFreeMassKg - bodyWaterL - mineralKg; // 1 L of body water is about 1 kg

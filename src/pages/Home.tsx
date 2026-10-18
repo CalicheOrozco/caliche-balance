@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { FiChevronRight } from "react-icons/fi";
 import { Link } from "react-router";
 import { type BodyFatAge, bodyFatAge } from "../../shared/bodyAge.ts";
 import { assessWaist, WHTR_BANDS } from "../../shared/waist.ts";
@@ -197,6 +198,12 @@ function BodyScoreCard({ profile, measurements }: { profile: ProfileDto; measure
         {t("bodyScoreNote")}
         {latest !== measurements[0] && ` ${tf("bodyScoreFrom", { date: f.date(latest.measuredAt) })}`}
       </p>
+      <Link
+        to={`/medicion/${latest.id}`}
+        className="mt-3 flex min-h-11 items-center justify-center gap-1 rounded-2xl bg-surface-2 px-4 py-2.5 font-medium text-ink"
+      >
+        {t("seeDetail")} <FiChevronRight size={18} aria-hidden />
+      </Link>
     </Card>
   );
 }

@@ -10,6 +10,7 @@ import { type MessageKey, useI18n } from "./i18n.tsx";
 import { AddPage } from "./pages/Add.tsx";
 import { AuthPage } from "./pages/Auth.tsx";
 import { HomePage } from "./pages/Home.tsx";
+import { ReadingPage } from "./pages/Reading.tsx";
 import { ProfileForm, SettingsPage } from "./pages/Settings.tsx";
 import { useAutoSync } from "./pages/Zepp.tsx";
 import { Card, Logo } from "./ui.tsx";
@@ -104,6 +105,7 @@ function SignedIn({ user }: { user: UserDto }) {
               </Suspense>
             }
           />
+          <Route path="/medicion/:id" element={<ReadingPage profile={profile} measurements={list} />} />
           <Route path="/agregar" element={<AddPage profile={profile} />} />
           <Route path="/ajustes" element={<SettingsPage user={user} />} />
           <Route path="*" element={<Navigate to="/" replace />} />

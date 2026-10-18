@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useMemo, useState } from "react";
 import { FiEdit2, FiTrash2, FiUserX } from "react-icons/fi";
+import { Link } from "react-router";
 import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { bodyFatAge } from "../../shared/bodyAge.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
@@ -298,15 +299,17 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
             return (
               <li key={m.id} className="flex items-center gap-3 px-5 py-3">
                 <div className="min-w-0 flex-1">
-                  <p className="font-semibold">
-                    {f.weight(m.weightKg, unit)}
-                    {fat && <span className="font-normal text-ink-2"> · {f.number(fat.value)} %</span>}
-                  </p>
-                  <p className="text-sm text-muted">
-                    {f.dateTime(m.measuredAt)} · {t(`source.${m.source}` as MessageKey)}
-                    {m.waistCm !== null &&
-                      ` · ${t("waist")} ${waistUnit === "in" ? f.number(m.waistCm / CM_PER_IN) : f.number(m.waistCm, 0)} ${waistUnit}`}
-                  </p>
+                  <Link to={`/medicion/${m.id}`} className="-my-1 block rounded-xl py-1 active:opacity-70">
+                    <p className="font-semibold">
+                      {f.weight(m.weightKg, unit)}
+                      {fat && <span className="font-normal text-ink-2"> · {f.number(fat.value)} %</span>}
+                    </p>
+                    <p className="text-sm text-muted">
+                      {f.dateTime(m.measuredAt)} · {t(`source.${m.source}` as MessageKey)}
+                      {m.waistCm !== null &&
+                        ` · ${t("waist")} ${waistUnit === "in" ? f.number(m.waistCm / CM_PER_IN) : f.number(m.waistCm, 0)} ${waistUnit}`}
+                    </p>
+                  </Link>
                   {waistFor === m.id && (
                     <form
                       className="mt-2 flex items-end gap-2"

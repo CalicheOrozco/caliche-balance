@@ -1,4 +1,4 @@
-import { bodyFatOf, type Composition, compositionOf, type ProfileFacts, type ReadingFacts } from "./composition.ts";
+import { bodyFatOf, type Composition, compositionOf, MUSCLE_INDEX_CUTOFFS, type ProfileFacts, type ReadingFacts } from "./composition.ts";
 import { ageAt, bmi, bodyFatBands, type Sex } from "./reference.ts";
 
 /**
@@ -58,7 +58,7 @@ export function bmiPart(bmi: number): number {
 
 /** 100 above Janssen's moderate-risk cut point; 50 at the high-risk one; 0 two units below it. */
 export function musclePart(index: number, sex: Sex): number {
-  const [low, moderate] = sex === "male" ? [8.5, 10.75] : [5.75, 6.75];
+  const { low, moderate } = MUSCLE_INDEX_CUTOFFS[sex];
   if (index > moderate) return 100;
   if (index > low) return ramp(index, moderate, 100, low, 50);
   return ramp(index, low, 50, low - 2, 0);
