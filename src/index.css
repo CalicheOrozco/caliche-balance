@@ -16,6 +16,8 @@
   --brand-ink: #ffffff;
   /* Chart series, validated against the light surface. */
   --series: #178a43;
+  /* Xiaomi's values in comparisons; validated with --series for color vision deficiency. */
+  --series-2: #2a78d6;
   --band: rgb(12 163 12 / 0.12);
   /* Status colors always ship with an icon and a label. */
   --good: #0ca30c;
@@ -36,6 +38,7 @@
   --brand-ink: #04120a;
   /* Validated against the dark surface (lightness band 0.48 to 0.67). */
   --series: #1fa653;
+  --series-2: #3987e5;
   --band: rgb(12 163 12 / 0.18);
   --good: #0ca30c;
   --warn: #fab219;

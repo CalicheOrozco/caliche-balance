@@ -12,7 +12,8 @@ Cada persona tiene su propia cuenta (nombre de usuario y contraseña) y sus dato
 
 - **Inicio:** tu última medición con peso, IMC, % de grasa y metabolismo basal. Cada valor se clasifica (Bien / Atención / Alto riesgo, siempre con ícono y texto) y muestra de dónde sale cada rango.
 - **Comparación asiática:** junto al IMC te dice cómo te clasificaría un rango asiático como el de Zepp Life, para que veas la diferencia.
-- **Historial:** gráfica de peso y una segunda gráfica para cualquier medida (grasa, músculo, agua, grasa visceral, proteína, edad corporal), con la banda saludable marcada donde existe, y la lista de mediciones.
+- **Historial:** todas las gráficas en una sola página (peso, grasa, masa libre de grasa, agua, metabolismo basal, músculo esquelético y las medidas que solo da Xiaomi), con banda saludable y línea de meta donde aplica, y la lista de mediciones.
+- **Caliche Balance vs Xiaomi:** con el interruptor "Comparar con Xiaomi", las gráficas de grasa, masa libre de grasa, agua y metabolismo muestran las dos líneas (verde continua y azul punteada) y el tooltip da la diferencia. En Inicio, una tabla compara tu última pesada completa. Solo se comparan medidas que significan lo mismo: el "músculo" de Xiaomi no es músculo esquelético, así que van en gráficas separadas.
 - **Agregar a mano:** como respaldo, acepta coma decimal ("74,5").
 - **Báscula Xiaomi vía Zepp Life:** trae todas tus pesadas con todos sus valores (grasa, músculo, agua, masa ósea, grasa visceral, proteína, metabolismo basal, edad corporal, puntuación, peso ideal e impedancia) y se sincroniza sola.
 - **Una báscula para toda la casa:** cada persona tiene su cuenta y recibe solo sus pesadas, con invitaciones y reasignación de pesadas.

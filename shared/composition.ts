@@ -128,3 +128,25 @@ export function compositionOf(profile: ProfileFacts, reading: ReadingFacts): Com
 export function bodyFatOf(profile: ProfileFacts, reading: ReadingFacts) {
   return effectiveBodyFat({ ...inputFor(profile, reading), bodyFatPct: reading.bodyFatPct });
 }
+
+/** Xiaomi's own numbers for the measures that mean the same thing as the recalculation. */
+export interface XiaomiComparable {
+  bodyFatPct: number | null;
+  fatFreeMassKg: number | null;
+  bodyWaterPct: number | null;
+  bmrKcal: number | null;
+}
+
+export function xiaomiComparable(reading: {
+  weightKg: number;
+  bodyFatPct: number | null;
+  waterPct?: number | null;
+  bmrKcal?: number | null;
+}): XiaomiComparable {
+  return {
+    bodyFatPct: reading.bodyFatPct,
+    fatFreeMassKg: reading.bodyFatPct === null ? null : reading.weightKg * (1 - reading.bodyFatPct / 100),
+    bodyWaterPct: reading.waterPct ?? null,
+    bmrKcal: reading.bmrKcal ?? null,
+  };
+}

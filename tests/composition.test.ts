@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveBodyFat, recalculate } from "../shared/composition.ts";
+import { effectiveBodyFat, recalculate, xiaomiComparable } from "../shared/composition.ts";
 
 describe("recalculate (Sun 2003, Janssen 2000/2004, Katch-McArdle)", () => {
   it("reproduces the published equations for a man", () => {
@@ -39,5 +39,17 @@ describe("effectiveBodyFat", () => {
     expect(effectiveBodyFat({ ...base, impedance: 495, bodyFatPct: 30.2 })).toMatchObject({ source: "north-america" });
     expect(effectiveBodyFat({ ...base, impedance: null, bodyFatPct: 30.2 })).toEqual({ value: 30.2, source: "xiaomi" });
     expect(effectiveBodyFat({ ...base, impedance: null, bodyFatPct: null })).toBeNull();
+  });
+});
+
+describe("xiaomiComparable", () => {
+  it("derives Xiaomi's fat-free mass from its own body fat, for a like-for-like comparison", () => {
+    expect(xiaomiComparable({ weightKg: 100, bodyFatPct: 30, waterPct: 50, bmrKcal: 1977 })).toEqual({
+      bodyFatPct: 30,
+      fatFreeMassKg: 70,
+      bodyWaterPct: 50,
+      bmrKcal: 1977,
+    });
+    expect(xiaomiComparable({ weightKg: 100, bodyFatPct: null })).toEqual({ bodyFatPct: null, fatFreeMassKg: null, bodyWaterPct: null, bmrKcal: null });
   });
 });

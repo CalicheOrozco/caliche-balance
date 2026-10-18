@@ -1,4 +1,4 @@
-import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, useId, useState } from "react";
+import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, useId, useState } from "react";
 import type { IconType } from "react-icons";
 import { FiAlertOctagon, FiAlertTriangle, FiCheckCircle, FiEye, FiEyeOff } from "react-icons/fi";
 import type { Band, Classification, Status } from "../shared/reference.ts";
@@ -98,18 +98,6 @@ export function Switch({ label, checked, onChange, disabled }: { label: string; 
   );
 }
 
-export function Select({ label, children, ...props }: SelectHTMLAttributes<HTMLSelectElement> & { label: string }) {
-  const id = useId();
-  return (
-    <label htmlFor={id} className="block">
-      <span className="mb-1.5 block text-sm font-medium text-ink-2">{label}</span>
-      <select id={id} className="w-full rounded-2xl border border-line bg-surface-2 px-4 py-3 text-ink outline-none focus:border-brand" {...props}>
-        {children}
-      </select>
-    </label>
-  );
-}
-
 export function Segmented<T extends string>({
   value,
   options,
@@ -191,6 +179,12 @@ export function RangeBar({ classification, format }: { classification: Classific
       </div>
     </div>
   );
+}
+
+/** "+1.6" / "\u22120.4": a difference always shows its sign (a real minus sign, not a hyphen). */
+export function signed(n: number, format: (n: number) => string): string {
+  if (Math.abs(n) < 0.05) return format(0);
+  return `${n > 0 ? "+" : "\u2212"}${format(Math.abs(n))}`;
 }
 
 export function useFormat() {

@@ -1,10 +1,11 @@
 import { Link } from "react-router";
 import { assess, type SourceId } from "../../shared/reference.ts";
-import { bodyFatOf, compositionOf } from "../../shared/composition.ts";
+import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
+import { useCompareXiaomi } from "../compare.ts";
 import { dailyTrend, estimateEta, goalProgress } from "../../shared/goals.ts";
 import { fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
-import { Card, RangeBar, StatusBadge, useFormat } from "../ui.tsx";
+import { Card, RangeBar, StatusBadge, signed, useFormat } from "../ui.tsx";
 
 /** One goal: progress bar, distance left, starting point and the estimate at the recent pace. */
 function GoalRow({
@@ -121,6 +122,65 @@ function GoalsCard({ goals, measurements, profile }: { goals: GoalsDto; measurem
   );
 }
 
+/** The same weigh-in computed by Caliche Balance and by Xiaomi, side by side with the difference. */
+function ComparisonCard({ profile, reading }: { profile: ProfileDto; reading: MeasurementDto }) {
+  const { t, locale } = useI18n();
+  const f = useFormat();
+  const na = compositionOf(profile, reading)!;
+  const x = xiaomiComparable(reading);
+  const unit = profile.unit;
+  const rows: { label: string; c: number; x: number | null; format: (n: number) => string }[] = [
+    { label: `${t("bodyFat")} (%)`, c: na.bodyFatPct, x: x.bodyFatPct, format: (n) => f.number(n) },
+    {
+      label: `${t("fatFreeMass")} (${unit})`,
+      c: fromKilograms(na.fatFreeMassKg, unit),
+      x: x.fatFreeMassKg === null ? null : fromKilograms(x.fatFreeMassKg, unit),
+      format: (n) => f.number(n),
+    },
+    { label: `${t("bodyWater")} (%)`, c: na.bodyWaterPct, x: x.bodyWaterPct, format: (n) => f.number(n) },
+    { label: `${t("bmr")} (kcal)`, c: na.bmrKcal, x: x.bmrKcal, format: (n) => f.number(n, 0) },
+  ];
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold">{t("compareTitle")}</h2>
+      <p className="mt-1 text-sm text-ink-2">
+        {t("compareIntro")} {new Date(reading.measuredAt).toLocaleDateString(locale, { day: "numeric", month: "short" })}
+      </p>
+      <table className="mt-3 w-full text-sm">
+        <thead>
+          <tr className="text-left text-muted">
+            <th className="py-1 font-medium">{t("measure")}</th>
+            <th className="py-1 pl-2 text-right font-medium whitespace-nowrap">
+              <span className="inline-flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-[var(--series)]" aria-hidden />
+                Caliche
+              </span>
+            </th>
+            <th className="py-1 pl-2 text-right font-medium whitespace-nowrap">
+              <span className="inline-flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-[var(--series-2)]" aria-hidden />
+                Xiaomi
+              </span>
+            </th>
+            <th className="py-1 pl-2 text-right font-medium whitespace-nowrap">{t("difference")}</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line">
+          {rows.map((r) => (
+            <tr key={r.label}>
+              <td className="py-2 text-ink-2">{r.label}</td>
+              <td className="py-2 pl-2 text-right font-semibold">{r.format(r.c)}</td>
+              <td className="py-2 pl-2 text-right">{r.x === null ? "-" : r.format(r.x)}</td>
+              <td className="py-2 pl-2 text-right font-medium">{r.x === null ? "-" : signed(r.c - r.x, r.format)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-3 text-sm text-muted">{t("naCompositionNote")}</p>
+    </Card>
+  );
+}
+
 export function HomePage({
   profile,
   measurements,
@@ -134,6 +194,7 @@ export function HomePage({
 }) {
   const { t } = useI18n();
   const f = useFormat();
+  const [compare] = useCompareXiaomi();
   const latest = measurements[0];
   const name = profile.displayName ?? username;
 
@@ -252,6 +313,8 @@ export function HomePage({
           )}
         </Card>
       )}
+
+      {na && comp && compare && <ComparisonCard profile={profile} reading={comp} />}
 
       {na && (
         <Card>
