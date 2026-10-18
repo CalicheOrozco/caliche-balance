@@ -4,6 +4,7 @@ import { FiTrash2, FiUserX } from "react-icons/fi";
 import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
 import { ageAt, bodyFatBands, healthyWeightRange } from "../../shared/reference.ts";
+import { scoreOf } from "../../shared/score.ts";
 import { fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { api } from "../api.ts";
 import { useCompareXiaomi } from "../compare.ts";
@@ -191,7 +192,9 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
           visceral: m.visceralFat,
           protein: m.proteinPct,
           bodyAge: m.bodyAge,
-          bodyScore: m.bodyScore,
+          // Weight-only weigh-ins would score on BMI alone and jump; only full ones are charted.
+          "score.c": m.bodyFatPct !== null || m.impedance !== null ? scoreOf(profile, m).score : null,
+          "score.x": m.bodyScore,
         };
       }),
     [visible, profile, unit],
@@ -221,6 +224,13 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
       </Card>
 
       <TrendChart
+        title={`${t("bodyScoreTitle")} (0-100)`}
+        rows={rows}
+        series={paired("score.c", "score.x")}
+        formatTick={(n) => f.number(n, 0)}
+        formatValue={(n) => f.number(n, 0)}
+      />
+      <TrendChart
         title={`${t("weight")} (${unit})`}
         rows={rows}
         series={one("weight", t("weight"))}
@@ -249,13 +259,6 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
 
       <h2 className="px-1 pt-2 text-lg font-semibold">{t("xiaomiOnlyTitle")}</h2>
       <p className="-mt-2 px-1 text-sm text-muted">{t("xiaomiOnlyHint")}</p>
-      <TrendChart
-        title={`${t("bodyScoreTitle")} (0-100)`}
-        rows={rows}
-        series={[xiaomi("bodyScore")]}
-        formatTick={(n) => f.number(n, 0)}
-        formatValue={(n) => f.number(n, 0)}
-      />
       <TrendChart title={`${t("muscle")} (${unit})`} rows={rows} series={[xiaomi("muscleX")]} {...plain} />
       <TrendChart title={t("visceral")} rows={rows} series={[xiaomi("visceral")]} formatTick={(n) => f.number(n, 0)} formatValue={(n) => f.number(n, 0)} />
       <TrendChart title={`${t("protein")} (%)`} rows={rows} series={[xiaomi("protein")]} {...plain} />

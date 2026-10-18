@@ -1,7 +1,9 @@
 import { Link } from "react-router";
-import { assess, type SourceId } from "../../shared/reference.ts";
+import { ageAt, assess, bmi, type SourceId } from "../../shared/reference.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
 import { useCompareXiaomi } from "../compare.ts";
+import { bmiPercentile } from "../../shared/percentiles.ts";
+import { scoreOf } from "../../shared/score.ts";
 import { dailyTrend, estimateEta, goalProgress } from "../../shared/goals.ts";
 import { fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
@@ -122,27 +124,32 @@ function GoalsCard({ goals, measurements, profile }: { goals: GoalsDto; measurem
   );
 }
 
-/** Zepp's 0 to 100 body score, first thing on Home, with the change since the previous score. */
-function BodyScoreCard({ measurements }: { measurements: MeasurementDto[] }) {
+/** Caliche Balance's own 0 to 100 score, first thing on Home, with every part visible. */
+function BodyScoreCard({ profile, measurements }: { profile: ProfileDto; measurements: MeasurementDto[] }) {
   const { t, tf } = useI18n();
   const f = useFormat();
-  const scored = measurements.filter((m) => m.bodyScore !== null);
-  const latest = scored[0];
+  const [compare] = useCompareXiaomi();
+  // The newest full weigh-in (with body fat) scores best; weight-only ones fall back to BMI alone.
+  const scored = measurements.filter((m) => m.bodyFatPct !== null || m.impedance !== null);
+  const latest = scored[0] ?? measurements[0];
   if (!latest) return null;
-  const score = latest.bodyScore!;
-  const previous = scored[1]?.bodyScore ?? null;
-  const delta = previous === null ? null : score - previous;
+  const result = scoreOf(profile, latest);
+  const previous = scored[1] ? scoreOf(profile, scored[1]).score : null;
+  const delta = previous === null ? null : result.score - previous;
+  const partFormat = (part: string, v: number) => (part === "bodyFat" ? `${f.number(v)} %` : part === "muscle" ? `${f.number(v)} kg/m²` : f.number(v));
   return (
     <Card>
       <div className="flex items-center justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-ink-2">{t("bodyScoreTitle")}</p>
           <p className="mt-1 text-5xl font-bold tracking-tight">
-            {f.number(score, 0)}
+            {result.score}
             <span className="text-2xl font-medium text-muted"> / 100</span>
           </p>
           {delta !== null && (
-            <p className="mt-1 text-sm text-ink-2">{tf("bodyScoreDelta", { delta: signed(delta, (n) => f.number(n, 0)) })}</p>
+            <p className="mt-1 text-sm text-ink-2">
+              {delta === 0 ? t("bodyScoreSame") : tf("bodyScoreDelta", { delta: signed(delta, (n) => f.number(n, 0)) })}
+            </p>
           )}
         </div>
         <svg viewBox="0 0 36 36" className="h-20 w-20 shrink-0 -rotate-90" aria-hidden>
@@ -155,15 +162,85 @@ function BodyScoreCard({ measurements }: { measurements: MeasurementDto[] }) {
             stroke="var(--brand)"
             strokeWidth="3.5"
             strokeLinecap="round"
-            strokeDasharray={`${Math.min(Math.max(score, 0), 100)} 100`}
+            strokeDasharray={`${result.score} 100`}
             pathLength={100}
           />
         </svg>
       </div>
+      <ul className="mt-4 space-y-3">
+        {result.parts.map((p) => (
+          <li key={p.part}>
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <span className="text-ink">
+                {t(`scorePart.${p.part}` as MessageKey)} <span className="text-muted">· {partFormat(p.part, p.value)}</span>
+              </span>
+              <span className="text-ink-2">
+                <strong className="text-ink">{Math.round(p.score)}</strong>/100 · {tf("scorePartWeight", { weight: Math.round(p.weight * 100) })}
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2" aria-hidden>
+              <div className="h-full rounded-full bg-brand" style={{ width: `${Math.max(p.score, 2)}%` }} />
+            </div>
+          </li>
+        ))}
+      </ul>
+      {result.parts.length === 1 && <p className="mt-3 text-sm text-ink-2">{t("bodyScoreNoImpedance")}</p>}
+      {compare && latest.bodyScore !== null && (
+        <p className="mt-3 text-sm text-ink-2">{tf("bodyScoreXiaomi", { score: f.number(latest.bodyScore, 0) })}</p>
+      )}
       <p className="mt-3 text-sm text-muted">
         {t("bodyScoreNote")}
         {latest !== measurements[0] && ` ${tf("bodyScoreFrom", { date: f.date(latest.measuredAt) })}`}
       </p>
+    </Card>
+  );
+}
+
+/** Where the person's BMI falls among US adults of the same sex and age (CDC NHANES tables). */
+function PercentileCard({ profile, latest }: { profile: ProfileDto; latest: MeasurementDto }) {
+  const { t, tf } = useI18n();
+  const f = useFormat();
+  const age = ageAt(new Date(`${profile.birthDate}T00:00:00Z`), new Date(latest.measuredAt));
+  const value = bmi(latest.weightKg, profile.heightCm);
+  const groups = (["us", "mexican-american"] as const).flatMap((g) => {
+    const r = bmiPercentile(value, profile.sex, age, g);
+    return r ? [r] : [];
+  });
+  if (groups.length === 0) return null;
+  const who = profile.sex === "male" ? t("percentileMale") : t("percentileFemale");
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold">{t("percentileTitle")}</h2>
+      <p className="mt-1 text-sm text-ink-2">{t("percentileIntro")}</p>
+      <div className="mt-4 space-y-5">
+        {groups.map((r) => {
+          const ages = r.ageTo === null ? tf("percentileAgesOver", { from: r.ageFrom }) : tf("percentileAges", { from: r.ageFrom, to: r.ageTo });
+          const sentence =
+            r.beyond === "above"
+              ? tf("percentileAbove95", { who, ages })
+              : r.beyond === "below"
+                ? tf("percentileBelow5", { who, ages })
+                : tf("percentileHigher", { n: Math.round(r.percentile), who, ages });
+          return (
+            <div key={r.group}>
+              <p className="text-sm font-semibold">{t(`percentileGroup.${r.group}` as MessageKey)}</p>
+              <p className="mt-1 text-ink">{sentence}</p>
+              <div className="relative mt-3 h-2.5 rounded-full bg-gradient-to-r from-surface-2 via-brand/40 to-surface-2" aria-hidden>
+                <div
+                  className="absolute -top-1 h-4.5 w-4.5 -translate-x-1/2 rounded-full border-[3px] border-surface bg-ink"
+                  style={{ left: `${r.percentile}%` }}
+                />
+              </div>
+              <div className="mt-1.5 flex justify-between text-xs text-muted">
+                <span>{f.number(r.p5)}</span>
+                <span>{tf("percentileMedian", { p50: f.number(r.p50) })}</span>
+                <span>{f.number(r.p95)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-4 text-sm text-muted">{t("percentileNote")}</p>
     </Card>
   );
 }
@@ -305,7 +382,7 @@ export function HomePage({
         </p>
       </div>
 
-      <BodyScoreCard measurements={measurements} />
+      <BodyScoreCard profile={profile} measurements={measurements} />
 
       {result.notes.map((note) => (
         <p key={note} className="rounded-2xl bg-warn/15 px-4 py-3 text-sm text-ink">
@@ -320,6 +397,8 @@ export function HomePage({
           {t("healthyWeight")}: {f.weight(result.healthyWeight.min, profile.unit)} {t("rangeTo")} {f.weight(result.healthyWeight.max, profile.unit)}
         </p>
       </Card>
+
+      <PercentileCard profile={profile} latest={latest} />
 
       <GoalsCard goals={goals} measurements={measurements} profile={profile} />
 
