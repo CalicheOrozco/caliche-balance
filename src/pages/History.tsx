@@ -191,6 +191,7 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
           visceral: m.visceralFat,
           protein: m.proteinPct,
           bodyAge: m.bodyAge,
+          bodyScore: m.bodyScore,
         };
       }),
     [visible, profile, unit],
@@ -248,6 +249,13 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
 
       <h2 className="px-1 pt-2 text-lg font-semibold">{t("xiaomiOnlyTitle")}</h2>
       <p className="-mt-2 px-1 text-sm text-muted">{t("xiaomiOnlyHint")}</p>
+      <TrendChart
+        title={`${t("bodyScoreTitle")} (0-100)`}
+        rows={rows}
+        series={[xiaomi("bodyScore")]}
+        formatTick={(n) => f.number(n, 0)}
+        formatValue={(n) => f.number(n, 0)}
+      />
       <TrendChart title={`${t("muscle")} (${unit})`} rows={rows} series={[xiaomi("muscleX")]} {...plain} />
       <TrendChart title={t("visceral")} rows={rows} series={[xiaomi("visceral")]} formatTick={(n) => f.number(n, 0)} formatValue={(n) => f.number(n, 0)} />
       <TrendChart title={`${t("protein")} (%)`} rows={rows} series={[xiaomi("protein")]} {...plain} />

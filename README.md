@@ -17,6 +17,7 @@ Cada persona tiene su propia cuenta (nombre de usuario y contraseña) y sus dato
 - **Agregar a mano:** como respaldo, acepta coma decimal ("74,5").
 - **Báscula Xiaomi vía Zepp Life:** trae todas tus pesadas con todos sus valores (grasa, músculo, agua, masa ósea, grasa visceral, proteína, metabolismo basal, edad corporal, puntuación, peso ideal e impedancia) y se sincroniza sola.
 - **Una báscula para toda la casa:** cada persona tiene su cuenta y recibe solo sus pesadas, con invitaciones y reasignación de pesadas.
+- **Puntuación corporal de Zepp** (0 a 100) al inicio, con el cambio contra tu pesada anterior, y su gráfica en Historial.
 - **Composición recalculada con ecuaciones de Norteamérica:** con la impedancia que mide la báscula se recalculan el % de grasa, la masa libre de grasa, el agua corporal, el músculo esquelético y el metabolismo basal, en lugar de usar las fórmulas de Xiaomi.
 - **Notificaciones:** "Nueva pesada: 96.0 kg (−0.4 kg)" y "Tu token de Zepp caducó", en el iPhone con la app instalada (iOS 16.4+).
 - **Metas de peso y de % de grasa:** barra de avance, cuánto te falta, una estimación de cuándo llegarías según tu ritmo de las últimas 4 semanas, y una línea punteada en las gráficas.

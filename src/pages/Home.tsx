@@ -122,6 +122,52 @@ function GoalsCard({ goals, measurements, profile }: { goals: GoalsDto; measurem
   );
 }
 
+/** Zepp's 0 to 100 body score, first thing on Home, with the change since the previous score. */
+function BodyScoreCard({ measurements }: { measurements: MeasurementDto[] }) {
+  const { t, tf } = useI18n();
+  const f = useFormat();
+  const scored = measurements.filter((m) => m.bodyScore !== null);
+  const latest = scored[0];
+  if (!latest) return null;
+  const score = latest.bodyScore!;
+  const previous = scored[1]?.bodyScore ?? null;
+  const delta = previous === null ? null : score - previous;
+  return (
+    <Card>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-ink-2">{t("bodyScoreTitle")}</p>
+          <p className="mt-1 text-5xl font-bold tracking-tight">
+            {f.number(score, 0)}
+            <span className="text-2xl font-medium text-muted"> / 100</span>
+          </p>
+          {delta !== null && (
+            <p className="mt-1 text-sm text-ink-2">{tf("bodyScoreDelta", { delta: signed(delta, (n) => f.number(n, 0)) })}</p>
+          )}
+        </div>
+        <svg viewBox="0 0 36 36" className="h-20 w-20 shrink-0 -rotate-90" aria-hidden>
+          <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--surface-2)" strokeWidth="3.5" />
+          <circle
+            cx="18"
+            cy="18"
+            r="15.9"
+            fill="none"
+            stroke="var(--brand)"
+            strokeWidth="3.5"
+            strokeLinecap="round"
+            strokeDasharray={`${Math.min(Math.max(score, 0), 100)} 100`}
+            pathLength={100}
+          />
+        </svg>
+      </div>
+      <p className="mt-3 text-sm text-muted">
+        {t("bodyScoreNote")}
+        {latest !== measurements[0] && ` ${tf("bodyScoreFrom", { date: f.date(latest.measuredAt) })}`}
+      </p>
+    </Card>
+  );
+}
+
 /** The same weigh-in computed by Caliche Balance and by Xiaomi, side by side with the difference. */
 function ComparisonCard({ profile, reading }: { profile: ProfileDto; reading: MeasurementDto }) {
   const { t, locale } = useI18n();
@@ -242,7 +288,6 @@ export function HomePage({
         v(comp.proteinPct) && { label: t("protein"), value: `${f.number(comp.proteinPct!)} %` },
         v(comp.bmrKcal) && { label: t("bmrZepp"), value: `${f.number(comp.bmrKcal!, 0)} kcal` },
         v(comp.bodyAge) && { label: t("bodyAge"), value: f.number(comp.bodyAge!, 0) },
-        v(comp.bodyScore) && { label: t("bodyScore"), value: f.number(comp.bodyScore!, 0) },
         v(comp.idealWeightKg) && { label: t("idealWeight"), value: f.weight(comp.idealWeightKg!, profile.unit) },
         v(comp.impedance) && { label: t("impedance"), value: `${f.number(comp.impedance!, 0)} Ω` },
       ].filter((x) => x !== false)
@@ -259,6 +304,8 @@ export function HomePage({
           {t("lastMeasurement")}: {f.dateTime(latest.measuredAt)}
         </p>
       </div>
+
+      <BodyScoreCard measurements={measurements} />
 
       {result.notes.map((note) => (
         <p key={note} className="rounded-2xl bg-warn/15 px-4 py-3 text-sm text-ink">
