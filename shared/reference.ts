@@ -143,10 +143,13 @@ export function basalMetabolicRate(weightKg: number, heightCm: number, age: numb
   return 10 * weightKg + 6.25 * heightCm - 5 * age + (sex === "male" ? 5 : -161);
 }
 
-/** Weight range that keeps BMI within the WHO normal band for this height. */
+/**
+ * Weight range that keeps BMI within the WHO normal band for this height: 18.5 to 24.9, the
+ * values people are told to reach (the band itself ends just below 25).
+ */
 export function healthyWeightRange(heightCm: number): { min: number; max: number } {
   const meters = heightCm / 100;
-  return { min: 18.5 * meters * meters, max: 25 * meters * meters };
+  return { min: 18.5 * meters * meters, max: 24.9 * meters * meters };
 }
 
 export interface Profile {

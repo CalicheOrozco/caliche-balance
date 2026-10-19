@@ -8,6 +8,7 @@ import { type Change, type ReadingReport, type ReportItem, type ReportItemKey, r
 import { healthyWeightRange, type Status } from "../../shared/reference.ts";
 import { CM_PER_IN, fromKilograms, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { scoreOf } from "../../shared/score.ts";
+import { useAdvice } from "../advice.ts";
 import { useCompareXiaomi } from "../compare.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
 import { Card, RangeBar, StatusBadge, signed, useFormat } from "../ui.tsx";
@@ -64,24 +65,10 @@ function ItemRow({ item, report, profile, reading }: { item: ReportItem; report:
   const Icon = ITEM_ICON[item.key];
   const waistUnit = profile.unit === "lb" ? "in" : "cm";
   const waistText = (cm: number) => (waistUnit === "in" ? `${f.number(cm / CM_PER_IN)} in` : `${f.number(cm, 0)} cm`);
-  const { low, moderate } = MUSCLE_INDEX_CUTOFFS[profile.sex];
 
   const value =
     item.key === "bodyFat" ? `${f.number(item.value)} %` : item.key === "muscleIndex" ? `${f.number(item.value)} kg/m²` : f.number(item.value, item.key === "waist" ? 2 : 1);
-  const amount =
-    item.toHealthy === null
-      ? ""
-      : item.key === "waist"
-        ? `${f.number(waistUnit === "in" ? item.toHealthy / CM_PER_IN : item.toHealthy)} ${waistUnit}`
-        : f.weight(item.toHealthy, profile.unit);
-  const advice = tf(`advice.${item.key}.${item.band.key}` as MessageKey, {
-    amount,
-    min: f.number(report.fatRange.min, 0),
-    max: f.number(report.fatRange.max, 0),
-    obese: f.number(report.fatRange.obese, 0),
-    low: f.number(low, 2),
-    moderate: f.number(moderate, 2),
-  });
+  const advice = useAdvice(profile)(item, report);
   const xiaomi = xiaomiComparable(reading);
   const barFormat = item.key === "bodyFat" || item.key === "muscleIndex" ? (n: number) => f.number(n, item.key === "muscleIndex" ? 2 : 0) : (n: number) => f.number(n);
 

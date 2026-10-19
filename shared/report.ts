@@ -1,5 +1,5 @@
 import { bodyFatOf, type Composition, compositionOf, MUSCLE_INDEX_STUDIED_FROM_AGE, muscleIndexBands, type ProfileFacts } from "./composition.ts";
-import { ageAt, type Band, bmi, bodyFatBands, type Status, WHO_BMI_BANDS } from "./reference.ts";
+import { ageAt, type Band, bmi, bodyFatBands, healthyWeightRange, type Status, WHO_BMI_BANDS } from "./reference.ts";
 import type { MeasurementDto } from "./schemas.ts";
 import { type BodyScore, scoreOf } from "./score.ts";
 import { WHTR_BANDS } from "./waist.ts";
@@ -67,7 +67,7 @@ export function readingReport(profile: ProfileFacts, reading: MeasurementDto, al
   const age = ageAt(new Date(`${profile.birthDate}T00:00:00Z`), new Date(reading.measuredAt));
   const composition = compositionOf(profile, reading);
   const bodyFat = bodyFatOf(profile, reading);
-  const meters2 = (profile.heightCm / 100) ** 2;
+  const healthyWeight = healthyWeightRange(profile.heightCm);
   const fatBands = bodyFatBands(profile.sex, age);
   const healthy = fatBands.find((b) => b.key === "healthy")!;
   const fatRange = { min: healthy.min!, max: healthy.max!, obese: fatBands.find((b) => b.key === "obese")!.min! };
@@ -90,8 +90,7 @@ export function readingReport(profile: ProfileFacts, reading: MeasurementDto, al
     value: bmiValue,
     band: bmiBand,
     bands: WHO_BMI_BANDS,
-    // The WHO normal range ends below 25; 24.9 is the value people are told to reach.
-    toHealthy: bmiBand.status === "good" ? null : bmiValue >= 25 ? reading.weightKg - 24.9 * meters2 : 18.5 * meters2 - reading.weightKg,
+    toHealthy: bmiBand.status === "good" ? null : bmiValue >= 25 ? reading.weightKg - healthyWeight.max : healthyWeight.min - reading.weightKg,
   });
 
   if (composition) {

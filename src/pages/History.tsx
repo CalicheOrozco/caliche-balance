@@ -6,9 +6,11 @@ import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, Responsiv
 import { bodyFatAge } from "../../shared/bodyAge.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
 import { ageAt, bodyFatBands, healthyWeightRange } from "../../shared/reference.ts";
+import { type ReportItemKey, readingReport } from "../../shared/report.ts";
 import { scoreOf } from "../../shared/score.ts";
 import { CM_PER_IN, fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { api } from "../api.ts";
+import { useAdvice } from "../advice.ts";
 import { useCompareXiaomi } from "../compare.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
 import { Button, Card, Field, Segmented, Switch, signed, useFormat } from "../ui.tsx";
@@ -39,6 +41,11 @@ function TrendChart({
   goal = null,
   formatTick,
   formatValue,
+  unit = "",
+  about,
+  now,
+  empty,
+  showChange = true,
 }: {
   title: string;
   rows: Row[];
@@ -47,11 +54,44 @@ function TrendChart({
   goal?: number | null;
   formatTick: (n: number) => string;
   formatValue: (n: number) => string;
+  /** Appended to values in the period change, e.g. " kg". */
+  unit?: string;
+  /** What the measure is, in plain words. */
+  about?: string;
+  /** What the latest value means for this person. */
+  now?: string | null;
+  /** Shown instead of the chart when there are fewer than two points; without it the card is left out. */
+  empty?: string;
+  /** Off for capped measures, where a change over the period would mislead. */
+  showChange?: boolean;
 }) {
-  const { t, locale } = useI18n();
+  const { t, tf, locale } = useI18n();
   const data = rows.filter((r) => series.some((s) => r[s.key] !== null));
-  // A chart with fewer than two points says nothing; leave it out instead of showing an empty card.
-  if (data.length < 2) return null;
+  const notes = (
+    <>
+      {about && <p className="mt-1 text-sm text-ink-2">{about}</p>}
+      {now && <p className="mt-2 text-sm font-medium text-ink">{now}</p>}
+    </>
+  );
+  // A chart with fewer than two points says nothing; show why, or leave the card out.
+  if (data.length < 2) {
+    return empty ? (
+      <Card>
+        <h2 className="text-lg font-semibold">{title}</h2>
+        {notes}
+        <p className="mt-2 text-sm text-muted">{empty}</p>
+      </Card>
+    ) : null;
+  }
+  // Change over the selected period for the first (Caliche Balance) series.
+  const main = series[0]!.key;
+  const withMain = data.filter((r) => r[main] !== null);
+  const from = withMain[0]?.[main] ?? null;
+  const to = withMain[withMain.length - 1]?.[main] ?? null;
+  const change =
+    showChange && from !== null && to !== null && withMain.length >= 2
+      ? tf("periodChange", { delta: `${signed(to - from, formatValue)}${unit}`, from: `${formatValue(from)}${unit}`, to: `${formatValue(to)}${unit}` })
+      : null;
 
   const values = data.flatMap((r) => series.map((s) => r[s.key]).filter((v): v is number => v !== null));
   const lo = Math.min(...values, ...(band ? [band.min] : []), ...(goal === null ? [] : [goal]));
@@ -69,6 +109,8 @@ function TrendChart({
   return (
     <Card>
       <h2 className="text-lg font-semibold">{title}</h2>
+      {notes}
+      {change && <p className="mt-1 text-sm text-ink-2">{change}</p>}
       {pair && (
         <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-2">
           {pair.map((s) => (
@@ -159,7 +201,7 @@ function TrendChart({
 }
 
 export function HistoryPage({ profile, measurements, goals }: { profile: ProfileDto; measurements: MeasurementDto[]; goals: GoalsDto }) {
-  const { t } = useI18n();
+  const { t, tf } = useI18n();
   const f = useFormat();
   const queryClient = useQueryClient();
   const [range, setRange] = useState<RangeKey>("90");
@@ -229,6 +271,37 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
   const one = (key: string, label: string) => [caliche(key, label)];
   const plain = { formatTick: (n: number) => f.number(n, 0), formatValue: (n: number) => f.number(n) };
 
+  // What the latest weigh-in means, from the same report as the weigh-in detail page.
+  const latest = measurements[0];
+  const latestFull = measurements.find((m) => m.bodyFatPct !== null || m.impedance !== null) ?? latest;
+  const report = latestFull ? readingReport(profile, latestFull, measurements) : null;
+  const advice = useAdvice(profile);
+  const adviceFor = (key: ReportItemKey) => {
+    const item = report?.items.find((i) => i.key === key);
+    return item && report ? advice(item, report) : null;
+  };
+  const na = latestFull ? compositionOf(profile, latestFull) : null;
+  const heightText = unit === "lb" ? `${Math.floor(profile.heightCm / CM_PER_IN / 12)}' ${Math.round((profile.heightCm / CM_PER_IN) % 12)}"` : `${f.number(profile.heightCm / 100, 2)} m`;
+  const weightNow = latest
+    ? tf(latest.weightKg > healthy.max ? "now.weightAbove" : latest.weightKg < healthy.min ? "now.weightBelow" : "now.weightIn", {
+        height: heightText,
+        min: f.weight(healthy.min, unit),
+        max: f.weight(healthy.max, unit),
+        weight: f.weight(latest.weightKg, unit),
+        amount: f.weight(latest.weightKg > healthy.max ? latest.weightKg - healthy.max : healthy.min - latest.weightKg, unit),
+      })
+    : null;
+  const latestFat = latestFull ? bodyFatOf(profile, latestFull) : null;
+  const fatAge = latestFat ? bodyFatAge(latestFat.value, profile.sex, "mexican-american") : null;
+  const fatAgeText = fatAge
+    ? fatAge.kind === "over"
+      ? tf("bodyAgeOver", { age: fatAge.age })
+      : fatAge.kind === "under"
+        ? tf("bodyAgeUnder", { age: fatAge.age })
+        : tf("bodyAgeYears", { age: fatAge.age })
+    : null;
+  const waistCount = measurements.filter((m) => m.waistCm !== null).length;
+
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">{t("historyTitle")}</h1>
@@ -249,6 +322,8 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
         series={paired("score.c", "score.x")}
         formatTick={(n) => f.number(n, 0)}
         formatValue={(n) => f.number(n, 0)}
+        about={t("about.score")}
+        now={report ? tf("now.score", { score: report.score.score }) : null}
       />
       <TrendChart
         title={`${t("weight")} (${unit})`}
@@ -256,6 +331,9 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
         series={one("weight", t("weight"))}
         band={{ min: fromKilograms(healthy.min, unit), max: fromKilograms(healthy.max, unit) }}
         goal={goals.weight ? fromKilograms(goals.weight.targetKg, unit) : null}
+        unit={` ${unit}`}
+        about={t("about.weight")}
+        now={weightNow}
         {...plain}
       />
       <TrendChart
@@ -264,32 +342,101 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
         series={paired("fat.c", "fat.x")}
         band={{ min: fatHealthy.min!, max: fatHealthy.max! }}
         goal={goals.bodyFat?.targetPct ?? null}
+        unit=" %"
+        about={t("about.bodyFat")}
+        now={adviceFor("bodyFat")}
         {...plain}
       />
-      <TrendChart title={`${t("fatFreeMass")} (${unit})`} rows={rows} series={paired("ffm.c", "ffm.x")} {...plain} />
-      <TrendChart title={`${t("bodyWater")} (%)`} rows={rows} series={paired("water.c", "water.x")} {...plain} />
+      <TrendChart
+        title={`${t("fatFreeMass")} (${unit})`}
+        rows={rows}
+        series={paired("ffm.c", "ffm.x")}
+        unit={` ${unit}`}
+        about={t("about.ffm")}
+        now={na ? tf("now.value", { value: f.weight(na.fatFreeMassKg, unit) }) : null}
+        {...plain}
+      />
+      <TrendChart
+        title={`${t("bodyWater")} (%)`}
+        rows={rows}
+        series={paired("water.c", "water.x")}
+        unit=" %"
+        about={t("about.water")}
+        now={na ? tf("now.value", { value: `${f.number(na.bodyWaterPct)} %` }) : null}
+        {...plain}
+      />
       <TrendChart
         title={`${t("bmr")} (kcal)`}
         rows={rows}
         series={paired("bmr.c", "bmr.x")}
         formatTick={(n) => f.number(n, 0)}
         formatValue={(n) => f.number(n, 0)}
+        unit=" kcal"
+        about={t("about.bmr")}
+        now={na ? tf("now.value", { value: `${f.number(na.bmrKcal, 0)} ${t("kcalDay")}` }) : null}
       />
-      <TrendChart title={`${t("skeletalMuscle")} (${unit})`} rows={rows} series={one("skeletalMuscle", t("skeletalMuscle"))} {...plain} />
-      <TrendChart title={`${t("leanSoftVsXiaomi")} (${unit})`} rows={rows} series={paired("lean.c", "lean.x")} {...plain} />
-      <TrendChart title={`${t("proteinExperimental")} (%)`} rows={rows} series={paired("protein.c", "protein.x")} {...plain} />
+      <TrendChart
+        title={`${t("skeletalMuscle")} (${unit})`}
+        rows={rows}
+        series={one("skeletalMuscle", t("skeletalMuscle"))}
+        unit={` ${unit}`}
+        about={t("about.skeletalMuscle")}
+        now={adviceFor("muscleIndex")}
+        {...plain}
+      />
+      <TrendChart
+        title={`${t("leanSoftVsXiaomi")} (${unit})`}
+        rows={rows}
+        series={paired("lean.c", "lean.x")}
+        unit={` ${unit}`}
+        about={t("about.lean")}
+        now={na ? tf("now.value", { value: f.weight(na.leanSoftKg, unit) }) : null}
+        {...plain}
+      />
+      <TrendChart
+        title={`${t("proteinExperimental")} (%)`}
+        rows={rows}
+        series={paired("protein.c", "protein.x")}
+        unit=" %"
+        about={t("proteinNote")}
+        now={na?.proteinPct != null ? tf("now.value", { value: `${f.number(na.proteinPct)} %` }) : null}
+        {...plain}
+      />
       <TrendChart
         title={t("bodyAgeTitle")}
         rows={rows}
         series={paired("age.c", "age.x")}
         formatTick={(n) => f.number(n, 0)}
         formatValue={(n) => f.number(n, 0)}
+        about={t("about.bodyAge")}
+        // "70 or older" readings chart at the peak age, so the change over the period would read as 0.
+        showChange={false}
+        now={fatAgeText && report ? tf("now.bodyAge", { value: fatAgeText, age: report.age }) : null}
       />
-      <TrendChart title={`${t("waist")} (${waistUnit})`} rows={rows} series={one("waist", t("waist"))} {...plain} />
+      <TrendChart
+        title={`${t("waist")} (${waistUnit})`}
+        rows={rows}
+        series={one("waist", t("waist"))}
+        unit={` ${waistUnit}`}
+        about={t("about.waist")}
+        now={adviceFor("waist")}
+        empty={waistCount === 0 ? t("now.waistNone") : waistCount === 1 ? t("now.waistOne") : undefined}
+        {...plain}
+      />
 
-      <h2 className="px-1 pt-2 text-lg font-semibold">{t("xiaomiOnlyTitle")}</h2>
-      <p className="-mt-2 px-1 text-sm text-muted">{t("xiaomiOnlyHint")}</p>
-      <TrendChart title={t("visceral")} rows={rows} series={[xiaomi("visceral")]} formatTick={(n) => f.number(n, 0)} formatValue={(n) => f.number(n, 0)} />
+      {compare && (
+        <>
+          <h2 className="px-1 pt-2 text-lg font-semibold">{t("xiaomiOnlyTitle")}</h2>
+          <TrendChart
+            title={t("visceral")}
+            rows={rows}
+            series={[xiaomi("visceral")]}
+            formatTick={(n) => f.number(n, 0)}
+            formatValue={(n) => f.number(n, 0)}
+            about={t("about.visceral")}
+          />
+        </>
+      )}
 
       <Card padded={false}>
         <h2 className="px-5 pt-5 text-lg font-semibold">{t("measurements")}</h2>

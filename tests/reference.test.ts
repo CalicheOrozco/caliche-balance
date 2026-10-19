@@ -65,6 +65,8 @@ describe("assess", () => {
     expect(result.bodyFat?.band.key).toBe("healthy");
     expect(result.bmrKcal).toBeCloseTo(basalMetabolicRate(74, 175, 30, "male"));
     expect(result.healthyWeight.min).toBeCloseTo(56.66, 1);
+    // Upper edge at BMI 24.9, the value people are told to reach: 24.9 x 1.75².
+    expect(result.healthyWeight.max).toBeCloseTo(76.26, 2);
     expect(result.notes).toEqual([]);
   });
 
