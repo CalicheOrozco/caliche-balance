@@ -308,6 +308,30 @@ describe("Zepp connection", () => {
     expect((await gaby.put("/api/me/goals").send({ weight: null, bodyFatPct: 28 })).body.goals.maintain.centerKg).toBe(77.5);
   });
 
+  it("counts badges over the whole history in the phone's time zone and announces each new level", async () => {
+    const lia = await signUp("lia");
+    await lia.put("/api/me/profile").send({ sex: "female", birthDate: "1995-05-05", heightCm: 165, language: "es", unit: "kg" });
+    await lia.post("/api/push/subscribe").send({ endpoint: "https://push.example/lia", keys: { p256dh: "p256dh-de-prueba-123", auth: "auth-de-prueba-1" } });
+
+    // The first check only records the levels: a long history does not arrive as a burst of alerts.
+    await lia.post("/api/measurements").send({ weight: 100, measuredAt: new Date(Date.now() - 30 * 86_400_000).toISOString() });
+    expect(push.sent).toEqual([]);
+    // 100 to 94 kg is more than 5 %: a new badge.
+    await lia.post("/api/measurements").send({ weight: 94 });
+    expect(push.sent).toEqual([{ endpoint: "https://push.example/lia", body: "🏅 ¡Logro nuevo: «Menos 5 %»!", url: "/logros" }]);
+
+    const a = await lia.get("/api/me/achievements?tz=America/Toronto");
+    expect(a.status).toBe(200);
+    expect(a.body.badges.find((b: { id: string }) => b.id === "loss-5")).toMatchObject({ level: 1, nextAt: 2 });
+    expect(a.body.badges.find((b: { id: string }) => b.id === "weigh-days").dates).toHaveLength(2);
+    expect(a.body.streak).toMatchObject({ current: 1, weighedToday: true });
+    // The time zone is kept for syncs and notifications; an unknown one is ignored.
+    const db = client.db(`zepp${dbName - 1}`);
+    expect((await db.collection("users").findOne({ username: "lia" }))?.timeZone).toBe("America/Toronto");
+    await lia.get("/api/me/achievements?tz=Mars/Olympus");
+    expect((await db.collection("users").findOne({ username: "lia" }))?.timeZone).toBe("America/Toronto");
+  });
+
   it("sends a test notification and forgets devices that unsubscribed", async () => {
     const caliche = await signUp("caliche");
     expect((await request(app).get("/api/push/key")).body).toEqual({ publicKey: "test-public-key" });

@@ -27,7 +27,9 @@ import {
 } from "./auth.ts";
 import type { Collections, UserDoc } from "./db.ts";
 import { bodyFatOf } from "../shared/composition.ts";
+import { isTimeZone } from "../shared/achievements.ts";
 import { maintainRange } from "../shared/goals.ts";
+import { achievementsFor, checkAchievements } from "./achievementCheck.ts";
 import { checkGoals } from "./goalCheck.ts";
 import { messages, notifyUser, type PushSender } from "./push.ts";
 import { asyncRoute, clientIp, hitRateLimit, peekRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
@@ -289,7 +291,9 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
         { $set: values, $setOnInsert: { _id: new ObjectId(), userId: req.user!._id, measuredAt, createdAt: new Date() } },
         { upsert: true, returnDocument: "after" },
       );
+      // Goals first: a goal reached in this weigh-in also counts for the goal badge.
       await checkGoals(collections, push, req.user!._id);
+      await checkAchievements(collections, push, req.user!._id);
       res.status(201).json(toMeasurementDto(saved!));
     }),
   );
@@ -363,6 +367,23 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
       if (limit.limited) return sendRateLimited(res, limit);
       const sent = await notifyUser(collections, push, req.user!._id, "test", messages.test);
       res.json({ sent });
+    }),
+  );
+
+  router.get(
+    "/me/achievements",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      // The app sends the phone's time zone; keep it so syncs and notifications count days the same way.
+      const tz = typeof req.query.tz === "string" && req.query.tz.length <= 64 && isTimeZone(req.query.tz) ? req.query.tz : null;
+      let user = req.user!;
+      if (tz && tz !== user.timeZone) {
+        await collections.users.updateOne({ _id: user._id }, { $set: { timeZone: tz } });
+        user = { ...user, timeZone: tz };
+      }
+      const result = await achievementsFor(collections, user);
+      if (!result) return res.status(409).json({ error: "profile-required" });
+      res.json(result);
     }),
   );
 

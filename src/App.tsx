@@ -92,8 +92,6 @@ function SignedIn({ user }: { user: UserDto }) {
   }
 
   const list = measurements.data ?? [];
-  // Missing on an account cached offline by an older version of the app.
-  const goalHistory = user.goalHistory ?? [];
   return (
     <Shell>
       {measurements.isPending ? (
@@ -102,11 +100,11 @@ function SignedIn({ user }: { user: UserDto }) {
         <Routes>
           <Route
             path="/"
-            element={<HomePage profile={profile} measurements={list} username={user.username} goals={user.goals} goalHistory={goalHistory} />}
+            element={<HomePage profile={profile} measurements={list} username={user.username} goals={user.goals} />}
           />
           <Route
             path="/logros"
-            element={<AchievementsPage profile={profile} measurements={list} goalHistory={goalHistory} username={user.username} />}
+            element={<AchievementsPage profile={profile} username={user.username} />}
           />
           <Route
             path="/historial"

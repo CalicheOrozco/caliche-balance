@@ -5,8 +5,9 @@ import { useSyncExternalStore } from "react";
 import type { MeasurementDto } from "../shared/schemas.ts";
 
 /**
- * What the app keeps on the device so it can be opened without internet: the profile and the
- * weigh-ins of the last three months. The service worker caches only the app itself.
+ * What the app keeps on the device so it can be opened without internet: the profile, the
+ * weigh-ins of the last three months and the badges (keyed under "measurements"). The service
+ * worker caches only the app itself.
  */
 
 export const OFFLINE_DAYS = 90;

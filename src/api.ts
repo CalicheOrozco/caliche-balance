@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { Achievements } from "../shared/achievements.ts";
 import type { GoalsInput, MeasurementDto, NotificationPrefs, MeasurementInput, ProfileInput, UserDto, ZeppStatusDto } from "../shared/schemas.ts";
 
 export class ApiError extends Error {
@@ -43,6 +44,7 @@ export const api = {
   pushTest: () => call<{ sent: number }>("POST", "/push/test"),
   deleteAccount: () => call<void>("DELETE", "/me"),
   measurements: () => call<MeasurementDto[]>("GET", "/measurements?limit=1000"),
+  achievements: (timeZone: string) => call<Achievements>("GET", `/me/achievements?tz=${encodeURIComponent(timeZone)}`),
   addMeasurement: (input: MeasurementInput) => call<MeasurementDto>("POST", "/measurements", input),
   deleteMeasurement: (id: string) => call<void>("DELETE", `/measurements/${id}`),
   setWaist: (id: string, waist: string | null, waistUnit: "cm" | "in") =>
@@ -78,6 +80,18 @@ export function useMe() {
 
 export function useMeasurements() {
   return useQuery({ queryKey: ["measurements"], queryFn: api.measurements });
+}
+
+/**
+ * Badges and challenges, computed by the server over the whole history. The key sits under
+ * "measurements" so every place that refreshes weigh-ins (adding, deleting, a Zepp sync) also
+ * refreshes these.
+ */
+export function useAchievementsQuery() {
+  return useQuery({
+    queryKey: ["measurements", "achievements"],
+    queryFn: () => api.achievements(Intl.DateTimeFormat().resolvedOptions().timeZone),
+  });
 }
 
 export interface ErrorDescription {

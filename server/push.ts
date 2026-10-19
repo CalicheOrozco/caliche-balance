@@ -1,5 +1,6 @@
 import type { ObjectId } from "mongodb";
 import webpush from "web-push";
+import { BADGE_NAMES, type BadgeId, TIER_NAMES, TIERS } from "../shared/achievements.ts";
 import type { GoalEvent } from "../shared/goals.ts";
 import type { Collections } from "./db.ts";
 
@@ -125,6 +126,28 @@ export const messages = {
         ? `Tu peso (${formatWeight(event.weightKg, unit, lang)}) quedó ${event.side === "above" ? "arriba" : "abajo"} de tu rango para mantener (${range}).`
         : `Your weight (${formatWeight(event.weightKg, unit, lang)}) is ${event.side} your maintenance range (${range}).`,
       url: "/",
+    };
+  },
+  badges: (lang: Language, ups: { id: BadgeId; level: number; count: number }[]): Message => {
+    const es = lang === "es";
+    const one = ups[0]!;
+    const tier = TIER_NAMES[lang][TIERS[one.level - 1]!];
+    const name = BADGE_NAMES[lang][one.id];
+    return {
+      title: "Caliche Balance",
+      body:
+        ups.length > 1
+          ? es
+            ? `🏅 ${ups.length} logros subieron de nivel. Entre ellos: «${name}», ahora ${tier}.`
+            : `🏅 ${ups.length} badges went up a level, including "${name}", now ${tier}.`
+          : one.level === 1
+            ? es
+              ? `🏅 ¡Logro nuevo: «${name}»!`
+              : `🏅 New badge: "${name}"!`
+            : es
+              ? `🏅 «${name}» subió a ${tier}. Ya lo lograste ${one.count} veces.`
+              : `🏅 "${name}" is now ${tier}. You have earned it ${one.count} times.`,
+      url: "/logros",
     };
   },
   test: (lang: Language): Message => ({

@@ -1,14 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { IconType } from "react-icons";
 import {
   FiActivity,
   FiAward,
-  FiBarChart2,
   FiCalendar,
   FiCheck,
   FiCheckCircle,
   FiCheckSquare,
-  FiFlag,
   FiHeart,
   FiPieChart,
   FiRepeat,
@@ -19,114 +17,147 @@ import {
   FiZap,
 } from "react-icons/fi";
 import { Link } from "react-router";
-import { type Achievements, achievements, type BadgeId, type ChallengeStatus } from "../shared/achievements.ts";
-import type { GoalHistoryEntry, MeasurementDto, ProfileDto } from "../shared/schemas.ts";
+import { type Achievements, BADGE_NAMES, type BadgeId, type ChallengeStatus, TIER_NAMES, TIERS } from "../shared/achievements.ts";
 import { type MessageKey, useI18n } from "./i18n.tsx";
 import { Card, useFormat } from "./ui.tsx";
 
-type Tier = "bronze" | "silver" | "gold";
-
-/** Fallback look for each badge until its image exists in public/badges/. */
-const LOOK: Record<BadgeId, { Icon: IconType; tier: Tier }> = {
-  "first-weigh-in": { Icon: FiFlag, tier: "bronze" },
-  "streak-7": { Icon: FiZap, tier: "silver" },
-  "streak-30": { Icon: FiZap, tier: "gold" },
-  "habit-4": { Icon: FiCalendar, tier: "silver" },
-  "habit-12": { Icon: FiCalendar, tier: "gold" },
-  "weighins-100": { Icon: FiBarChart2, tier: "gold" },
-  "challenge-weeks-4": { Icon: FiCheckSquare, tier: "silver" },
-  "challenge-month": { Icon: FiStar, tier: "gold" },
-  "loss-5": { Icon: FiTrendingDown, tier: "silver" },
-  "loss-10": { Icon: FiTrendingDown, tier: "gold" },
-  "fat-down-2": { Icon: FiPieChart, tier: "silver" },
-  recomposition: { Icon: FiRepeat, tier: "gold" },
-  "healthy-bmi": { Icon: FiUser, tier: "gold" },
-  "healthy-fat": { Icon: FiHeart, tier: "gold" },
-  "waist-first": { Icon: FiTarget, tier: "bronze" },
-  "waist-healthy": { Icon: FiTarget, tier: "gold" },
-  "score-60": { Icon: FiAward, tier: "silver" },
-  "score-80": { Icon: FiAward, tier: "gold" },
-  "goal-1": { Icon: FiCheckCircle, tier: "silver" },
-  "goal-3": { Icon: FiActivity, tier: "gold" },
+/** Icon shown inside the medal until the badge's image exists in public/badges/. */
+const ICON: Record<BadgeId, IconType> = {
+  "weigh-days": FiCheck,
+  "streak-7": FiZap,
+  "streak-30": FiZap,
+  "habit-week": FiCalendar,
+  "challenge-week": FiCheckSquare,
+  "challenge-full": FiActivity,
+  "challenge-month": FiStar,
+  "loss-5": FiTrendingDown,
+  "fat-down-2": FiPieChart,
+  recomposition: FiRepeat,
+  "healthy-bmi": FiUser,
+  "healthy-fat": FiHeart,
+  "waist-month": FiTarget,
+  "waist-healthy": FiTarget,
+  "score-60": FiAward,
+  "score-80": FiAward,
+  goal: FiCheckCircle,
 };
 
-const TIER_RING: Record<Tier, string> = {
-  bronze: "from-[#c98a4b] to-[#7a4a1f]",
-  silver: "from-[#e5e7eb] to-[#8b95a3]",
-  gold: "from-[#f6d365] to-[#c8961e]",
-};
+/**
+ * Each level's look: the outer frame, the center background and the symbol color. The whole medal
+ * changes with the level, not just its rim. Level 0 is locked.
+ */
+const LEVEL_LOOK: { frame: string; center: string; symbol: string; glow?: string }[] = [
+  { frame: "bg-[#6b7280]", center: "radial-gradient(circle at 35% 30%, #3a3f46, #23272c)", symbol: "#9ca3af" },
+  { frame: "bg-gradient-to-br from-[#e0a46a] to-[#7a4a1f]", center: "radial-gradient(circle at 35% 30%, #a8692f, #4f2d12)", symbol: "#ffe1c2" },
+  { frame: "bg-gradient-to-br from-[#f7f8fa] to-[#8b95a3]", center: "radial-gradient(circle at 35% 30%, #a3adbb, #454d59)", symbol: "#ffffff" },
+  { frame: "bg-gradient-to-br from-[#fbe38e] to-[#c8961e]", center: "radial-gradient(circle at 35% 30%, #e6b325, #6f4a06)", symbol: "#fff6d6" },
+  {
+    frame: "bg-gradient-to-br from-[#f4fbfe] via-[#b9d3de] to-[#5f7f8f]",
+    center: "radial-gradient(circle at 35% 30%, #8fb4c4, #24404c)",
+    symbol: "#effbff",
+  },
+  {
+    frame: "bg-[conic-gradient(from_200deg,#67e8f9,#c4b5fd,#f0abfc,#67e8f9,#a5f3fc,#67e8f9)] shadow-[0_0_14px_rgba(103,232,249,0.55)]",
+    center: "radial-gradient(circle at 35% 30%, #22d3ee, #6d28d9 70%, #2e0657)",
+    symbol: "#ffffff",
+    glow: "drop-shadow(0 0 4px rgba(165, 243, 252, 0.9))",
+  },
+];
 
-/** Images that failed to load once are not requested again on this visit. */
-const missingImages = new Set<BadgeId>();
+/** Whether public/badges/<id>.png exists, checked once per visit; undefined while checking. */
+const imageExists = new Map<BadgeId, boolean>();
 
-/** The badge image from public/badges/<id>.png, or a tiered medal with an icon while it does not exist. */
-export function BadgeMedal({ id, earned, size = 72 }: { id: BadgeId; earned: boolean; size?: number }) {
-  const [missing, setMissing] = useState(missingImages.has(id));
-  const { Icon, tier } = LOOK[id];
-  const locked = earned ? "" : "grayscale opacity-40";
-  if (!missing) {
-    return (
-      <img
-        src={`/badges/${id}.png`}
-        alt=""
-        width={size}
-        height={size}
-        className={`shrink-0 ${locked}`}
-        onError={() => {
-          missingImages.add(id);
-          setMissing(true);
-        }}
-      />
-    );
-  }
+function useBadgeImage(id: BadgeId): boolean | undefined {
+  const [exists, setExists] = useState(imageExists.get(id));
+  useEffect(() => {
+    if (exists !== undefined) return;
+    const img = new Image();
+    img.onload = () => {
+      imageExists.set(id, true);
+      setExists(true);
+    };
+    img.onerror = () => {
+      imageExists.set(id, false);
+      setExists(false);
+    };
+    img.src = `/badges/${id}.png`;
+  }, [id, exists]);
+  return exists;
+}
+
+export function useBadgeNames() {
+  const { lang } = useI18n();
+  return {
+    badge: (id: BadgeId) => BADGE_NAMES[lang][id],
+    tier: (level: number) => (level > 0 ? TIER_NAMES[lang][TIERS[level - 1]!] : ""),
+  };
+}
+
+/**
+ * A medal in its level's colors. The symbol is the image in public/badges/<id>.png used as a
+ * stencil (its shape, painted in the level's color), or an icon until that image exists.
+ */
+export function BadgeMedal({ id, level, size = 72 }: { id: BadgeId; level: number; size?: number }) {
+  const image = useBadgeImage(id);
+  const Icon = ICON[id];
+  const look = LEVEL_LOOK[level]!;
+  const ring = Math.max(3, Math.round(size / 18));
+  const symbol = size * 0.5;
+  const url = `url(/badges/${id}.png)`;
   return (
     <span
-      className={`flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br p-[3px] ${TIER_RING[tier]} ${locked}`}
-      style={{ width: size, height: size }}
+      className={`relative flex shrink-0 items-center justify-center rounded-full ${look.frame} ${level === 0 ? "opacity-60" : ""}`}
+      style={{ width: size, height: size, padding: ring }}
       aria-hidden
     >
-      <span className="flex h-full w-full items-center justify-center rounded-full bg-surface text-brand">
-        <Icon size={size * 0.42} />
+      <span
+        className="flex h-full w-full items-center justify-center rounded-full shadow-[inset_0_2px_6px_rgba(255,255,255,0.25),inset_0_-3px_6px_rgba(0,0,0,0.35)]"
+        style={{ background: look.center, color: look.symbol, filter: look.glow }}
+      >
+        {image ? (
+          <span
+            style={{
+              width: symbol,
+              height: symbol,
+              backgroundColor: look.symbol,
+              maskImage: url,
+              WebkitMaskImage: url,
+              maskSize: "contain",
+              WebkitMaskSize: "contain",
+              maskRepeat: "no-repeat",
+              WebkitMaskRepeat: "no-repeat",
+              maskPosition: "center",
+              WebkitMaskPosition: "center",
+            }}
+          />
+        ) : (
+          image === false && <Icon size={size * 0.42} />
+        )}
       </span>
     </span>
   );
 }
 
-export function useAchievements(profile: ProfileDto, measurements: MeasurementDto[], goalHistory: GoalHistoryEntry[]): Achievements {
-  return useMemo(
-    () =>
-      achievements({
-        profile,
-        measurements,
-        goalHistory,
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        now: Date.now(),
-      }),
-    [profile, measurements, goalHistory],
-  );
-}
-
-/** Badges earned since this device last opened the badges page. */
-export function useNewBadges(username: string, a: Achievements): { fresh: BadgeId[]; markSeen: () => void } {
-  const key = `seen-badges:${username}`;
-  const read = (): Set<string> => {
+/** Badges whose level went up since this device last opened the badges page. */
+export function useNewLevels(username: string, a: Achievements | undefined): { fresh: { id: BadgeId; level: number }[]; markSeen: () => void } {
+  const key = `seen-badge-levels:${username}`;
+  const [seen, setSeen] = useState<Record<string, number>>(() => {
     try {
-      return new Set(JSON.parse(localStorage.getItem(key) ?? "[]") as string[]);
+      return JSON.parse(localStorage.getItem(key) ?? "{}") as Record<string, number>;
     } catch {
-      return new Set();
+      return {};
     }
-  };
-  const [seen, setSeen] = useState(read);
-  const earned = a.badges.filter((b) => b.earnedAt !== null).map((b) => b.id);
+  });
+  const levels = Object.fromEntries((a?.badges ?? []).map((b) => [b.id, b.level]));
   return {
-    fresh: earned.filter((id) => !seen.has(id)),
+    fresh: (a?.badges ?? []).filter((b) => b.level > (seen[b.id] ?? 0)).map((b) => ({ id: b.id, level: b.level })),
     markSeen: () => {
       try {
-        localStorage.setItem(key, JSON.stringify(earned));
+        localStorage.setItem(key, JSON.stringify(levels));
       } catch {
         // Private mode: they show as new again next visit, which is harmless.
       }
-      setSeen(new Set(earned));
+      setSeen(levels);
     },
   };
 }
@@ -161,11 +192,13 @@ export function ChallengeRow({ c }: { c: ChallengeStatus }) {
   );
 }
 
-/** Streak, this week's challenges and new badges: the daily reason to step on the scale. */
-export function StreakCard({ a, fresh, linkToBadges = true }: { a: Achievements; fresh: BadgeId[]; linkToBadges?: boolean }) {
+/** Streak, this week's challenges and badges that went up: the daily reason to step on the scale. */
+export function StreakCard({ a, fresh, linkToBadges = true }: { a: Achievements; fresh: { id: BadgeId; level: number }[]; linkToBadges?: boolean }) {
   const { t, tf } = useI18n();
+  const names = useBadgeNames();
   const week = a.challenges.filter((c) => c.period === "week");
   const daysLeft = week[0]?.daysLeft ?? 0;
+  const first = fresh[0];
   return (
     <Card>
       <div className="flex items-center gap-4">
@@ -183,10 +216,14 @@ export function StreakCard({ a, fresh, linkToBadges = true }: { a: Achievements;
           {a.streak.best > 0 && <p className="text-sm text-muted">{tf("streakBest", { n: a.streak.best })}</p>}
         </div>
       </div>
-      {fresh.length > 0 && (
+      {first && (
         <Link to="/logros" className="mt-4 flex items-center gap-3 rounded-2xl bg-brand/15 px-3 py-2.5 font-semibold text-ink">
-          <BadgeMedal id={fresh[0]!} earned size={36} />
-          {fresh.length === 1 ? tf("newBadge", { name: t(`badge.${fresh[0]}` as MessageKey) }) : tf("newBadges", { n: fresh.length })}
+          <BadgeMedal id={first.id} level={first.level} size={40} />
+          {fresh.length > 1
+            ? tf("newLevels", { n: fresh.length })
+            : first.level === 1
+              ? tf("newBadge", { name: names.badge(first.id) })
+              : tf("newLevel", { name: names.badge(first.id), tier: names.tier(first.level) })}
         </Link>
       )}
       <div className="mt-4 flex items-baseline justify-between">

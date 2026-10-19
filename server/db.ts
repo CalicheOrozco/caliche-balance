@@ -15,6 +15,10 @@ export interface UserDoc {
     bodyFat: (Omit<BodyFatGoal, "setAt" | "reachedAt"> & { setAt: Date; reachedAt?: Date | null }) | null;
     maintain?: (Omit<MaintainGoal, "setAt"> & { setAt: Date }) | null;
   };
+  /** IANA time zone the app last reported; days, weeks and streaks are counted in it. */
+  timeZone?: string;
+  /** Badge levels last seen by the server, to notice when one goes up; missing until the first check. */
+  badgeLevels?: Record<string, number>;
   /** Every goal reached, appended once when it happens; missing means none yet. */
   goalHistory?: { kind: "weight" | "bodyFat"; target: number; setAt: Date; reachedAt: Date }[];
   createdAt: Date;

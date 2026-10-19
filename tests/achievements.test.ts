@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { achievements, localDay } from "../shared/achievements.ts";
+import { achievements, levelOf, localDay } from "../shared/achievements.ts";
 import type { GoalHistoryEntry, MeasurementDto } from "../shared/schemas.ts";
 
 const profile = { sex: "male" as const, heightCm: 185, birthDate: "1998-01-01" };
@@ -7,6 +7,7 @@ const timeZone = "America/Toronto";
 // Monday 2026-10-19, noon in Toronto (EDT, UTC-4).
 const now = Date.parse("2026-10-19T12:00:00-04:00");
 const DAY = 24 * 60 * 60 * 1000;
+const morning = Date.parse("2026-10-19T07:00:00-04:00");
 
 let n = 0;
 function reading(at: string | number, weightKg: number, extra: Partial<MeasurementDto> = {}): MeasurementDto {
@@ -34,8 +35,8 @@ function reading(at: string | number, weightKg: number, extra: Partial<Measureme
 const run = (measurements: MeasurementDto[], goalHistory: GoalHistoryEntry[] = []) => achievements({ profile, measurements, goalHistory, timeZone, now });
 const badge = (a: ReturnType<typeof run>, id: string) => a.badges.find((b) => b.id === id)!;
 /** One reading a day at 7:00 Toronto time, ending `daysAgo` days before today. */
-const daily = (count: number, daysAgo = 0, weight = 99) =>
-  Array.from({ length: count }, (_, i) => reading(Date.parse("2026-10-19T07:00:00-04:00") - (daysAgo + count - 1 - i) * DAY, weight));
+const daily = (count: number, daysAgo = 0, weight = (_i: number) => 99, extra: Partial<MeasurementDto> = {}) =>
+  Array.from({ length: count }, (_, i) => reading(morning - (daysAgo + count - 1 - i) * DAY, weight(i), extra));
 
 describe("achievements", () => {
   it("counts days in the person's time zone, not UTC", () => {
@@ -44,27 +45,56 @@ describe("achievements", () => {
     expect(localDay(Date.parse("2026-10-18T23:30:00-04:00"), "UTC")).toBe(localDay(Date.parse("2026-10-19T08:00:00-04:00"), "UTC"));
   });
 
-  it("tracks streaks: earned on the 7th day in a row, alive through yesterday, reset by a gap", () => {
-    const week = daily(7);
-    const a = run(week);
-    expect(a.streak).toEqual({ current: 7, best: 7, weighedToday: true });
-    expect(badge(a, "streak-7").earnedAt).toBe(week[6]!.measuredAt);
-    expect(badge(a, "first-weigh-in").earnedAt).toBe(week[0]!.measuredAt);
-
-    // Weighed through yesterday: today's weigh-in may still come.
-    expect(run(daily(5, 1)).streak).toEqual({ current: 5, best: 5, weighedToday: false });
-    // Last weigh-in two days ago: the streak is over, the best stays.
-    const broken = run(daily(5, 2));
-    expect(broken.streak).toEqual({ current: 0, best: 5, weighedToday: false });
-    expect(badge(broken, "streak-7")).toMatchObject({ earnedAt: null, progress: { value: 5, target: 7 } });
+  it("moves a badge up a level each time its count reaches the next threshold", () => {
+    expect([0, 1, 3, 4, 12, 52, 99].map((c) => levelOf(c, [1, 4, 12, 26, 52]))).toEqual([0, 1, 1, 2, 3, 5, 5]);
   });
 
-  it("earns the habit badge after 4 weeks in a row with 3 or more weigh-in days", () => {
-    // Mondays, Wednesdays and Fridays of the 4 weeks before this one.
-    const weeks = [4, 3, 2, 1].flatMap((w) => [7, 5, 3].map((d) => reading(Date.parse("2026-10-19T07:00:00-04:00") - (w * 7 - (7 - d)) * DAY, 99)));
+  it("counts every 7 days of a streak, keeps every date, and says how many for the next level", () => {
+    const days = daily(21);
+    const a = run(days);
+    expect(a.streak).toEqual({ current: 21, best: 21, weighedToday: true });
+    const streak = badge(a, "streak-7");
+    // Days 7, 14 and 21 of the streak: 3 times, silver (levels 1, 3, 6, 12, 26).
+    expect(streak.dates).toEqual([days[6]!.measuredAt, days[13]!.measuredAt, days[20]!.measuredAt]);
+    expect(streak).toMatchObject({ level: 2, nextAt: 6 });
+    expect(badge(a, "weigh-days")).toMatchObject({ level: 1, nextAt: 30 });
+    expect(badge(a, "weigh-days").dates).toHaveLength(21);
+  });
+
+  it("keeps a streak alive through yesterday and ends it after a missed day", () => {
+    expect(run(daily(5, 1)).streak).toEqual({ current: 5, best: 5, weighedToday: false });
+    expect(run(daily(5, 2)).streak).toEqual({ current: 0, best: 5, weighedToday: false });
+  });
+
+  it("counts each week with 3 or more weigh-in days, and each one with 5", () => {
+    // Monday to Friday of the 4 weeks before this one: every week counts for both badges.
+    const weeks = [4, 3, 2, 1].flatMap((w) => [0, 1, 2, 3, 4].map((d) => reading(morning - (w * 7 - d) * DAY, 99)));
     const a = run(weeks);
-    expect(badge(a, "habit-4").earnedAt).toBe(weeks[weeks.length - 1]!.measuredAt);
-    expect(badge(a, "habit-12").progress).toEqual({ value: 4, target: 12 });
+    expect(badge(a, "habit-week")).toMatchObject({ level: 2, nextAt: 12 });
+    expect(badge(a, "habit-week").dates).toHaveLength(4);
+    expect(badge(a, "challenge-week").dates).toEqual([4, 9, 14, 19].map((i) => weeks[i]!.measuredAt));
+  });
+
+  it("counts each further 5 % of weight lost, starting again from the last time", () => {
+    // 100 to 95 (first time), then 95 to 90.25 (second), with a bounce in between.
+    const a = run([
+      reading("2026-06-01T07:00:00-04:00", 100),
+      reading("2026-07-01T07:00:00-04:00", 95),
+      reading("2026-08-01T07:00:00-04:00", 96),
+      reading("2026-09-01T07:00:00-04:00", 91),
+      reading("2026-10-01T07:00:00-04:00", 91.2),
+    ]);
+    // 91 is 5.2 % under 96 (the highest since the first time), so it counts again.
+    expect(badge(a, "loss-5").dates).toEqual([Date.parse("2026-07-01T07:00:00-04:00"), Date.parse("2026-09-01T07:00:00-04:00")].map((t) => new Date(t).toISOString()));
+    expect(badge(a, "loss-5")).toMatchObject({ level: 2, nextAt: 3 });
+  });
+
+  it("counts healthy ranges once per week and the waist once per month", () => {
+    // BMI under 25 (80 kg at 1.85 m) every day for 2 weeks, with a healthy waist once a week.
+    const a = run([...daily(14, 0, () => 80), reading(morning - 10 * DAY, 80, { waistCm: 90 }), reading(morning - 2 * DAY, 80, { waistCm: 90 })]);
+    expect(badge(a, "healthy-bmi").dates).toHaveLength(3); // the 14 days touch 3 Monday-to-Sunday weeks
+    expect(badge(a, "waist-healthy").dates).toHaveLength(2);
+    expect(badge(a, "waist-month").dates).toHaveLength(1); // both waists are in October
   });
 
   it("tracks this week's and this month's challenges", () => {
@@ -77,26 +107,14 @@ describe("achievements", () => {
     expect(c["month-waist"]).toMatchObject({ value: 1, done: true });
   });
 
-  it("rewards health, not only weight: 5 % loss, body fat down, waist and score", () => {
-    const a = run([
-      reading("2026-05-01T07:00:00-04:00", 104),
-      reading("2026-10-18T07:00:00-04:00", 98.8),
-      reading("2026-10-19T07:00:00-04:00", 98.5, { waistCm: 98 }),
-    ]);
-    // 104 to 98.8 is exactly 5 %.
-    expect(badge(a, "loss-5").earnedAt).toBe(new Date(Date.parse("2026-10-18T07:00:00-04:00")).toISOString());
-    expect(badge(a, "loss-10").progress?.value).toBeCloseTo(((104 - 98.5) / 104) * 100, 6);
-    expect(badge(a, "waist-first").earnedAt).not.toBeNull();
-    // 98 cm on 185 cm is over half the height.
-    expect(badge(a, "waist-healthy").earnedAt).toBeNull();
-    expect(badge(a, "healthy-bmi").earnedAt).toBeNull();
-  });
-
-  it("keeps goal badges from the history of reached goals", () => {
-    const history = (count: number) =>
-      Array.from({ length: count }, (_, i) => ({ kind: "weight" as const, target: 95 - i, setAt: "2026-01-01T00:00:00.000Z", reachedAt: `2026-0${i + 2}-01T00:00:00.000Z` }));
-    expect(badge(run([], history(1)), "goal-1").earnedAt).toBe("2026-02-01T00:00:00.000Z");
-    expect(badge(run([], history(3)), "goal-3").earnedAt).toBe("2026-04-01T00:00:00.000Z");
-    expect(badge(run([], history(2)), "goal-3")).toMatchObject({ earnedAt: null, progress: { value: 2, target: 3 } });
+  it("counts every reached goal from the history", () => {
+    const history = Array.from({ length: 3 }, (_, i) => ({
+      kind: "weight" as const,
+      target: 95 - i,
+      setAt: "2026-01-01T00:00:00.000Z",
+      reachedAt: `2026-0${i + 2}-01T00:00:00.000Z`,
+    }));
+    expect(badge(run([], history), "goal")).toMatchObject({ level: 2, nextAt: 5, dates: history.map((h) => h.reachedAt) });
+    expect(badge(run([]), "goal")).toMatchObject({ level: 0, nextAt: 1, dates: [] });
   });
 });

@@ -4,46 +4,55 @@ import type { GoalHistoryEntry, MeasurementDto } from "./schemas.ts";
 import { scoreOf } from "./score.ts";
 
 /**
- * Badges and challenges, computed from the weigh-ins alone so they never disagree with the data.
- * Two kinds: habit (weighing in regularly, the strongest predictor of keeping weight off) and
- * health (body fat, waist, muscle and score, not just weight). Days, weeks (Monday to Sunday) and
- * months follow the person's time zone.
+ * Badges and challenges, computed from the whole weigh-in history so they never disagree with the
+ * data. Every badge can be earned again: each time counts, and the count moves it up five levels
+ * (bronze to diamond). Two kinds: habit (weighing in regularly, the strongest predictor of keeping
+ * weight off) and health (body fat, waist, muscle and score, not just weight). Days, weeks (Monday
+ * to Sunday) and months follow the person's time zone.
  */
 
 export type BadgeGroup = "habit" | "health" | "goals";
 
+export const TIERS = ["bronze", "silver", "gold", "platinum", "diamond"] as const;
+export type Tier = (typeof TIERS)[number];
+
+/** Times needed for each level, by how often the badge can happen. */
+const DAILY = [1, 30, 100, 250, 500];
+const WEEKLY = [1, 4, 12, 26, 52];
+const MONTHLY = [1, 3, 6, 12, 24];
+const RARE = [1, 2, 3, 5, 8];
+
 export const BADGES = [
-  { id: "first-weigh-in", group: "habit" },
-  { id: "streak-7", group: "habit" },
-  { id: "streak-30", group: "habit" },
-  { id: "habit-4", group: "habit" },
-  { id: "habit-12", group: "habit" },
-  { id: "weighins-100", group: "habit" },
-  { id: "challenge-weeks-4", group: "habit" },
-  { id: "challenge-month", group: "habit" },
-  { id: "loss-5", group: "health" },
-  { id: "loss-10", group: "health" },
-  { id: "fat-down-2", group: "health" },
-  { id: "recomposition", group: "health" },
-  { id: "healthy-bmi", group: "health" },
-  { id: "healthy-fat", group: "health" },
-  { id: "waist-first", group: "health" },
-  { id: "waist-healthy", group: "health" },
-  { id: "score-60", group: "health" },
-  { id: "score-80", group: "health" },
-  { id: "goal-1", group: "goals" },
-  { id: "goal-3", group: "goals" },
-] as const satisfies readonly { id: string; group: BadgeGroup }[];
+  { id: "weigh-days", group: "habit", levels: DAILY },
+  { id: "streak-7", group: "habit", levels: [1, 3, 6, 12, 26] },
+  { id: "streak-30", group: "habit", levels: [1, 2, 4, 6, 12] },
+  { id: "habit-week", group: "habit", levels: WEEKLY },
+  { id: "challenge-week", group: "habit", levels: WEEKLY },
+  { id: "challenge-full", group: "habit", levels: WEEKLY },
+  { id: "challenge-month", group: "habit", levels: MONTHLY },
+  { id: "loss-5", group: "health", levels: RARE },
+  { id: "fat-down-2", group: "health", levels: RARE },
+  { id: "recomposition", group: "health", levels: RARE },
+  { id: "healthy-bmi", group: "health", levels: WEEKLY },
+  { id: "healthy-fat", group: "health", levels: WEEKLY },
+  { id: "waist-month", group: "health", levels: MONTHLY },
+  { id: "waist-healthy", group: "health", levels: WEEKLY },
+  { id: "score-60", group: "health", levels: WEEKLY },
+  { id: "score-80", group: "health", levels: WEEKLY },
+  { id: "goal", group: "goals", levels: [1, 3, 5, 10, 20] },
+] as const satisfies readonly { id: string; group: BadgeGroup; levels: readonly number[] }[];
 
 export type BadgeId = (typeof BADGES)[number]["id"];
 
 export interface BadgeStatus {
   id: BadgeId;
   group: BadgeGroup;
-  /** When the condition was first met; null while locked. */
-  earnedAt: string | null;
-  /** How close a locked badge is, when that can be measured. */
-  progress: { value: number; target: number } | null;
+  /** Every time it was earned, oldest first (ISO dates). */
+  dates: string[];
+  /** 0 while never earned, then 1 (bronze) to 5 (diamond). */
+  level: number;
+  /** Times needed for the next level; null at diamond. */
+  nextAt: number | null;
 }
 
 export type ChallengeId = "week-weigh-5" | "week-full-3" | "month-weigh-20" | "month-waist" | "month-fat";
@@ -66,20 +75,13 @@ export interface Achievements {
 
 /** Targets, in one place so the texts can quote them. */
 export const TARGETS = {
-  streakShort: 7,
-  streakLong: 30,
   habitDaysPerWeek: 3,
-  habitShort: 4,
-  habitLong: 12,
-  weighins: 100,
   weekDays: 5,
   weekFull: 3,
-  challengeWeeks: 4,
   monthDays: 20,
   monthFatDrop: 0.5,
-  // Losing 5 % and 10 % of weight: CDC thresholds for health benefits.
-  lossSmall: 0.05,
-  lossLarge: 0.1,
+  // Each 5 % of weight lost: the CDC threshold for health benefits.
+  loss: 0.05,
   lossWindowDays: 365,
   fatDrop: 2,
   fatWindowDays: 180,
@@ -89,6 +91,10 @@ export const TARGETS = {
   scoreGood: 60,
   scoreGreat: 80,
 } as const;
+
+export function levelOf(count: number, levels: readonly number[]): number {
+  return levels.filter((n) => count >= n).length;
+}
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -102,6 +108,16 @@ export function localDay(time: number, timeZone: string): number {
   }
   const [y, m, d] = f.format(time).split("-").map(Number);
   return Date.UTC(y!, m! - 1, d!) / DAY;
+}
+
+/** True for an IANA zone this runtime knows, like "America/Toronto". */
+export function isTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Weeks start on Monday; day 0 (1970-01-01) was a Thursday. */
@@ -123,6 +139,13 @@ interface Row {
   score: number | null;
   bmi: number;
   fatHealthyMax: number;
+}
+
+/** Groups items by a key, keeping the input order inside each group and the groups in key order. */
+function groupBy<T>(items: T[], key: (item: T) => number): T[][] {
+  const groups = new Map<number, T[]>();
+  for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), item]);
+  return [...groups].sort((a, b) => a[0] - b[0]).map(([, list]) => list);
 }
 
 export function achievements(input: {
@@ -155,131 +178,94 @@ export function achievements(input: {
     })
     .sort((a, b) => a.t - b.t);
 
-  const earned = new Map<BadgeId, number>();
-  const progress = new Map<BadgeId, { value: number; target: number }>();
-  const earn = (id: BadgeId, t: number) => {
-    if (!earned.has(id)) earned.set(id, t);
-  };
-  const first = <T>(items: T[], test: (item: T) => boolean) => items.find(test);
+  const times = new Map<BadgeId, number[]>(BADGES.map((b) => [b.id, []]));
+  const add = (id: BadgeId, t: number) => times.get(id)!.push(t);
 
-  // First reading time of each local day.
+  // First reading of each local day.
   const days: { day: number; t: number }[] = [];
   for (const r of rows) if (days[days.length - 1]?.day !== r.day) days.push({ day: r.day, t: r.t });
+  for (const d of days) add("weigh-days", d.t);
 
-  // Streaks: consecutive days with a weigh-in.
+  // Streaks: every 7 and every 30 days in a row count once.
   let run = 0;
   let best = 0;
   days.forEach((d, i) => {
     run = i > 0 && d.day === days[i - 1]!.day + 1 ? run + 1 : 1;
     best = Math.max(best, run);
-    if (run === TARGETS.streakShort) earn("streak-7", d.t);
-    if (run === TARGETS.streakLong) earn("streak-30", d.t);
+    if (run % 7 === 0) add("streak-7", d.t);
+    if (run % 30 === 0) add("streak-30", d.t);
   });
   const today = localDay(now, timeZone);
   const last = days[days.length - 1];
   // Today's weigh-in may still be ahead, so a streak through yesterday is still alive.
   const current = last && last.day >= today - 1 ? run : 0;
-  progress.set("streak-7", { value: best, target: TARGETS.streakShort });
-  progress.set("streak-30", { value: best, target: TARGETS.streakLong });
 
-  // Weeks: days weighed per week; a habit week has 3 or more, a challenge week 5 or more.
-  const weeks = new Map<number, { t: number }[]>();
-  for (const d of days) weeks.set(weekOf(d.day), [...(weeks.get(weekOf(d.day)) ?? []), d]);
-  let habitRun = 0;
-  let habitBest = 0;
-  let previousWeek: number | null = null;
-  let challengeWeeks = 0;
-  for (const [week, list] of [...weeks].sort((a, b) => a[0] - b[0])) {
-    if (list.length >= TARGETS.habitDaysPerWeek) {
-      habitRun = previousWeek === week - 1 ? habitRun + 1 : 1;
-      previousWeek = week;
-      habitBest = Math.max(habitBest, habitRun);
-      const at = list[TARGETS.habitDaysPerWeek - 1]!.t;
-      if (habitRun === TARGETS.habitShort) earn("habit-4", at);
-      if (habitRun === TARGETS.habitLong) earn("habit-12", at);
-    }
-    if (list.length >= TARGETS.weekDays) {
-      challengeWeeks++;
-      if (challengeWeeks === TARGETS.challengeWeeks) earn("challenge-weeks-4", list[TARGETS.weekDays - 1]!.t);
-    }
+  // Weeks and months, counted when the target day is reached.
+  for (const week of groupBy(days, (d) => weekOf(d.day))) {
+    if (week.length >= TARGETS.habitDaysPerWeek) add("habit-week", week[TARGETS.habitDaysPerWeek - 1]!.t);
+    if (week.length >= TARGETS.weekDays) add("challenge-week", week[TARGETS.weekDays - 1]!.t);
   }
-  progress.set("habit-4", { value: habitBest, target: TARGETS.habitShort });
-  progress.set("habit-12", { value: habitBest, target: TARGETS.habitLong });
-  progress.set("challenge-weeks-4", { value: challengeWeeks, target: TARGETS.challengeWeeks });
-
-  const months = new Map<number, { t: number }[]>();
-  for (const d of days) months.set(monthOf(d.day), [...(months.get(monthOf(d.day)) ?? []), d]);
-  let bestMonth = 0;
-  for (const [, list] of [...months].sort((a, b) => a[0] - b[0])) {
-    bestMonth = Math.max(bestMonth, list.length);
-    if (list.length >= TARGETS.monthDays) earn("challenge-month", list[TARGETS.monthDays - 1]!.t);
+  const fullDays: { day: number; t: number }[] = [];
+  for (const r of rows) if (r.impedance && fullDays[fullDays.length - 1]?.day !== r.day) fullDays.push({ day: r.day, t: r.t });
+  for (const week of groupBy(fullDays, (d) => weekOf(d.day))) {
+    if (week.length >= TARGETS.weekFull) add("challenge-full", week[TARGETS.weekFull - 1]!.t);
   }
-  progress.set("challenge-month", { value: bestMonth, target: TARGETS.monthDays });
+  for (const month of groupBy(days, (d) => monthOf(d.day))) {
+    if (month.length >= TARGETS.monthDays) add("challenge-month", month[TARGETS.monthDays - 1]!.t);
+  }
 
-  if (rows[0]) earn("first-weigh-in", rows[0].t);
-  if (rows[TARGETS.weighins - 1]) earn("weighins-100", rows[TARGETS.weighins - 1]!.t);
-  progress.set("weighins-100", { value: rows.length, target: TARGETS.weighins });
-
-  // Weight loss against the highest weight of the previous 12 months.
-  const maxBefore = (i: number, windowDays: number, value: (r: Row) => number | null) => {
-    let max: number | null = null;
-    for (let j = i; j >= 0 && rows[i]!.t - rows[j]!.t <= windowDays * DAY; j--) {
-      const v = value(rows[j]!);
-      if (v !== null && (max === null || v > max)) max = v;
-    }
-    return max;
+  /**
+   * A drop from the highest value since the previous time it counted (and within the window).
+   * Each time starts again from there, so every further step down counts too.
+   */
+  const stepsDown = (id: BadgeId, list: Row[], value: (r: Row) => number, windowDays: number, reached: (top: number, v: number) => boolean) => {
+    let from = 0;
+    list.forEach((r, i) => {
+      let top = -Infinity;
+      for (let j = i; j >= from && r.t - list[j]!.t <= windowDays * DAY; j--) top = Math.max(top, value(list[j]!));
+      if (reached(top, value(r))) {
+        add(id, r.t);
+        from = i;
+      }
+    });
   };
-  let latestLoss = 0;
-  rows.forEach((r, i) => {
-    const top = maxBefore(i, TARGETS.lossWindowDays, (x) => x.weightKg)!;
-    const loss = (top - r.weightKg) / top;
-    if (loss >= TARGETS.lossSmall) earn("loss-5", r.t);
-    if (loss >= TARGETS.lossLarge) earn("loss-10", r.t);
-    latestLoss = loss;
-  });
-  progress.set("loss-5", { value: Math.max(latestLoss, 0) * 100, target: TARGETS.lossSmall * 100 });
-  progress.set("loss-10", { value: Math.max(latestLoss, 0) * 100, target: TARGETS.lossLarge * 100 });
+  // Each 5 % of weight lost (within 12 months), and each 2 points of body fat (within 6 months).
+  stepsDown("loss-5", rows, (r) => r.weightKg, TARGETS.lossWindowDays, (top, v) => v <= top * (1 - TARGETS.loss));
+  stepsDown("fat-down-2", rows.filter((r) => r.fat !== null), (r) => r.fat!, TARGETS.fatWindowDays, (top, v) => top - v >= TARGETS.fatDrop);
 
-  // Body fat 2 points under its highest of the previous 6 months.
-  let latestFatDrop = 0;
-  rows.forEach((r, i) => {
-    if (r.fat === null) return;
-    const top = maxBefore(i, TARGETS.fatWindowDays, (x) => x.fat)!;
-    if (top - r.fat >= TARGETS.fatDrop) earn("fat-down-2", r.t);
-    latestFatDrop = top - r.fat;
-  });
-  progress.set("fat-down-2", { value: Math.max(latestFatDrop, 0), target: TARGETS.fatDrop });
-
-  // Recomposition: 2 kg of fat lost within 8 weeks while lean mass held (lost at most 0.5 kg).
+  // Recomposition: 2 kg of fat lost within 8 weeks while lean mass held; each time starts fresh.
   const comp = rows.filter((r) => r.fatMassKg !== null && r.leanSoftKg !== null);
-  for (let i = 0; i < comp.length && !earned.has("recomposition"); i++) {
-    for (let j = i - 1; j >= 0 && comp[i]!.t - comp[j]!.t <= TARGETS.recompWindowDays * DAY; j--) {
+  let since = 0;
+  for (let i = 0; i < comp.length; i++) {
+    for (let j = i - 1; j >= since && comp[i]!.t - comp[j]!.t <= TARGETS.recompWindowDays * DAY; j--) {
       const a = comp[j]!;
       const b = comp[i]!;
       if (a.fatMassKg! - b.fatMassKg! >= TARGETS.recompFatKg && b.leanSoftKg! - a.leanSoftKg! >= -TARGETS.recompLeanKg) {
-        earn("recomposition", b.t);
+        add("recomposition", b.t);
+        since = i;
         break;
       }
     }
   }
 
-  const at = (test: (r: Row) => boolean) => first(rows, test)?.t;
-  const mark = (id: BadgeId, t: number | undefined) => t !== undefined && earn(id, t);
-  mark("healthy-bmi", at((r) => r.bmi < 25));
-  mark("healthy-fat", at((r) => r.fat !== null && r.fat <= r.fatHealthyMax));
-  mark("waist-first", at((r) => r.waistCm !== null));
-  mark("waist-healthy", at((r) => r.waistCm !== null && r.waistCm / profile.heightCm < 0.5));
-  mark("score-60", at((r) => r.score !== null && r.score >= TARGETS.scoreGood));
-  mark("score-80", at((r) => r.score !== null && r.score >= TARGETS.scoreGreat));
-  const latestScore = [...rows].reverse().find((r) => r.score !== null)?.score ?? 0;
-  progress.set("score-60", { value: latestScore, target: TARGETS.scoreGood });
-  progress.set("score-80", { value: latestScore, target: TARGETS.scoreGreat });
+  // Being in a healthy range counts once per week; the waist, once per month.
+  const perWeek = (id: BadgeId, test: (r: Row) => boolean) => {
+    for (const week of groupBy(rows, (r) => weekOf(r.day))) {
+      const hit = week.find(test);
+      if (hit) add(id, hit.t);
+    }
+  };
+  perWeek("healthy-bmi", (r) => r.bmi < 25);
+  perWeek("healthy-fat", (r) => r.fat !== null && r.fat <= r.fatHealthyMax);
+  perWeek("waist-healthy", (r) => r.waistCm !== null && r.waistCm / profile.heightCm < 0.5);
+  perWeek("score-60", (r) => r.score !== null && r.score >= TARGETS.scoreGood);
+  perWeek("score-80", (r) => r.score !== null && r.score >= TARGETS.scoreGreat);
+  for (const month of groupBy(rows, (r) => monthOf(r.day))) {
+    const hit = month.find((r) => r.waistCm !== null);
+    if (hit) add("waist-month", hit.t);
+  }
 
-  const reached = input.goalHistory.map((g) => Date.parse(g.reachedAt)).sort((a, b) => a - b);
-  if (reached[0] !== undefined) earn("goal-1", reached[0]);
-  if (reached[2] !== undefined) earn("goal-3", reached[2]);
-  progress.set("goal-1", { value: reached.length, target: 1 });
-  progress.set("goal-3", { value: reached.length, target: 3 });
+  for (const g of input.goalHistory) add("goal", Date.parse(g.reachedAt));
 
   // Challenges for the current week and month.
   const thisWeek = weekOf(today);
@@ -307,8 +293,15 @@ export function achievements(input: {
 
   return {
     badges: BADGES.map((b) => {
-      const t = earned.get(b.id);
-      return { id: b.id, group: b.group, earnedAt: t === undefined ? null : new Date(t).toISOString(), progress: t === undefined ? (progress.get(b.id) ?? null) : null };
+      const list = times.get(b.id)!.sort((x, y) => x - y);
+      const level = levelOf(list.length, b.levels);
+      return {
+        id: b.id,
+        group: b.group,
+        dates: list.map((t) => new Date(t).toISOString()),
+        level,
+        nextAt: level < b.levels.length ? b.levels[level]! : null,
+      };
     }),
     streak: { current, best, weighedToday: last?.day === today },
     challenges: [
@@ -320,3 +313,55 @@ export function achievements(input: {
     ],
   };
 }
+
+/** Levels per badge, as stored to notice when one goes up. */
+export function levelsOf(a: Achievements): Record<string, number> {
+  return Object.fromEntries(a.badges.map((b) => [b.id, b.level]));
+}
+
+/** Badge and level names, shared by the screens and the notifications. */
+export const BADGE_NAMES: Record<"es" | "en", Record<BadgeId, string>> = {
+  es: {
+    "weigh-days": "Pesadas",
+    "streak-7": "Racha de 7",
+    "streak-30": "Racha de 30",
+    "habit-week": "Semana activa",
+    "challenge-week": "Reto semanal",
+    "challenge-full": "Semana completa",
+    "challenge-month": "Mes perfecto",
+    "loss-5": "Menos 5 %",
+    "fat-down-2": "Grasa a la baja",
+    recomposition: "Recomposición",
+    "healthy-bmi": "IMC saludable",
+    "healthy-fat": "Grasa saludable",
+    "waist-month": "Cinta en mano",
+    "waist-healthy": "Cintura sana",
+    "score-60": "Puntuación 60",
+    "score-80": "Puntuación 80",
+    goal: "Meta cumplida",
+  },
+  en: {
+    "weigh-days": "Weigh-ins",
+    "streak-7": "7-day streak",
+    "streak-30": "30-day streak",
+    "habit-week": "Active week",
+    "challenge-week": "Weekly challenge",
+    "challenge-full": "Full week",
+    "challenge-month": "Perfect month",
+    "loss-5": "Minus 5 %",
+    "fat-down-2": "Fat going down",
+    recomposition: "Recomposition",
+    "healthy-bmi": "Healthy BMI",
+    "healthy-fat": "Healthy body fat",
+    "waist-month": "Tape in hand",
+    "waist-healthy": "Healthy waist",
+    "score-60": "Score 60",
+    "score-80": "Score 80",
+    goal: "Goal reached",
+  },
+};
+
+export const TIER_NAMES: Record<"es" | "en", Record<Tier, string>> = {
+  es: { bronze: "Bronce", silver: "Plata", gold: "Oro", platinum: "Platino", diamond: "Diamante" },
+  en: { bronze: "Bronze", silver: "Silver", gold: "Gold", platinum: "Platinum", diamond: "Diamond" },
+};
