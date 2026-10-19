@@ -273,7 +273,10 @@ describe("Zepp connection", () => {
     expect(push.sent).toEqual([]);
     await gaby.post("/api/measurements").send({ weight: 77.9 });
     expect(push.sent).toEqual([{ endpoint: "https://push.example/gaby", body: "¡Llegaste a tu meta de 78.0 kg! Te tomó menos de un día. 💚", url: "/" }]);
-    expect((await gaby.get("/api/me")).body.goals.weight.reachedAt).toEqual(expect.any(String));
+    const me = (await gaby.get("/api/me")).body;
+    expect(me.goals.weight.reachedAt).toEqual(expect.any(String));
+    // The history keeps it after the goal is replaced, so the badge stays.
+    expect(me.goalHistory).toEqual([{ kind: "weight", target: 78, setAt: me.goals.weight.setAt, reachedAt: me.goals.weight.reachedAt }]);
     // Reached once: further weigh-ins under the target do not repeat it.
     await gaby.post("/api/measurements").send({ weight: 77.5 });
     expect(push.sent).toHaveLength(1);
@@ -300,6 +303,7 @@ describe("Zepp connection", () => {
     expect(push.sent).toHaveLength(2);
     expect((await gaby.get("/api/me")).body.goals.maintain.outside).toBeNull();
 
+    expect((await gaby.get("/api/me")).body.goalHistory).toHaveLength(1);
     // A goals form that does not send maintenance keeps it.
     expect((await gaby.put("/api/me/goals").send({ weight: null, bodyFatPct: 28 })).body.goals.maintain.centerKg).toBe(77.5);
   });

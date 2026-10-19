@@ -15,6 +15,8 @@ export interface UserDoc {
     bodyFat: (Omit<BodyFatGoal, "setAt" | "reachedAt"> & { setAt: Date; reachedAt?: Date | null }) | null;
     maintain?: (Omit<MaintainGoal, "setAt"> & { setAt: Date }) | null;
   };
+  /** Every goal reached, appended once when it happens; missing means none yet. */
+  goalHistory?: { kind: "weight" | "bodyFat"; target: number; setAt: Date; reachedAt: Date }[];
   createdAt: Date;
 }
 

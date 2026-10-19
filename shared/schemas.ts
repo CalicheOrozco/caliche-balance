@@ -122,6 +122,14 @@ export interface GoalsDto {
   maintain: MaintainGoal | null;
 }
 
+/** A goal that was reached, kept after the goal is replaced so badges never disappear. */
+export interface GoalHistoryEntry {
+  kind: "weight" | "bodyFat";
+  target: number;
+  setAt: string;
+  reachedAt: string;
+}
+
 export interface NotificationPrefs {
   newWeighIn: boolean;
   zepp: boolean;
@@ -133,6 +141,7 @@ export interface UserDto {
   username: string;
   profile: ProfileDto | null;
   goals: GoalsDto;
+  goalHistory: GoalHistoryEntry[];
   notifications: NotificationPrefs;
 }
 

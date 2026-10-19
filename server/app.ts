@@ -66,6 +66,7 @@ function toUserDto(user: UserDoc): UserDto {
       bodyFat: g?.bodyFat ? { ...g.bodyFat, setAt: g.bodyFat.setAt.toISOString(), reachedAt: g.bodyFat.reachedAt?.toISOString() ?? null } : null,
       maintain: g?.maintain ? { ...g.maintain, setAt: g.maintain.setAt.toISOString() } : null,
     },
+    goalHistory: (user.goalHistory ?? []).map((h) => ({ ...h, setAt: h.setAt.toISOString(), reachedAt: h.reachedAt.toISOString() })),
   };
 }
 

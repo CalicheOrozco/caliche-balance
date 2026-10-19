@@ -32,9 +32,9 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // The whole app (screens, styles, the History chart chunk) works offline. The plugin adds
-        // the manifest and its icons itself; listing PNGs here would add them twice.
-        globPatterns: ["**/*.{js,css,html,svg}"],
+        // The whole app (screens, styles, the History chart chunk, badge images) works offline. The
+        // plugin adds the manifest and its icons itself; matching every PNG here would add them twice.
+        globPatterns: ["**/*.{js,css,html,svg}", "badges/*.png"],
         navigateFallback: "/index.html",
         // API responses are never cached by the service worker: they carry personal data and
         // the app persists only what it needs (see src/offline.ts).

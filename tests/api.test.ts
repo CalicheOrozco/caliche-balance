@@ -39,6 +39,7 @@ describe("Caliche Balance API", () => {
       username: "caliche",
       profile: null,
       goals: { weight: null, bodyFat: null, maintain: null },
+      goalHistory: [],
       notifications: { newWeighIn: true, zepp: true, goals: true },
     });
     expect(register.body.recoveryCode).toMatch(/^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/);

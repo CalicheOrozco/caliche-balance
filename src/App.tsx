@@ -1,6 +1,6 @@
 import { lazy, type ReactNode, Suspense, useEffect } from "react";
 import type { IconType } from "react-icons";
-import { FiHome, FiPlusCircle, FiSettings, FiTrendingUp } from "react-icons/fi";
+import { FiAward, FiHome, FiPlusCircle, FiSettings, FiTrendingUp } from "react-icons/fi";
 import { NavLink, Navigate, Route, Routes } from "react-router";
 import type { UserDto } from "../shared/schemas.ts";
 import { useMe, useMeasurements } from "./api.ts";
@@ -11,6 +11,7 @@ import { AddPage } from "./pages/Add.tsx";
 import { AuthPage } from "./pages/Auth.tsx";
 import { HomePage } from "./pages/Home.tsx";
 import { ReadingPage } from "./pages/Reading.tsx";
+import { AchievementsPage } from "./pages/Achievements.tsx";
 import { ProfileForm, SettingsPage } from "./pages/Settings.tsx";
 import { useAutoSync } from "./pages/Zepp.tsx";
 import { Card, Logo } from "./ui.tsx";
@@ -22,6 +23,7 @@ const NAV: { to: string; key: MessageKey; Icon: IconType }[] = [
   { to: "/", key: "nav.home", Icon: FiHome },
   { to: "/historial", key: "nav.history", Icon: FiTrendingUp },
   { to: "/agregar", key: "nav.add", Icon: FiPlusCircle },
+  { to: "/logros", key: "nav.achievements", Icon: FiAward },
   { to: "/ajustes", key: "nav.settings", Icon: FiSettings },
 ];
 
@@ -90,13 +92,22 @@ function SignedIn({ user }: { user: UserDto }) {
   }
 
   const list = measurements.data ?? [];
+  // Missing on an account cached offline by an older version of the app.
+  const goalHistory = user.goalHistory ?? [];
   return (
     <Shell>
       {measurements.isPending ? (
         <p className="py-10 text-center text-muted">…</p>
       ) : (
         <Routes>
-          <Route path="/" element={<HomePage profile={profile} measurements={list} username={user.username} goals={user.goals} />} />
+          <Route
+            path="/"
+            element={<HomePage profile={profile} measurements={list} username={user.username} goals={user.goals} goalHistory={goalHistory} />}
+          />
+          <Route
+            path="/logros"
+            element={<AchievementsPage profile={profile} measurements={list} goalHistory={goalHistory} username={user.username} />}
+          />
           <Route
             path="/historial"
             element={

@@ -1,7 +1,7 @@
-import type { ObjectId } from "mongodb";
+import type { ObjectId, UpdateFilter } from "mongodb";
 import { bodyFatOf } from "../shared/composition.ts";
 import { evaluateGoals, type GoalEvent } from "../shared/goals.ts";
-import type { Collections } from "./db.ts";
+import type { Collections, UserDoc } from "./db.ts";
 import { messages, notifyUser, type PushSender } from "./push.ts";
 
 /**
@@ -31,19 +31,37 @@ export async function checkGoals(c: Collections, push: PushSender | undefined, u
     );
 
     const applied: GoalEvent[] = [];
-    const write = async (filter: object, set: object) => (await c.users.updateOne({ _id: userId, ...filter }, { $set: set })).modifiedCount === 1;
+    const write = async (filter: object, update: UpdateFilter<UserDoc>) => (await c.users.updateOne({ _id: userId, ...filter }, update)).modifiedCount === 1;
+    // A reached goal also goes to the history, in the same write, so badges outlive the goal.
     if (changes.weightReachedAt && g.weight) {
-      if (await write({ "goals.weight.setAt": g.weight.setAt, "goals.weight.reachedAt": null }, { "goals.weight.reachedAt": changes.weightReachedAt })) {
+      const entry = { kind: "weight" as const, target: g.weight.targetKg, setAt: g.weight.setAt, reachedAt: changes.weightReachedAt };
+      if (
+        await write(
+          { "goals.weight.setAt": g.weight.setAt, "goals.weight.reachedAt": null },
+          { $set: { "goals.weight.reachedAt": changes.weightReachedAt }, $push: { goalHistory: entry } },
+        )
+      ) {
         applied.push(...events.filter((e) => e.kind === "weight-reached"));
       }
     }
     if (changes.fatReachedAt && g.bodyFat) {
-      if (await write({ "goals.bodyFat.setAt": g.bodyFat.setAt, "goals.bodyFat.reachedAt": null }, { "goals.bodyFat.reachedAt": changes.fatReachedAt })) {
+      const entry = { kind: "bodyFat" as const, target: g.bodyFat.targetPct, setAt: g.bodyFat.setAt, reachedAt: changes.fatReachedAt };
+      if (
+        await write(
+          { "goals.bodyFat.setAt": g.bodyFat.setAt, "goals.bodyFat.reachedAt": null },
+          { $set: { "goals.bodyFat.reachedAt": changes.fatReachedAt }, $push: { goalHistory: entry } },
+        )
+      ) {
         applied.push(...events.filter((e) => e.kind === "fat-reached"));
       }
     }
     if (changes.maintainOutside !== undefined && g.maintain) {
-      if (await write({ "goals.maintain.setAt": g.maintain.setAt, "goals.maintain.outside": g.maintain.outside }, { "goals.maintain.outside": changes.maintainOutside })) {
+      if (
+        await write(
+          { "goals.maintain.setAt": g.maintain.setAt, "goals.maintain.outside": g.maintain.outside },
+          { $set: { "goals.maintain.outside": changes.maintainOutside } },
+        )
+      ) {
         applied.push(...events.filter((e) => e.kind === "maintain-left"));
       }
     }

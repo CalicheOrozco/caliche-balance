@@ -9,6 +9,7 @@ import { api } from "../api.ts";
 import { ageAt, assess, basalMetabolicRate, bmi, bodyFatBands, healthyWeightRange, type SourceId } from "../../shared/reference.ts";
 import { lossPlan, SAFE_LOSS_KG_PER_WEEK } from "../../shared/fatLoss.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
+import { StreakCard, useAchievements, useNewBadges } from "../achievements.tsx";
 import { useCompareXiaomi } from "../compare.ts";
 import { bmiPercentile } from "../../shared/percentiles.ts";
 import { scoreOf } from "../../shared/score.ts";
@@ -23,7 +24,7 @@ import {
   nextBodyFatGoal,
   nextWeightGoal,
 } from "../../shared/goals.ts";
-import { CM_PER_IN, fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
+import { CM_PER_IN, fromKilograms, type GoalHistoryEntry, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
 import { Button, Card, Field, RangeBar, StatusBadge, signed, useFormat } from "../ui.tsx";
 
@@ -317,6 +318,12 @@ function TipsCard({ profile, measurements, goals }: { profile: ProfileDto; measu
       <p className="mt-4 text-sm text-muted">{t("tipsNote")}</p>
     </Card>
   );
+}
+
+function HomeStreak(props: { profile: ProfileDto; measurements: MeasurementDto[]; goalHistory: GoalHistoryEntry[]; username: string }) {
+  const a = useAchievements(props.profile, props.measurements, props.goalHistory);
+  const { fresh } = useNewBadges(props.username, a);
+  return <StreakCard a={a} fresh={fresh} />;
 }
 
 /** Caliche Balance's own 0 to 100 score, first thing on Home, with every part visible. */
@@ -624,11 +631,13 @@ export function HomePage({
   measurements,
   username,
   goals,
+  goalHistory,
 }: {
   profile: ProfileDto;
   measurements: MeasurementDto[];
   username: string;
   goals: GoalsDto;
+  goalHistory: GoalHistoryEntry[];
 }) {
   const { t, tf } = useI18n();
   const f = useFormat();
@@ -698,6 +707,8 @@ export function HomePage({
       </div>
 
       <BodyScoreCard profile={profile} measurements={measurements} />
+
+      <HomeStreak profile={profile} measurements={measurements} goalHistory={goalHistory} username={username} />
 
       {result.notes.map((note) => (
         <p key={note} className="rounded-2xl bg-warn/15 px-4 py-3 text-sm text-ink">
