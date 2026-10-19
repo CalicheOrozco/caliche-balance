@@ -1,10 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
+import { FiTrash2 } from "react-icons/fi";
 import { useLocation } from "react-router";
 import { ageAt, bodyFatBands, healthyWeightRange } from "../../shared/reference.ts";
 import { fromKilograms } from "../../shared/schemas.ts";
 import type { UserDto } from "../../shared/schemas.ts";
-import { api } from "../api.ts";
+import { bodyFatOf } from "../../shared/composition.ts";
+import { api, useMeasurements } from "../api.ts";
 import { clearOfflineData } from "../offline.ts";
 import { disablePush, enablePush, type PushState, pushState } from "../push.ts";
 import { useI18n } from "../i18n.tsx";
@@ -94,6 +96,24 @@ export function ProfileForm({ user, onSaved }: { user: UserDto; onSaved?: () => 
   );
 }
 
+/** Trash icon inside a goal field; asks before removing, since the goal's starting point goes with it. */
+function RemoveGoalButton({ label, onRemove }: { label: string; onRemove: () => void }) {
+  const { t } = useI18n();
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={() => {
+        if (confirm(t("removeGoalConfirm"))) onRemove();
+      }}
+      className="flex h-11 w-11 items-center justify-center rounded-xl text-bad transition hover:bg-bad/15 active:scale-95"
+    >
+      <FiTrash2 size={20} aria-hidden />
+    </button>
+  );
+}
+
 /** Weight and body fat goals; each one optional. */
 function GoalsForm({ user }: { user: UserDto }) {
   const { t, tf, te } = useI18n();
@@ -109,6 +129,10 @@ function GoalsForm({ user }: { user: UserDto }) {
   const healthy = healthyWeightRange(profile.heightCm);
   const age = ageAt(new Date(`${profile.birthDate}T00:00:00Z`), new Date());
   const fatHealthy = bodyFatBands(profile.sex, age).find((b) => b.key === "healthy")!;
+  // Where the person is today, so the goal can be chosen against it.
+  const measurements = useMeasurements().data ?? [];
+  const currentWeight = measurements[0]?.weightKg ?? null;
+  const currentFat = measurements.map((m) => bodyFatOf(profile, m)).find((x) => x !== null) ?? null;
 
   const save = useMutation({
     mutationFn: (next: { weight: string; bodyFat: string }) =>
@@ -137,38 +161,46 @@ function GoalsForm({ user }: { user: UserDto }) {
     >
       <p className="text-sm text-ink-2">{t("goalsIntro")}</p>
       <div>
+        {currentWeight !== null && <p className="mb-1.5 text-sm font-medium text-ink">{tf("goalWeightNow", { weight: f.weight(currentWeight, unit) })}</p>}
         <Field
           label={tf("goalWeight", { unit })}
           inputMode="decimal"
           value={weight}
           onChange={(e) => setWeight(e.target.value)}
           help={tf("goalWeightHint", { min: f.weight(healthy.min, unit), max: f.weight(healthy.max, unit) })}
+          trailing={
+            user.goals.weight && (
+              <RemoveGoalButton
+                label={t("removeWeightGoal")}
+                onRemove={() => {
+                  setWeight("");
+                  submit({ weight: "", bodyFat });
+                }}
+              />
+            )
+          }
         />
-        {user.goals.weight && (
-          <Button type="button" variant="dangerText" onClick={() => {
-              setWeight("");
-              submit({ weight: "", bodyFat });
-            }}>
-            {t("removeGoal")}
-          </Button>
-        )}
       </div>
       <div>
+        {currentFat && <p className="mb-1.5 text-sm font-medium text-ink">{tf("goalFatNow", { value: `${f.number(currentFat.value)} %` })}</p>}
         <Field
           label={t("goalBodyFat")}
           inputMode="decimal"
           value={bodyFat}
           onChange={(e) => setBodyFat(e.target.value)}
           help={tf("goalFatHint", { min: fatHealthy.min!, max: fatHealthy.max! })}
+          trailing={
+            user.goals.bodyFat && (
+              <RemoveGoalButton
+                label={t("removeFatGoal")}
+                onRemove={() => {
+                  setBodyFat("");
+                  submit({ weight, bodyFat: "" });
+                }}
+              />
+            )
+          }
         />
-        {user.goals.bodyFat && (
-          <Button type="button" variant="dangerText" onClick={() => {
-              setBodyFat("");
-              submit({ weight, bodyFat: "" });
-            }}>
-            {t("removeGoal")}
-          </Button>
-        )}
       </div>
       {status && <p className="text-sm text-ink-2">{status}</p>}
       <Button type="submit" disabled={save.isPending} className="w-full">
