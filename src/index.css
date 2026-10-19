@@ -97,6 +97,20 @@ button {
   font: inherit;
 }
 
+/*
+ * iOS Safari draws date and time inputs with a native look that is taller than the other fields
+ * and has a minimum width that can overflow its column; plain inputs keep every field the same.
+ */
+input[type="time"],
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+}
+input::-webkit-date-and-time-value {
+  text-align: left;
+}
+
 /* iOS zooms into inputs smaller than 16px. */
 input,
 select {

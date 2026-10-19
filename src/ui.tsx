@@ -42,7 +42,7 @@ export function Field({ label, help, error, trailing, ...props }: FieldProps & {
       <div className="relative">
         <input
           id={id}
-          className={`w-full rounded-2xl border border-line bg-surface-2 px-4 py-3 text-ink outline-none placeholder:text-muted focus:border-brand ${trailing ? "pr-14" : ""}`}
+          className={`w-full min-w-0 rounded-2xl border border-line bg-surface-2 px-4 py-3 text-ink outline-none placeholder:text-muted focus:border-brand ${trailing ? "pr-14" : ""}`}
           {...props}
         />
         {trailing && <div className="absolute inset-y-0 right-1 flex items-center">{trailing}</div>}

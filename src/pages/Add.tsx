@@ -77,7 +77,8 @@ export function AddPage({ profile }: { profile: ProfileDto }) {
             save.mutate();
           }}
         >
-          <div className="grid grid-cols-[1fr_auto] gap-3">
+          {/* Fixed shares: an "auto" column grows to iOS Safari's wide native time input and overflows. */}
+          <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-3">
             <DatePicker label={t("measuredAt")} value={date} onChange={setDate} maxDate={new Date()} required />
             <Field label={t("time")} type="time" value={time} onChange={(e) => setTime(e.target.value)} required />
           </div>
