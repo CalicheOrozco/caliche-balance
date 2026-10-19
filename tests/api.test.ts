@@ -38,8 +38,8 @@ describe("Caliche Balance API", () => {
     expect(register.body.user).toEqual({
       username: "caliche",
       profile: null,
-      goals: { weight: null, bodyFat: null },
-      notifications: { newWeighIn: true, zepp: true },
+      goals: { weight: null, bodyFat: null, maintain: null },
+      notifications: { newWeighIn: true, zepp: true, goals: true },
     });
     expect(register.body.recoveryCode).toMatch(/^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/);
     expect(register.headers["set-cookie"]?.[0]).toMatch(/cb_session=.*HttpOnly/);

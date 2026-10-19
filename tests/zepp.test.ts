@@ -262,6 +262,48 @@ describe("Zepp connection", () => {
     ]);
   });
 
+  it("tells the person once when a weigh-in reaches a goal, and when the weight leaves the maintenance range", async () => {
+    const gaby = await signUp("gaby");
+    await gaby.put("/api/me/profile").send({ sex: "female", birthDate: "1995-05-05", heightCm: 165, language: "es", unit: "kg" });
+    await gaby.post("/api/push/subscribe").send({ endpoint: "https://push.example/gaby", keys: { p256dh: "p256dh-de-prueba-123", auth: "auth-de-prueba-1" } });
+    await gaby.post("/api/measurements").send({ weight: 80, measuredAt: new Date(Date.now() - 86_400_000).toISOString() });
+    await gaby.put("/api/me/goals").send({ weight: { value: 78, unit: "kg" }, bodyFatPct: null });
+
+    await gaby.post("/api/measurements").send({ weight: 78.5 });
+    expect(push.sent).toEqual([]);
+    await gaby.post("/api/measurements").send({ weight: 77.9 });
+    expect(push.sent).toEqual([{ endpoint: "https://push.example/gaby", body: "¡Llegaste a tu meta de 78.0 kg! Te tomó menos de un día. 💚", url: "/" }]);
+    expect((await gaby.get("/api/me")).body.goals.weight.reachedAt).toEqual(expect.any(String));
+    // Reached once: further weigh-ins under the target do not repeat it.
+    await gaby.post("/api/measurements").send({ weight: 77.5 });
+    expect(push.sent).toHaveLength(1);
+
+    // A weight target and maintenance are alternatives.
+    const conflict = await gaby.put("/api/me/goals").send({ weight: { value: 75, unit: "kg" }, bodyFatPct: null, maintain: { value: 77.5, unit: "kg" } });
+    expect(conflict.status).toBe(400);
+    expect(conflict.body.fields).toEqual([{ path: "maintain", code: "goal-conflict" }]);
+
+    const maintain = await gaby.put("/api/me/goals").send({ weight: null, bodyFatPct: null, maintain: { value: 77.5, unit: "kg" } });
+    expect(maintain.body.goals).toMatchObject({ weight: null, maintain: { centerKg: 77.5, outside: null } });
+    expect(maintain.body.goals.maintain.minKg).toBeCloseTo(75.175, 3);
+    expect(maintain.body.goals.maintain.maxKg).toBeCloseTo(79.825, 3);
+
+    await gaby.post("/api/measurements").send({ weight: 80.2 });
+    expect(push.sent[1]).toEqual({
+      endpoint: "https://push.example/gaby",
+      body: "Tu peso (80.2 kg) quedó arriba de tu rango para mantener (75.2 kg a 79.8 kg).",
+      url: "/",
+    });
+    // Still above: no repeat. Back inside: quiet, and the state clears for the next exit.
+    await gaby.post("/api/measurements").send({ weight: 80.5 });
+    await gaby.post("/api/measurements").send({ weight: 78 });
+    expect(push.sent).toHaveLength(2);
+    expect((await gaby.get("/api/me")).body.goals.maintain.outside).toBeNull();
+
+    // A goals form that does not send maintenance keeps it.
+    expect((await gaby.put("/api/me/goals").send({ weight: null, bodyFatPct: 28 })).body.goals.maintain.centerKg).toBe(77.5);
+  });
+
   it("sends a test notification and forgets devices that unsubscribed", async () => {
     const caliche = await signUp("caliche");
     expect((await request(app).get("/api/push/key")).body).toEqual({ publicKey: "test-public-key" });

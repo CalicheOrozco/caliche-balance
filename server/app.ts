@@ -27,6 +27,8 @@ import {
 } from "./auth.ts";
 import type { Collections, UserDoc } from "./db.ts";
 import { bodyFatOf } from "../shared/composition.ts";
+import { maintainRange } from "../shared/goals.ts";
+import { checkGoals } from "./goalCheck.ts";
 import { messages, notifyUser, type PushSender } from "./push.ts";
 import { asyncRoute, clientIp, hitRateLimit, peekRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
 import { type ZeppClient, zeppClient } from "./zepp.ts";
@@ -54,10 +56,15 @@ function toUserDto(user: UserDoc): UserDto {
   return {
     username: user.username,
     profile: user.profile,
-    notifications: { newWeighIn: user.notifications?.newWeighIn ?? true, zepp: user.notifications?.zepp ?? true },
+    notifications: {
+      newWeighIn: user.notifications?.newWeighIn ?? true,
+      zepp: user.notifications?.zepp ?? true,
+      goals: user.notifications?.goals ?? true,
+    },
     goals: {
-      weight: g?.weight ? { ...g.weight, setAt: g.weight.setAt.toISOString() } : null,
-      bodyFat: g?.bodyFat ? { ...g.bodyFat, setAt: g.bodyFat.setAt.toISOString() } : null,
+      weight: g?.weight ? { ...g.weight, setAt: g.weight.setAt.toISOString(), reachedAt: g.weight.reachedAt?.toISOString() ?? null } : null,
+      bodyFat: g?.bodyFat ? { ...g.bodyFat, setAt: g.bodyFat.setAt.toISOString(), reachedAt: g.bodyFat.reachedAt?.toISOString() ?? null } : null,
+      maintain: g?.maintain ? { ...g.maintain, setAt: g.maintain.setAt.toISOString() } : null,
     },
   };
 }
@@ -198,19 +205,31 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
       const startFat =
         latestFat && user.profile ? (bodyFatOf(user.profile, latestFat)?.value ?? null) : (latestFat?.bodyFatPct ?? null);
       const targetKg = input.weight ? Math.round(toKilograms(input.weight.value, input.weight.unit) * 100) / 100 : null;
+      const centerKg = input.maintain ? Math.round(toKilograms(input.maintain.value, input.maintain.unit) * 100) / 100 : null;
       const goals: NonNullable<UserDoc["goals"]> = {
         weight:
           targetKg === null
             ? null
             : previous?.weight && Math.abs(previous.weight.targetKg - targetKg) < 0.01
               ? previous.weight
-              : { targetKg, startKg: latest?.weightKg ?? null, setAt: new Date() },
+              : { targetKg, startKg: latest?.weightKg ?? null, setAt: new Date(), reachedAt: null },
         bodyFat:
           input.bodyFatPct === null
             ? null
             : previous?.bodyFat && previous.bodyFat.targetPct === input.bodyFatPct
               ? previous.bodyFat
-              : { targetPct: input.bodyFatPct, startPct: startFat, setAt: new Date() },
+              : { targetPct: input.bodyFatPct, startPct: startFat, setAt: new Date(), reachedAt: null },
+        // Left out keeps the current one, unless a weight target replaces it (they are alternatives).
+        maintain:
+          input.maintain === undefined
+            ? targetKg === null
+              ? (previous?.maintain ?? null)
+              : null
+            : centerKg === null
+              ? null
+              : previous?.maintain && Math.abs(previous.maintain.centerKg - centerKg) < 0.01
+                ? previous.maintain
+                : { centerKg, ...maintainRange(centerKg), setAt: new Date(), outside: null },
       };
       await collections.users.updateOne({ _id: user._id }, { $set: { goals } });
       res.json(toUserDto({ ...user, goals }));
@@ -269,6 +288,7 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
         { $set: values, $setOnInsert: { _id: new ObjectId(), userId: req.user!._id, measuredAt, createdAt: new Date() } },
         { upsert: true, returnDocument: "after" },
       );
+      await checkGoals(collections, push, req.user!._id);
       res.status(201).json(toMeasurementDto(saved!));
     }),
   );

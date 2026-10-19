@@ -94,22 +94,39 @@ export interface WeightGoal {
   /** Weight when the goal was set; null if there were no readings yet. */
   startKg: number | null;
   setAt: string;
+  /** Date of the first weigh-in that reached the target; kept even if the weight moves back. */
+  reachedAt: string | null;
 }
 
 export interface BodyFatGoal {
   targetPct: number;
   startPct: number | null;
   setAt: string;
+  reachedAt: string | null;
+}
+
+/** Keep the weight within 3 % of a value instead of moving toward a target. */
+export interface MaintainGoal {
+  centerKg: number;
+  minKg: number;
+  maxKg: number;
+  setAt: string;
+  /** Where the latest weigh-in is relative to the range; alerts fire when this changes to outside. */
+  outside: "above" | "below" | null;
 }
 
 export interface GoalsDto {
+  /** A weight target and maintenance are alternatives: at most one of them is set. */
   weight: WeightGoal | null;
   bodyFat: BodyFatGoal | null;
+  maintain: MaintainGoal | null;
 }
 
 export interface NotificationPrefs {
   newWeighIn: boolean;
   zepp: boolean;
+  /** Goals reached and leaving the maintenance range. */
+  goals: boolean;
 }
 
 export interface UserDto {
@@ -125,13 +142,21 @@ export const pushSubscriptionSchema = z.object({
   keys: z.object({ p256dh: z.string().min(10).max(200), auth: z.string().min(10).max(100) }),
 });
 
-export const notificationPrefsSchema = z.object({ newWeighIn: z.boolean(), zepp: z.boolean() });
+export const notificationPrefsSchema = z.object({ newWeighIn: z.boolean(), zepp: z.boolean(), goals: z.boolean().default(true) });
 
-/** Each goal is optional; null removes it. Weight comes in the person's unit. */
-export const goalsInputSchema = z.object({
-  weight: z.object({ value: numeric(z.number().min(30).max(660)), unit: unitSchema }).nullable(),
-  bodyFatPct: numeric(z.number().min(3).max(60)).nullable(),
-});
+const weightInput = z.object({ value: numeric(z.number().min(30).max(660)), unit: unitSchema });
+
+/**
+ * Each goal is optional; null removes it. Weight comes in the person's unit. Maintenance left out
+ * keeps the current one; a weight target and maintenance cannot both be set.
+ */
+export const goalsInputSchema = z
+  .object({
+    weight: weightInput.nullable(),
+    bodyFatPct: numeric(z.number().min(3).max(60)).nullable(),
+    maintain: weightInput.nullable().optional(),
+  })
+  .refine((g) => !(g.weight && g.maintain), { message: "goal-conflict", path: ["maintain"] });
 export type GoalsInput = z.input<typeof goalsInputSchema>;
 
 export interface MeasurementDto {

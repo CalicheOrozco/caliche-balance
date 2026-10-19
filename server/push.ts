@@ -1,5 +1,6 @@
 import type { ObjectId } from "mongodb";
 import webpush from "web-push";
+import type { GoalEvent } from "../shared/goals.ts";
 import type { Collections } from "./db.ts";
 
 /**
@@ -43,7 +44,7 @@ export function webPushSender(): PushSender | undefined {
   };
 }
 
-export type NotificationKind = "newWeighIn" | "zepp" | "test";
+export type NotificationKind = "newWeighIn" | "zepp" | "goals" | "test";
 
 interface Message {
   title: string;
@@ -83,6 +84,49 @@ export const messages = {
         : "Your Zepp token expired. Paste a new one in Settings to keep receiving your weigh-ins.",
     url: "/ajustes",
   }),
+  goal: (lang: Language, unit: Unit, event: GoalEvent): Message => {
+    const es = lang === "es";
+    // Under two weeks reads better in days.
+    const took = (days: number) =>
+      days === 0
+        ? es
+          ? "menos de un día"
+          : "less than a day"
+        : days < 14
+          ? es
+            ? `${days} ${days === 1 ? "día" : "días"}`
+            : `${days} ${days === 1 ? "day" : "days"}`
+          : es
+            ? `${Math.round(days / 7)} semanas`
+            : `${Math.round(days / 7)} weeks`;
+    const pct = (n: number) => n.toLocaleString(es ? "es-MX" : "en-US", { maximumFractionDigits: 1 });
+    if (event.kind === "weight-reached") {
+      return {
+        title: "Caliche Balance",
+        body: es
+          ? `¡Llegaste a tu meta de ${formatWeight(event.targetKg, unit, lang)}! Te tomó ${took(event.days)}. 💚`
+          : `You reached your goal of ${formatWeight(event.targetKg, unit, lang)}! It took ${took(event.days)}. 💚`,
+        url: "/",
+      };
+    }
+    if (event.kind === "fat-reached") {
+      return {
+        title: "Caliche Balance",
+        body: es
+          ? `¡Llegaste a tu meta de ${pct(event.targetPct)} % de grasa! Te tomó ${took(event.days)}. 💚`
+          : `You reached your goal of ${pct(event.targetPct)} % body fat! It took ${took(event.days)}. 💚`,
+        url: "/",
+      };
+    }
+    const range = `${formatWeight(event.minKg, unit, lang)} ${es ? "a" : "to"} ${formatWeight(event.maxKg, unit, lang)}`;
+    return {
+      title: "Caliche Balance",
+      body: es
+        ? `Tu peso (${formatWeight(event.weightKg, unit, lang)}) quedó ${event.side === "above" ? "arriba" : "abajo"} de tu rango para mantener (${range}).`
+        : `Your weight (${formatWeight(event.weightKg, unit, lang)}) is ${event.side} your maintenance range (${range}).`,
+      url: "/",
+    };
+  },
   test: (lang: Language): Message => ({
     title: "Caliche Balance",
     body: lang === "es" ? "Las notificaciones funcionan. 💚" : "Notifications are working. 💚",

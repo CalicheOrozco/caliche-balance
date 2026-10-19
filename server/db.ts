@@ -1,5 +1,5 @@
 import { type Collection, type Db, MongoClient, type ObjectId } from "mongodb";
-import type { BodyFatGoal, ProfileDto, WeightGoal } from "../shared/schemas.ts";
+import type { BodyFatGoal, MaintainGoal, ProfileDto, WeightGoal } from "../shared/schemas.ts";
 
 export interface UserDoc {
   _id: ObjectId;
@@ -8,10 +8,12 @@ export interface UserDoc {
   recoveryHash: string;
   profile: (Omit<ProfileDto, "displayName"> & { displayName: string | null }) | null;
   /** Which notifications the person wants; missing means on. */
-  notifications?: { newWeighIn: boolean; zepp: boolean };
+  notifications?: { newWeighIn: boolean; zepp: boolean; goals?: boolean };
+  /** reachedAt and maintain are missing on goals saved before they existed: read them as null. */
   goals?: {
-    weight: (Omit<WeightGoal, "setAt"> & { setAt: Date }) | null;
-    bodyFat: (Omit<BodyFatGoal, "setAt"> & { setAt: Date }) | null;
+    weight: (Omit<WeightGoal, "setAt" | "reachedAt"> & { setAt: Date; reachedAt?: Date | null }) | null;
+    bodyFat: (Omit<BodyFatGoal, "setAt" | "reachedAt"> & { setAt: Date; reachedAt?: Date | null }) | null;
+    maintain?: (Omit<MaintainGoal, "setAt"> & { setAt: Date }) | null;
   };
   createdAt: Date;
 }

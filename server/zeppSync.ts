@@ -1,5 +1,6 @@
 import { type AnyBulkWriteOperation, MongoBulkWriteError, ObjectId } from "mongodb";
 import type { Collections, MeasurementDoc, ZeppConnectionDoc } from "./db.ts";
+import { checkGoals } from "./goalCheck.ts";
 import { messages, notifyUser, type PushSender } from "./push.ts";
 import { type ZeppClient, ZeppError, type ZeppRecord, decryptToken } from "./zepp.ts";
 
@@ -129,6 +130,8 @@ export async function syncConnection(
           messages.newWeighIn(lang, unit, weightKg, previous ? weightKg - previous.weightKg : null),
         );
       }
+
+      if (insertedIndexes.length > 0 && member.linkedUserId) await checkGoals(c, push, member.linkedUserId);
 
       const newest = Math.max(...records.map((r) => r.generatedTime));
       await c.zeppMembers.updateOne({ _id: member._id }, { $max: { syncedUntil: newest } });

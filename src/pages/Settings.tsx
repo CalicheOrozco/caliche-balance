@@ -3,7 +3,8 @@ import { type FormEvent, useEffect, useState } from "react";
 import { FiTrash2 } from "react-icons/fi";
 import { useLocation } from "react-router";
 import { ageAt, bodyFatBands, healthyWeightRange } from "../../shared/reference.ts";
-import { fromKilograms } from "../../shared/schemas.ts";
+import { maintainRange } from "../../shared/goals.ts";
+import { fromKilograms, toKilograms } from "../../shared/schemas.ts";
 import type { UserDto } from "../../shared/schemas.ts";
 import { bodyFatOf } from "../../shared/composition.ts";
 import { api, useMeasurements } from "../api.ts";
@@ -114,7 +115,7 @@ function RemoveGoalButton({ label, onRemove }: { label: string; onRemove: () => 
   );
 }
 
-/** Weight and body fat goals; each one optional. */
+/** Weight (a target, or maintaining) and body fat goals; each one optional. */
 function GoalsForm({ user }: { user: UserDto }) {
   const { t, tf, te } = useI18n();
   const f = useFormat();
@@ -124,6 +125,9 @@ function GoalsForm({ user }: { user: UserDto }) {
   const toInput = (n: number | undefined | null) => (n === undefined || n === null ? "" : String(Math.round(n * 10) / 10));
   const [weight, setWeight] = useState(toInput(user.goals.weight && fromKilograms(user.goals.weight.targetKg, unit)));
   const [bodyFat, setBodyFat] = useState(toInput(user.goals.bodyFat?.targetPct));
+  const [maintain, setMaintain] = useState(toInput(user.goals.maintain && fromKilograms(user.goals.maintain.centerKg, unit)));
+  // Reaching a weight and maintaining one are alternatives; the form sends only the chosen one.
+  const [mode, setMode] = useState<"target" | "maintain">(user.goals.maintain ? "maintain" : "target");
   const [status, setStatus] = useState<string | null>(null);
 
   const healthy = healthyWeightRange(profile.heightCm);
@@ -134,10 +138,12 @@ function GoalsForm({ user }: { user: UserDto }) {
   const currentWeight = measurements[0]?.weightKg ?? null;
   const currentFat = measurements.map((m) => bodyFatOf(profile, m)).find((x) => x !== null) ?? null;
 
+  type Draft = { mode: "target" | "maintain"; weight: string; maintain: string; bodyFat: string };
   const save = useMutation({
-    mutationFn: (next: { weight: string; bodyFat: string }) =>
+    mutationFn: (next: Draft) =>
       api.saveGoals({
-        weight: next.weight.trim() ? { value: next.weight, unit } : null,
+        weight: next.mode === "target" && next.weight.trim() ? { value: next.weight, unit } : null,
+        maintain: next.mode === "maintain" && next.maintain.trim() ? { value: next.maintain, unit } : null,
         bodyFatPct: next.bodyFat.trim() ? next.bodyFat : null,
       }),
     onSuccess: (saved) => {
@@ -146,7 +152,7 @@ function GoalsForm({ user }: { user: UserDto }) {
     },
     onError: (e) => setStatus(te(e)),
   });
-  const submit = (next = { weight, bodyFat }) => {
+  const submit = (next: Draft = { mode, weight, maintain, bodyFat }) => {
     setStatus(null);
     save.mutate(next);
   };
@@ -160,26 +166,65 @@ function GoalsForm({ user }: { user: UserDto }) {
       className="space-y-4"
     >
       <p className="text-sm text-ink-2">{t("goalsIntro")}</p>
-      <div>
-        {currentWeight !== null && <p className="mb-1.5 text-sm font-medium text-ink">{tf("goalWeightNow", { weight: f.weight(currentWeight, unit) })}</p>}
-        <Field
-          label={tf("goalWeight", { unit })}
-          inputMode="decimal"
-          value={weight}
-          onChange={(e) => setWeight(e.target.value)}
-          help={tf("goalWeightHint", { min: f.weight(healthy.min, unit), max: f.weight(healthy.max, unit) })}
-          trailing={
-            user.goals.weight && (
-              <RemoveGoalButton
-                label={t("removeWeightGoal")}
-                onRemove={() => {
-                  setWeight("");
-                  submit({ weight: "", bodyFat });
-                }}
-              />
-            )
-          }
+      <div className="space-y-3">
+        {currentWeight !== null && <p className="text-sm font-medium text-ink">{tf("goalWeightNow", { weight: f.weight(currentWeight, unit) })}</p>}
+        <Segmented
+          label={t("weight")}
+          value={mode}
+          onChange={(next) => {
+            setMode(next);
+            // Start maintenance from today's weight, the usual choice.
+            if (next === "maintain" && !maintain && currentWeight !== null) setMaintain(toInput(fromKilograms(currentWeight, unit)));
+          }}
+          options={[
+            { value: "target", label: t("goalModeTarget") },
+            { value: "maintain", label: t("goalModeMaintain") },
+          ]}
         />
+        {mode === "target" ? (
+          <Field
+            label={tf("goalWeight", { unit })}
+            inputMode="decimal"
+            value={weight}
+            onChange={(e) => setWeight(e.target.value)}
+            help={tf("goalWeightHint", { min: f.weight(healthy.min, unit), max: f.weight(healthy.max, unit) })}
+            trailing={
+              user.goals.weight && (
+                <RemoveGoalButton
+                  label={t("removeWeightGoal")}
+                  onRemove={() => {
+                    setWeight("");
+                    submit({ mode, weight: "", maintain, bodyFat });
+                  }}
+                />
+              )
+            }
+          />
+        ) : (
+          <Field
+            label={tf("goalMaintainField", { unit })}
+            inputMode="decimal"
+            value={maintain}
+            onChange={(e) => setMaintain(e.target.value)}
+            help={(() => {
+              const kg = Number(maintain.replace(",", "."));
+              if (!(kg > 0)) return undefined;
+              const range = maintainRange(toKilograms(kg, unit));
+              return tf("goalMaintainHint", { min: f.weight(range.minKg, unit), max: f.weight(range.maxKg, unit) });
+            })()}
+            trailing={
+              user.goals.maintain && (
+                <RemoveGoalButton
+                  label={t("removeMaintainGoal")}
+                  onRemove={() => {
+                    setMaintain("");
+                    submit({ mode, weight, maintain: "", bodyFat });
+                  }}
+                />
+              )
+            }
+          />
+        )}
       </div>
       <div>
         {currentFat && <p className="mb-1.5 text-sm font-medium text-ink">{tf("goalFatNow", { value: `${f.number(currentFat.value)} %` })}</p>}
@@ -195,7 +240,7 @@ function GoalsForm({ user }: { user: UserDto }) {
                 label={t("removeFatGoal")}
                 onRemove={() => {
                   setBodyFat("");
-                  submit({ weight, bodyFat: "" });
+                  submit({ mode, weight, maintain, bodyFat: "" });
                 }}
               />
             )
@@ -274,6 +319,12 @@ function NotificationsCard({ user }: { user: UserDto }) {
               checked={user.notifications.zepp}
               disabled={prefs.isPending}
               onChange={(v) => prefs.mutate({ ...user.notifications, zepp: v })}
+            />
+            <Switch
+              label={t("notifyGoals")}
+              checked={user.notifications.goals}
+              disabled={prefs.isPending}
+              onChange={(v) => prefs.mutate({ ...user.notifications, goals: v })}
             />
           </div>
           <div className="mt-4 flex flex-col gap-3">

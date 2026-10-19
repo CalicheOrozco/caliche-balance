@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, type ReactNode, useState } from "react";
 import type { IconType } from "react-icons";
-import { FiActivity, FiBarChart2, FiCalendar, FiChevronRight, FiClock, FiDroplet, FiMoon, FiPieChart, FiTarget } from "react-icons/fi";
+import { FiActivity, FiAward, FiBarChart2, FiCalendar, FiChevronRight, FiClock, FiDroplet, FiMoon, FiPieChart, FiTarget } from "react-icons/fi";
 import { Link } from "react-router";
 import { type BodyFatAge, bodyFatAge } from "../../shared/bodyAge.ts";
 import { assessWaist, WHTR_BANDS } from "../../shared/waist.ts";
@@ -12,10 +12,29 @@ import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composi
 import { useCompareXiaomi } from "../compare.ts";
 import { bmiPercentile } from "../../shared/percentiles.ts";
 import { scoreOf } from "../../shared/score.ts";
-import { dailyTrend, estimateEta, goalProgress } from "../../shared/goals.ts";
+import {
+  daysToReach,
+  dailyTrend,
+  estimateEta,
+  goalProgress,
+  maintainBands,
+  maintainRange,
+  maintainSide,
+  nextBodyFatGoal,
+  nextWeightGoal,
+} from "../../shared/goals.ts";
 import { CM_PER_IN, fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
 import { Button, Card, Field, RangeBar, StatusBadge, signed, useFormat } from "../ui.tsx";
+
+/** "less than a day", "9 days" or "14 weeks": how long a goal took. */
+function useTook() {
+  const { tf, t } = useI18n();
+  return (setAt: string, reachedAt: string) => {
+    const days = daysToReach(new Date(setAt), new Date(reachedAt));
+    return days === 0 ? t("tookLessThanDay") : days < 14 ? tf("tookDays", { n: days }) : tf("tookWeeks", { n: Math.round(days / 7) });
+  };
+}
 
 /** One goal: progress bar, distance left, starting point and the estimate at the recent pace. */
 function GoalRow({
@@ -24,21 +43,29 @@ function GoalRow({
   current,
   target,
   setAt,
+  reachedAt,
   points,
   format,
+  children,
 }: {
   label: string;
   start: number | null;
   current: number;
   target: number;
   setAt: string;
+  reachedAt: string | null;
   points: { time: number; value: number }[];
   format: (n: number) => string;
+  /** What comes next once the goal is reached. */
+  children?: ReactNode;
 }) {
   const { t, tf } = useI18n();
   const f = useFormat();
+  const took = useTook();
   const progress = goalProgress(start, current, target);
   const eta = estimateEta(progress, dailyTrend(points));
+  // != also covers goals cached offline by a version that did not have reachedAt yet.
+  const reached = progress.reached || reachedAt != null;
   const etaText =
     eta.kind === "weeks"
       ? tf("goalEtaWeeks", { n: eta.weeks })
@@ -63,19 +90,67 @@ function GoalRow({
       >
         <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${Math.max(progress.fraction * 100, 2)}%` }} />
       </div>
-      <p className="mt-2 text-lg font-bold">
-        {progress.reached ? t("goalReached") : tf("goalRemaining", { value: format(progress.remaining) })}
-        <span className="ml-2 text-sm font-medium text-muted">{Math.round(progress.fraction * 100)} %</span>
-      </p>
+      {reached && reachedAt ? (
+        <p className="mt-2 flex items-center gap-2 text-lg font-bold text-good">
+          <FiAward size={20} aria-hidden /> {tf("goalReachedOn", { date: f.date(reachedAt), took: took(setAt, reachedAt) })}
+        </p>
+      ) : (
+        <p className="mt-2 text-lg font-bold">
+          {progress.reached ? t("goalReached") : tf("goalRemaining", { value: format(progress.remaining) })}
+          <span className="ml-2 text-sm font-medium text-muted">{Math.round(progress.fraction * 100)} %</span>
+        </p>
+      )}
       {start !== null && <p className="text-sm text-muted">{tf("goalFrom", { start: format(start), date: f.date(setAt) })}</p>}
-      {etaText && <p className="mt-1 text-sm text-ink-2">{etaText}</p>}
+      {!reached && etaText && <p className="mt-1 text-sm text-ink-2">{etaText}</p>}
+      {reached && children}
+    </div>
+  );
+}
+
+/** A suggested next step after a goal: a button with a one-line reason. */
+function NextStep({ label, hint, onClick, disabled }: { label: string; hint: string; onClick: () => void; disabled: boolean }) {
+  return (
+    <div>
+      <Button variant="secondary" className="w-full" onClick={onClick} disabled={disabled}>
+        {label}
+      </Button>
+      <p className="mt-1 px-1 text-xs text-muted">{hint}</p>
+    </div>
+  );
+}
+
+function MaintainRow({ maintain, currentKg, unit }: { maintain: NonNullable<GoalsDto["maintain"]>; currentKg: number; unit: ProfileDto["unit"] }) {
+  const { t, tf } = useI18n();
+  const f = useFormat();
+  const side = maintainSide(maintain, currentKg);
+  const bands = maintainBands(maintain, (kg) => fromKilograms(kg, unit));
+  const band = bands.find((b) => b.key === (side === "above" ? "maintain-above" : side === "below" ? "maintain-below" : "maintain-in"))!;
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold">{t("maintainTitle")}</p>
+          <p className="text-sm text-ink-2">
+            {tf("maintainRange", { min: f.weight(maintain.minKg, unit), max: f.weight(maintain.maxKg, unit), center: f.weight(maintain.centerKg, unit) })}
+          </p>
+        </div>
+        <StatusBadge band={band} />
+      </div>
+      <RangeBar classification={{ value: fromKilograms(currentKg, unit), bands }} format={(n) => f.number(n)} />
+      <p className="mt-3 font-semibold">
+        {tf("maintainNow", { weight: f.weight(currentKg, unit) })}{" "}
+        {side === "above" && tf("maintainAbove", { amount: f.weight(currentKg - maintain.maxKg, unit) })}
+        {side === "below" && tf("maintainBelow", { amount: f.weight(maintain.minKg - currentKg, unit) })}
+      </p>
+      <p className="mt-1 text-sm text-muted">{t("maintainSource")}</p>
     </div>
   );
 }
 
 function GoalsCard({ goals, measurements, profile }: { goals: GoalsDto; measurements: MeasurementDto[]; profile: ProfileDto }) {
-  const { t } = useI18n();
+  const { t, tf, te } = useI18n();
   const f = useFormat();
+  const queryClient = useQueryClient();
   const unit = profile.unit;
   const latest = measurements[0];
   // Body fat everywhere is the North American recalculation when the reading allows it.
@@ -83,13 +158,20 @@ function GoalsCard({ goals, measurements, profile }: { goals: GoalsDto; measurem
     const fat = bodyFatOf(profile, m);
     return fat ? [{ time: new Date(m.measuredAt).getTime(), value: fat.value }] : [];
   });
+  const save = useMutation({
+    mutationFn: api.saveGoals,
+    onSuccess: (saved) => queryClient.setQueryData(["me"], saved),
+  });
+  // Changing one goal keeps the other as it is.
+  const fatInput = goals.bodyFat?.targetPct ?? null;
+  const weightInput = goals.weight ? { value: goals.weight.targetKg, unit: "kg" as const } : null;
   const editLink = (
     <Link to="/ajustes#metas" className="text-sm font-medium text-brand">
       {t("editGoals")}
     </Link>
   );
 
-  if (!goals.weight && !goals.bodyFat) {
+  if (!goals.weight && !goals.bodyFat && !goals.maintain) {
     return (
       <Card className="flex items-center justify-between gap-3">
         <p className="text-sm text-ink-2">{t("goalNone")}</p>
@@ -99,6 +181,13 @@ function GoalsCard({ goals, measurements, profile }: { goals: GoalsDto; measurem
       </Card>
     );
   }
+
+  const healthy = healthyWeightRange(profile.heightCm);
+  const nextWeight = latest ? nextWeightGoal(latest.weightKg, healthy.max) : null;
+  const center = latest ? Math.round(latest.weightKg * 10) / 10 : null;
+  const age = latest ? ageAt(new Date(`${profile.birthDate}T00:00:00Z`), new Date(latest.measuredAt)) : 0;
+  const fatMax = bodyFatBands(profile.sex, age).find((b) => b.key === "healthy")!.max!;
+  const nextFat = fats[0] ? nextBodyFatGoal(fats[0].value, fatMax) : null;
 
   return (
     <Card className="space-y-5">
@@ -113,10 +202,32 @@ function GoalsCard({ goals, measurements, profile }: { goals: GoalsDto; measurem
           current={fromKilograms(latest.weightKg, unit)}
           target={fromKilograms(goals.weight.targetKg, unit)}
           setAt={goals.weight.setAt}
+          reachedAt={goals.weight.reachedAt}
           points={measurements.map((m) => ({ time: new Date(m.measuredAt).getTime(), value: fromKilograms(m.weightKg, unit) }))}
           format={(n) => `${f.number(n)} ${unit}`}
-        />
+        >
+          <div className="mt-4 space-y-3 rounded-2xl bg-surface-2/60 p-3">
+            <p className="text-sm font-semibold">{t("goalNextTitle")}</p>
+            {nextWeight !== null && (
+              <NextStep
+                label={tf("goalNextWeight", { value: f.weight(nextWeight, unit) })}
+                hint={nextWeight <= Math.round(healthy.max * 10) / 10 ? t("goalNextWeightHealthy") : t("goalNextWeightHint")}
+                disabled={save.isPending}
+                onClick={() => save.mutate({ weight: { value: nextWeight, unit: "kg" }, bodyFatPct: fatInput, maintain: null })}
+              />
+            )}
+            {center !== null && (
+              <NextStep
+                label={tf("goalMaintainButton", { value: f.weight(center, unit) })}
+                hint={tf("goalMaintainHint", { min: f.weight(maintainRange(center).minKg, unit), max: f.weight(maintainRange(center).maxKg, unit) })}
+                disabled={save.isPending}
+                onClick={() => save.mutate({ weight: null, bodyFatPct: fatInput, maintain: { value: center, unit: "kg" } })}
+              />
+            )}
+          </div>
+        </GoalRow>
       )}
+      {goals.maintain && latest && <MaintainRow maintain={goals.maintain} currentKg={latest.weightKg} unit={unit} />}
       {goals.bodyFat && fats[0] && (
         <GoalRow
           label={t("bodyFat")}
@@ -124,10 +235,24 @@ function GoalsCard({ goals, measurements, profile }: { goals: GoalsDto; measurem
           current={fats[0].value}
           target={goals.bodyFat.targetPct}
           setAt={goals.bodyFat.setAt}
+          reachedAt={goals.bodyFat.reachedAt}
           points={fats}
           format={(n) => `${f.number(n)} %`}
-        />
+        >
+          {nextFat !== null && (
+            <div className="mt-4 space-y-3 rounded-2xl bg-surface-2/60 p-3">
+              <p className="text-sm font-semibold">{t("goalNextTitle")}</p>
+              <NextStep
+                label={tf("goalNextFat", { value: f.number(nextFat, 0) })}
+                hint={t("goalNextFatHint")}
+                disabled={save.isPending}
+                onClick={() => save.mutate({ weight: weightInput, bodyFatPct: nextFat })}
+              />
+            </div>
+          )}
+        </GoalRow>
       )}
+      {save.error && <p className="text-sm text-bad">{te(save.error)}</p>}
     </Card>
   );
 }
