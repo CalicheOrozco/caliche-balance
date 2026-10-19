@@ -45,7 +45,7 @@ export function webPushSender(): PushSender | undefined {
   };
 }
 
-export type NotificationKind = "newWeighIn" | "zepp" | "goals" | "test";
+export type NotificationKind = "newWeighIn" | "zepp" | "goals" | "streak" | "test";
 
 interface Message {
   title: string;
@@ -150,6 +150,39 @@ export const messages = {
       url: "/logros",
     };
   },
+  streakReminder: (lang: Language, days: number, freezes: number): Message => ({
+    title: "Caliche Balance",
+    body:
+      lang === "es"
+        ? freezes > 0
+          ? `⚡ Llevas ${days} días seguidos. Pésate hoy para no gastar un comodín (te ${freezes === 1 ? "queda 1" : `quedan ${freezes}`}).`
+          : `⚡ Tu racha de ${days} días termina hoy. ¡Pésate antes de dormir!`
+        : freezes > 0
+          ? `⚡ ${days} days in a row. Weigh in today so you don't spend a freeze (${freezes} left).`
+          : `⚡ Your ${days}-day streak ends today. Weigh in before bed!`,
+    url: "/",
+  }),
+  streakNudge: (lang: Language, kind: "close" | "tie" | "record", current: number, best: number): Message => ({
+    title: "Caliche Balance",
+    body:
+      lang === "es"
+        ? kind === "record"
+          ? `🏆 ¡Nuevo récord! ${current} días seguidos.`
+          : kind === "tie"
+            ? `⚡ Igualaste tu récord de ${best} días. Mañana lo superas.`
+            : `⚡ Estás a 2 días de tu récord de ${best} días.`
+        : kind === "record"
+          ? `🏆 New record! ${current} days in a row.`
+          : kind === "tie"
+            ? `⚡ You tied your ${best}-day record. Beat it tomorrow.`
+            : `⚡ You are 2 days away from your ${best}-day record.`,
+    url: "/",
+  }),
+  rewardEarned: (lang: Language, text: string, days: number): Message => ({
+    title: "Caliche Balance",
+    body: lang === "es" ? `🎁 ¡${days} días seguidos! Te ganaste tu premio: ${text}.` : `🎁 ${days} days in a row! You earned your reward: ${text}.`,
+    url: "/logros",
+  }),
   test: (lang: Language): Message => ({
     title: "Caliche Balance",
     body: lang === "es" ? "Las notificaciones funcionan. 💚" : "Notifications are working. 💚",

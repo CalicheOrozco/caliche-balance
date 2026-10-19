@@ -1,5 +1,5 @@
 import type { ObjectId } from "mongodb";
-import { type Achievements, achievements, type BadgeId, levelsOf } from "../shared/achievements.ts";
+import { type Achievements, achievements, type BadgeId, levelsOf, localDay } from "../shared/achievements.ts";
 import type { Collections, UserDoc } from "./db.ts";
 import { toMeasurementDto } from "./http.ts";
 import { messages, notifyUser, type PushSender } from "./push.ts";
@@ -20,11 +20,22 @@ export async function achievementsFor(c: Collections, user: UserDoc, now = Date.
   });
 }
 
+export type StreakNudge = "close" | "tie" | "record";
+
+/** What to say about the record after today's weigh-in: 2 days away, tied, or beaten. */
+export function streakNudge(current: number, bestBefore: number): StreakNudge | null {
+  if (bestBefore < 3) return null; // short streaks are not records worth announcing
+  if (current === bestBefore + 1) return "record";
+  if (current === bestBefore) return "tie";
+  if (current === bestBefore - 2) return "close";
+  return null;
+}
+
 /**
- * After new weigh-ins: tells the person which badges went up a level. The first time it runs for
- * an account it only records the levels, so a long history does not arrive as a burst of alerts.
- * The write only succeeds if the stored levels are still the ones read, so two syncs at once
- * cannot both notify. Never throws: it must not break a sync.
+ * After new weigh-ins: badges that went up a level, the personal streak reward, and how the streak
+ * compares with the record. Badge levels are only recorded the first time, so a long history does
+ * not arrive as a burst of alerts. Each write only succeeds if the stored state is still the one
+ * read, so two syncs at once cannot both notify. Never throws: it must not break a sync.
  */
 export async function checkAchievements(c: Collections, push: PushSender | undefined, userId: ObjectId): Promise<{ id: BadgeId; level: number; count: number }[]> {
   try {
@@ -32,18 +43,68 @@ export async function checkAchievements(c: Collections, push: PushSender | undef
     if (!user) return [];
     const a = await achievementsFor(c, user);
     if (!a) return [];
+
     const levels = levelsOf(a);
     const before = user.badgeLevels;
     const filter = before === undefined ? { _id: userId, badgeLevels: { $exists: false } } : { _id: userId, badgeLevels: before };
     const written = await c.users.updateOne(filter, { $set: { badgeLevels: levels } });
-    if (before === undefined || written.modifiedCount !== 1) return [];
-    const ups = a.badges.filter((b) => b.level > (before[b.id] ?? 0)).map((b) => ({ id: b.id, level: b.level, count: b.dates.length }));
+    const ups =
+      before === undefined || written.modifiedCount !== 1
+        ? []
+        : a.badges.filter((b) => b.level > (before[b.id] ?? 0)).map((b) => ({ id: b.id, level: b.level, count: b.dates.length }));
     // A reached goal already has its own notification; the goal badge is not announced twice.
     const announce = ups.filter((u) => u.id !== "goal");
     if (announce.length > 0) await notifyUser(c, push, userId, "goals", (lang) => messages.badges(lang, announce));
+
+    const reward = user.streakReward;
+    if (reward && !reward.earnedAt && a.streak.current >= reward.days) {
+      const earned = await c.users.updateOne(
+        { _id: userId, "streakReward.setAt": reward.setAt, "streakReward.earnedAt": null },
+        { $set: { "streakReward.earnedAt": new Date() } },
+      );
+      if (earned.modifiedCount === 1) await notifyUser(c, push, userId, "streak", (lang) => messages.rewardEarned(lang, reward.text, reward.days));
+    }
+
+    const { current, bestBefore, weighedToday } = a.streak;
+    if (weighedToday && current !== user.streakNudged) {
+      const nudged = await c.users.updateOne({ _id: userId, streakNudged: user.streakNudged ?? { $exists: false } }, { $set: { streakNudged: current } });
+      const kind = streakNudge(current, bestBefore);
+      if (nudged.modifiedCount === 1 && kind) await notifyUser(c, push, userId, "streak", (lang) => messages.streakNudge(lang, kind, current, bestBefore));
+    }
     return ups;
   } catch (error) {
     console.error("checkAchievements failed", (error as Error).message);
     return [];
   }
+}
+
+/** Local evening: late enough that a weigh-in is unlikely to come by itself, early enough to still do it. */
+export const REMINDER_HOURS = { from: 17, to: 23 } as const;
+
+/**
+ * The evening reminder: for each person with a streak alive who has not weighed in today, once
+ * per local day, only during their local evening. Safe to run more than once a day.
+ */
+export async function remindStreaks(c: Collections, push: PushSender | undefined, now = Date.now()): Promise<number> {
+  if (!push) return 0;
+  const subscribed = await c.pushSubscriptions.distinct("userId");
+  let reminded = 0;
+  for (const userId of subscribed) {
+    try {
+      const user = await c.users.findOne({ _id: userId });
+      if (!user?.timeZone || user.notifications?.streak === false) continue;
+      const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: user.timeZone, hour: "numeric", hourCycle: "h23" }).format(now));
+      if (hour < REMINDER_HOURS.from || hour >= REMINDER_HOURS.to) continue;
+      const day = new Date(localDay(now, user.timeZone) * 86_400_000).toISOString().slice(0, 10);
+      if (user.streakReminderDay === day) continue;
+      const a = await achievementsFor(c, user, now);
+      if (!a || a.streak.current === 0 || a.streak.weighedToday) continue;
+      const claimed = await c.users.updateOne({ _id: userId, streakReminderDay: user.streakReminderDay ?? { $exists: false } }, { $set: { streakReminderDay: day } });
+      if (claimed.modifiedCount !== 1) continue;
+      if ((await notifyUser(c, push, userId, "streak", (lang) => messages.streakReminder(lang, a.streak.current, a.streak.freezes))) > 0) reminded++;
+    } catch (error) {
+      console.error("streak reminder failed", (error as Error).message);
+    }
+  }
+  return reminded;
 }

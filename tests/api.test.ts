@@ -40,7 +40,8 @@ describe("Caliche Balance API", () => {
       profile: null,
       goals: { weight: null, bodyFat: null, maintain: null },
       goalHistory: [],
-      notifications: { newWeighIn: true, zepp: true, goals: true },
+      streakReward: null,
+      notifications: { newWeighIn: true, zepp: true, goals: true, streak: true },
     });
     expect(register.body.recoveryCode).toMatch(/^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/);
     expect(register.headers["set-cookie"]?.[0]).toMatch(/cb_session=.*HttpOnly/);

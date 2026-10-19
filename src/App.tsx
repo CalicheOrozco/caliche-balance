@@ -100,11 +100,14 @@ function SignedIn({ user }: { user: UserDto }) {
         <Routes>
           <Route
             path="/"
-            element={<HomePage profile={profile} measurements={list} username={user.username} goals={user.goals} />}
+            element={
+              // streakReward is missing on an account cached offline by an older version of the app.
+              <HomePage profile={profile} measurements={list} username={user.username} goals={user.goals} streakReward={user.streakReward ?? null} />
+            }
           />
           <Route
             path="/logros"
-            element={<AchievementsPage profile={profile} username={user.username} />}
+            element={<AchievementsPage user={user} profile={profile} />}
           />
           <Route
             path="/historial"

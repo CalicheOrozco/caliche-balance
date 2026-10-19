@@ -135,13 +135,29 @@ export interface NotificationPrefs {
   zepp: boolean;
   /** Goals reached and leaving the maintenance range. */
   goals: boolean;
+  /** Evening reminder before a streak ends, and records near, tied or beaten. */
+  streak: boolean;
 }
+
+/** A reward the person picks for reaching a streak length. */
+export interface StreakReward {
+  text: string;
+  days: number;
+  setAt: string;
+  earnedAt: string | null;
+}
+
+export const streakRewardSchema = z.object({
+  text: z.string().trim().min(1).max(60),
+  days: z.coerce.number().int().min(2).max(1000),
+});
 
 export interface UserDto {
   username: string;
   profile: ProfileDto | null;
   goals: GoalsDto;
   goalHistory: GoalHistoryEntry[];
+  streakReward: StreakReward | null;
   notifications: NotificationPrefs;
 }
 
@@ -151,7 +167,12 @@ export const pushSubscriptionSchema = z.object({
   keys: z.object({ p256dh: z.string().min(10).max(200), auth: z.string().min(10).max(100) }),
 });
 
-export const notificationPrefsSchema = z.object({ newWeighIn: z.boolean(), zepp: z.boolean(), goals: z.boolean().default(true) });
+export const notificationPrefsSchema = z.object({
+  newWeighIn: z.boolean(),
+  zepp: z.boolean(),
+  goals: z.boolean().default(true),
+  streak: z.boolean().default(true),
+});
 
 const weightInput = z.object({ value: numeric(z.number().min(30).max(660)), unit: unitSchema });
 

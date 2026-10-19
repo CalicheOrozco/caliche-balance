@@ -14,6 +14,7 @@ import {
   toKilograms,
   type UserDto,
   usernameSchema,
+  streakRewardSchema,
 } from "../shared/schemas.ts";
 import {
   endSession,
@@ -29,10 +30,10 @@ import type { Collections, UserDoc } from "./db.ts";
 import { bodyFatOf } from "../shared/composition.ts";
 import { isTimeZone } from "../shared/achievements.ts";
 import { maintainRange } from "../shared/goals.ts";
-import { achievementsFor, checkAchievements } from "./achievementCheck.ts";
+import { achievementsFor, checkAchievements, remindStreaks } from "./achievementCheck.ts";
 import { checkGoals } from "./goalCheck.ts";
 import { messages, notifyUser, type PushSender } from "./push.ts";
-import { asyncRoute, clientIp, hitRateLimit, peekRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
+import { asyncRoute, clientIp, hitRateLimit, isCronRequest, peekRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
 import { type ZeppClient, zeppClient } from "./zepp.ts";
 import { deleteZeppDataFor, zeppRoutes } from "./zeppRoutes.ts";
 
@@ -62,7 +63,11 @@ function toUserDto(user: UserDoc): UserDto {
       newWeighIn: user.notifications?.newWeighIn ?? true,
       zepp: user.notifications?.zepp ?? true,
       goals: user.notifications?.goals ?? true,
+      streak: user.notifications?.streak ?? true,
     },
+    streakReward: user.streakReward
+      ? { ...user.streakReward, setAt: user.streakReward.setAt.toISOString(), earnedAt: user.streakReward.earnedAt?.toISOString() ?? null }
+      : null,
     goals: {
       weight: g?.weight ? { ...g.weight, setAt: g.weight.setAt.toISOString(), reachedAt: g.weight.reachedAt?.toISOString() ?? null } : null,
       bodyFat: g?.bodyFat ? { ...g.bodyFat, setAt: g.bodyFat.setAt.toISOString(), reachedAt: g.bodyFat.reachedAt?.toISOString() ?? null } : null,
@@ -384,6 +389,38 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
       const result = await achievementsFor(collections, user);
       if (!result) return res.status(409).json({ error: "profile-required" });
       res.json(result);
+    }),
+  );
+
+  router.put(
+    "/me/streak-reward",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const input = streakRewardSchema.parse(req.body);
+      const a = await achievementsFor(collections, req.user!);
+      // A reward is for a streak still ahead, not one already reached.
+      if (a && input.days <= a.streak.current) return res.status(400).json({ error: "invalid", fields: [{ path: "days", code: "reward-too-short" }] });
+      const streakReward = { ...input, setAt: new Date(), earnedAt: null };
+      await collections.users.updateOne({ _id: req.user!._id }, { $set: { streakReward } });
+      res.json(toUserDto({ ...req.user!, streakReward }));
+    }),
+  );
+
+  router.delete(
+    "/me/streak-reward",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      await collections.users.updateOne({ _id: req.user!._id }, { $unset: { streakReward: "" } });
+      res.json(toUserDto({ ...req.user!, streakReward: null }));
+    }),
+  );
+
+  // Evening reminder before a streak ends (Vercel Cron, see vercel.json).
+  router.get(
+    "/cron/streak-reminder",
+    asyncRoute(async (req, res) => {
+      if (!isCronRequest(req, cronSecret)) return res.status(401).json({ error: "unauthorized" });
+      res.json({ reminded: await remindStreaks(collections, push) });
     }),
   );
 

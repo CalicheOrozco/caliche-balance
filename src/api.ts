@@ -44,6 +44,8 @@ export const api = {
   pushTest: () => call<{ sent: number }>("POST", "/push/test"),
   deleteAccount: () => call<void>("DELETE", "/me"),
   measurements: () => call<MeasurementDto[]>("GET", "/measurements?limit=1000"),
+  saveStreakReward: (reward: { text: string; days: number }) => call<UserDto>("PUT", "/me/streak-reward", reward),
+  removeStreakReward: () => call<UserDto>("DELETE", "/me/streak-reward"),
   achievements: (timeZone: string) => call<Achievements>("GET", `/me/achievements?tz=${encodeURIComponent(timeZone)}`),
   addMeasurement: (input: MeasurementInput) => call<MeasurementDto>("POST", "/measurements", input),
   deleteMeasurement: (id: string) => call<void>("DELETE", `/measurements/${id}`),

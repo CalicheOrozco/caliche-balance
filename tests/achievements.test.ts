@@ -52,7 +52,7 @@ describe("achievements", () => {
   it("counts every 7 days of a streak, keeps every date, and says how many for the next level", () => {
     const days = daily(21);
     const a = run(days);
-    expect(a.streak).toEqual({ current: 21, best: 21, weighedToday: true });
+    expect(a.streak).toMatchObject({ current: 21, best: 21, bestBefore: 0, weighedToday: true, freezes: 2, nextFreezeIn: null });
     const streak = badge(a, "streak-7");
     // Days 7, 14 and 21 of the streak: 3 times, silver (levels 1, 3, 6, 12, 26).
     expect(streak.dates).toEqual([days[6]!.measuredAt, days[13]!.measuredAt, days[20]!.measuredAt]);
@@ -61,9 +61,26 @@ describe("achievements", () => {
     expect(badge(a, "weigh-days").dates).toHaveLength(21);
   });
 
-  it("keeps a streak alive through yesterday and ends it after a missed day", () => {
-    expect(run(daily(5, 1)).streak).toEqual({ current: 5, best: 5, weighedToday: false });
-    expect(run(daily(5, 2)).streak).toEqual({ current: 0, best: 5, weighedToday: false });
+  it("keeps a streak alive through yesterday and ends it after a missed day without freezes", () => {
+    expect(run(daily(5, 1)).streak).toMatchObject({ current: 5, best: 5, weighedToday: false, freezes: 0, nextFreezeIn: 2 });
+    expect(run(daily(5, 2)).streak).toMatchObject({ current: 0, best: 5, bestBefore: 5, weighedToday: false });
+  });
+
+  it("earns a freeze every 7 days (up to 2) and spends it on a missed day", () => {
+    // 7 days, a missed day, then 3 more up to today: the freeze covers the gap.
+    const a = run([...daily(7, 4), ...daily(3)]);
+    expect(a.streak).toMatchObject({ current: 10, freezes: 0, nextFreezeIn: 4 });
+    expect(a.streak.frozenDays).toEqual(["2026-10-16"]);
+    // Two missed days with one freeze: the streak breaks and the freezes go with it.
+    expect(run([...daily(7, 5), ...daily(3)]).streak).toMatchObject({ current: 3, best: 7, bestBefore: 7, freezes: 0 });
+    // Missing yesterday with a freeze in hand: still alive today, the freeze is spent.
+    expect(run(daily(7, 2)).streak).toMatchObject({ current: 7, freezes: 0, frozenDays: ["2026-10-18"] });
+  });
+
+  it("tells the record before the current streak", () => {
+    // A 10-day streak that ended, then the current 4 days.
+    const a = run([...daily(10, 20), ...daily(4)]);
+    expect(a.streak).toMatchObject({ current: 4, best: 10, bestBefore: 10 });
   });
 
   it("counts each week with 3 or more weigh-in days, and each one with 5", () => {

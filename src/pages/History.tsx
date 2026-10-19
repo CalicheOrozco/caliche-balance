@@ -8,6 +8,9 @@ import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composi
 import { ageAt, bodyFatBands, healthyWeightRange } from "../../shared/reference.ts";
 import { type ReportItemKey, readingReport } from "../../shared/report.ts";
 import { scoreOf } from "../../shared/score.ts";
+import { STREAK_UNLOCKS } from "../../shared/achievements.ts";
+import { weightTrend } from "../../shared/trend.ts";
+import { ReportCard, useBestStreak } from "../reports.tsx";
 import { CM_PER_IN, fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { api } from "../api.ts";
 import { useAdvice } from "../advice.ts";
@@ -24,12 +27,14 @@ interface Series {
   key: string;
   label: string;
   /** Caliche Balance is solid green; Xiaomi is dashed blue, so the pair differs beyond color. */
-  kind: "caliche" | "xiaomi";
+  /** Trend is the smoothed "real weight", a long dash in a neutral color so it never reads as Xiaomi. */
+  kind: "caliche" | "xiaomi" | "trend";
 }
 
 const SERIES_STYLE = {
   caliche: { stroke: "var(--series)", dash: undefined },
   xiaomi: { stroke: "var(--series-2)", dash: "6 4" },
+  trend: { stroke: "var(--ink-2)", dash: "10 4" },
 } as const;
 
 /** One measure per chart (never two y-axes). Two series only when they measure the same thing. */
@@ -185,7 +190,7 @@ function TrendChart({
                 stroke={SERIES_STYLE[s.kind].stroke}
                 strokeDasharray={SERIES_STYLE[s.kind].dash}
                 strokeWidth={2}
-                dot={data.length <= 40 ? { r: 3, fill: SERIES_STYLE[s.kind].stroke, stroke: "var(--surface)", strokeWidth: 2 } : false}
+                dot={s.kind !== "trend" && data.length <= 40 ? { r: 3, fill: SERIES_STYLE[s.kind].stroke, stroke: "var(--surface)", strokeWidth: 2 } : false}
                 activeDot={{ r: 5, fill: SERIES_STYLE[s.kind].stroke, stroke: "var(--surface)", strokeWidth: 2 }}
                 isAnimationActive={false}
               />
@@ -226,6 +231,11 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
   });
   const mass = (kg: number | null | undefined) => (kg === null || kg === undefined ? null : fromKilograms(kg, unit));
 
+  // The real weight runs over the whole history, so the first days of a range are already smoothed.
+  const best = useBestStreak();
+  const trendUnlocked = best !== null && best >= STREAK_UNLOCKS.trend;
+  const trendAt = useMemo(() => new Map(weightTrend(measurements).map((p) => [p.time, p.trendKg])), [measurements]);
+
   // Every value is computed once per weigh-in; the charts below only pick columns.
   const rows = useMemo<Row[]>(
     () =>
@@ -236,6 +246,7 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
         return {
           t: new Date(m.measuredAt).getTime(),
           weight: mass(m.weightKg),
+          trend: mass(trendAt.get(new Date(m.measuredAt).getTime())),
           "fat.c": fat?.value ?? null,
           "fat.x": x.bodyFatPct,
           "ffm.c": mass(na?.fatFreeMassKg),
@@ -259,7 +270,7 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
           "score.x": m.bodyScore,
         };
       }),
-    [visible, profile, unit],
+    [visible, profile, unit, trendAt],
   );
 
   const healthy = healthyWeightRange(profile.heightCm);
@@ -316,6 +327,8 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
         <p className="text-sm text-muted">{t("compareHint")}</p>
       </Card>
 
+      <ReportCard profile={profile} measurements={measurements} days={30} unlock="monthly" title={t("monthlyTitle")} intro={t("monthlyIntro")} />
+
       <TrendChart
         title={`${t("bodyScoreTitle")} (0-100)`}
         rows={rows}
@@ -328,7 +341,7 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
       <TrendChart
         title={`${t("weight")} (${unit})`}
         rows={rows}
-        series={one("weight", t("weight"))}
+        series={trendUnlocked ? [caliche("weight", t("weight")), { key: "trend", label: t("trendTitle"), kind: "trend" }] : one("weight", t("weight"))}
         band={{ min: fromKilograms(healthy.min, unit), max: fromKilograms(healthy.max, unit) }}
         goal={goals.weight ? fromKilograms(goals.weight.targetKg, unit) : null}
         unit={` ${unit}`}

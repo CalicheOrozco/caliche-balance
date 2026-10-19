@@ -5,6 +5,7 @@ import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../server/app.ts";
 import { collections, ensureIndexes } from "../server/db.ts";
+import { remindStreaks } from "../server/achievementCheck.ts";
 import type { PushSender, PushTarget } from "../server/push.ts";
 import { type ZeppClient, ZeppError, type ZeppMember, type ZeppRecord, decryptToken } from "../server/zepp.ts";
 
@@ -330,6 +331,55 @@ describe("Zepp connection", () => {
     expect((await db.collection("users").findOne({ username: "lia" }))?.timeZone).toBe("America/Toronto");
     await lia.get("/api/me/achievements?tz=Mars/Olympus");
     expect((await db.collection("users").findOne({ username: "lia" }))?.timeZone).toBe("America/Toronto");
+  });
+
+  describe("streak rewards", () => {
+    const DAY = 86_400_000;
+    /** A user in UTC with a device subscribed and readings on the given days before `at`. */
+    async function streaker(name: string, daysAgo: number[], at = Date.now()) {
+      const agent = await signUp(name);
+      await agent.put("/api/me/profile").send({ sex: "male", birthDate: "1995-05-05", heightCm: 180, language: "es", unit: "kg" });
+      await agent.post("/api/push/subscribe").send({ endpoint: `https://push.example/${name}`, keys: { p256dh: "p256dh-de-prueba-123", auth: "auth-de-prueba-1" } });
+      await agent.get("/api/me/achievements?tz=UTC");
+      const db = client.db(`zepp${dbName - 1}`);
+      const user = await db.collection("users").findOne({ username: name });
+      // Straight into the database: history, not news, so nothing is announced while it loads.
+      await db.collection("measurements").insertMany(
+        daysAgo.map((d) => ({ userId: user!._id, measuredAt: new Date(at - d * DAY), weightKg: 90, bodyFatPct: null, impedance: null, waistCm: null, source: "manual", createdAt: new Date() })),
+      );
+      return { agent, db, userId: user!._id };
+    }
+
+    it("announces a new record once, and the personal reward when the streak reaches it", async () => {
+      // A 5-day streak last month, then 5 days up to yesterday: today's weigh-in makes 6.
+      const { agent } = await streaker("nico", [40, 39, 38, 37, 36, 5, 4, 3, 2, 1]);
+      expect((await agent.put("/api/me/streak-reward").send({ text: "unos tenis", days: 5 })).body.fields).toEqual([{ path: "days", code: "reward-too-short" }]);
+      const set = await agent.put("/api/me/streak-reward").send({ text: " unos tenis ", days: 6 });
+      expect(set.body.streakReward).toMatchObject({ text: "unos tenis", days: 6, earnedAt: null });
+
+      await agent.post("/api/measurements").send({ weight: 89.8 });
+      const bodies = push.sent.map((m) => m.body);
+      expect(bodies).toContain("🎁 ¡6 días seguidos! Te ganaste tu premio: unos tenis.");
+      expect(bodies).toContain("🏆 ¡Nuevo récord! 6 días seguidos.");
+      expect((await agent.get("/api/me")).body.streakReward.earnedAt).toEqual(expect.any(String));
+      // A second weigh-in the same day repeats neither.
+      const count = push.sent.length;
+      await agent.post("/api/measurements").send({ weight: 89.7 });
+      expect(push.sent).toHaveLength(count);
+    });
+
+    it("reminds once per evening, only when the streak is alive and today's weigh-in is missing", async () => {
+      const evening = Date.UTC(2026, 9, 19, 20); // 20:00 in UTC
+      const { db, userId } = await streaker("ema", [2, 1], evening);
+      const c = collections(db);
+      expect(await remindStreaks(c, push, Date.UTC(2026, 9, 19, 10))).toBe(0); // morning: too early
+      expect(await remindStreaks(c, push, evening)).toBe(1);
+      expect(push.sent.at(-1)).toEqual({ endpoint: "https://push.example/ema", body: "⚡ Tu racha de 2 días termina hoy. ¡Pésate antes de dormir!", url: "/" });
+      expect(await remindStreaks(c, push, evening + 3_600_000)).toBe(0); // once a day
+      // The next evening, after weighing in that day: nothing to remind.
+      await db.collection("measurements").insertOne({ userId, measuredAt: new Date(evening + DAY - 3_600_000), weightKg: 90, bodyFatPct: null, impedance: null, waistCm: null, source: "manual", createdAt: new Date() });
+      expect(await remindStreaks(c, push, evening + DAY)).toBe(0);
+    });
   });
 
   it("sends a test notification and forgets devices that unsubscribed", async () => {

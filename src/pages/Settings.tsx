@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
-import { FiTrash2 } from "react-icons/fi";
+import { FiLock, FiTrash2 } from "react-icons/fi";
+import { type Accent, ACCENTS, useAccent } from "../accent.ts";
+import { useBestStreak } from "../reports.tsx";
 import { useLocation } from "react-router";
 import { ageAt, bodyFatBands, healthyWeightRange } from "../../shared/reference.ts";
 import { maintainRange } from "../../shared/goals.ts";
@@ -255,6 +257,43 @@ function GoalsForm({ user }: { user: UserDto }) {
   );
 }
 
+/** The app color; gold and diamond unlock with the best streak. */
+function AccentCard() {
+  const { t, tf } = useI18n();
+  const [accent, setAccent] = useAccent();
+  const best = useBestStreak() ?? 0;
+  const swatch: Record<Accent, string> = { green: "bg-[#21b359]", gold: "bg-[#eab308]", diamond: "bg-[conic-gradient(#67e8f9,#a78bfa,#f0abfc,#67e8f9)]" };
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold">{t("accentTitle")}</h2>
+      <div role="radiogroup" aria-label={t("accentTitle")} className="mt-3 grid grid-cols-3 gap-2">
+        {ACCENTS.map(({ accent: a, unlockDays }) => {
+          const locked = unlockDays !== null && best < unlockDays;
+          return (
+            <button
+              key={a}
+              type="button"
+              role="radio"
+              aria-checked={accent === a}
+              disabled={locked}
+              onClick={() => setAccent(a)}
+              className={`flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-2xl border-2 px-2 py-2 text-sm font-medium transition disabled:opacity-60 ${
+                accent === a ? "border-brand bg-brand/10 text-ink" : "border-line bg-surface-2 text-ink-2"
+              }`}
+            >
+              <span className={`flex h-7 w-7 items-center justify-center rounded-full ${swatch[a]}`} aria-hidden>
+                {locked && <FiLock size={14} className="text-white" />}
+              </span>
+              {t(`accent.${a}`)}
+              {locked && <span className="text-xs font-normal text-muted">{tf("accentLocked", { n: unlockDays! })}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 /** Push notifications for this device, plus which kinds the person wants on all devices. */
 function NotificationsCard({ user }: { user: UserDto }) {
   const { t, te } = useI18n();
@@ -326,6 +365,13 @@ function NotificationsCard({ user }: { user: UserDto }) {
               disabled={prefs.isPending}
               onChange={(v) => prefs.mutate({ ...user.notifications, goals: v })}
             />
+            <Switch
+              label={t("notifyStreak")}
+              // Missing on an account cached offline by an older version of the app.
+              checked={user.notifications.streak ?? true}
+              disabled={prefs.isPending}
+              onChange={(v) => prefs.mutate({ ...user.notifications, streak: v })}
+            />
           </div>
           <div className="mt-4 flex flex-col gap-3">
             <Button variant="secondary" disabled={busy} onClick={() =>
@@ -388,6 +434,7 @@ export function SettingsPage({ user }: { user: UserDto }) {
           <GoalsForm user={user} />
         </Card>
       </div>
+      <AccentCard />
       <ZeppCard />
       <NotificationsCard user={user} />
       <Card>

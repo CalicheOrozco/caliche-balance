@@ -1,11 +1,10 @@
-import { timingSafeEqual } from "node:crypto";
 import express, { type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { joinCodeSchema, type ZeppMemberDto, type ZeppStatusDto, zeppConnectSchema } from "../shared/schemas.ts";
 import { hashSecret, newRecoveryCode, normalizeRecoveryCode } from "./auth.ts";
 import type { Collections, ZeppConnectionDoc } from "./db.ts";
-import { asyncRoute, hitRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
+import { asyncRoute, hitRateLimit, isCronRequest, sendRateLimited, toMeasurementDto } from "./http.ts";
 import type { PushSender } from "./push.ts";
 import { type ZeppClient, ZeppError, encryptToken } from "./zepp.ts";
 import { syncConnection } from "./zeppSync.ts";
@@ -41,12 +40,6 @@ export async function deleteZeppDataFor(c: Collections, userId: ObjectId): Promi
     await c.zeppConnections.deleteOne({ _id: owned._id });
   }
   await c.zeppMembers.updateMany({ linkedUserId: userId }, { $set: { linkedUserId: null } });
-}
-
-function secretMatches(given: string | undefined, expected: string): boolean {
-  const a = Buffer.from(given ?? "");
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 export function zeppRoutes({ collections, withUser, zepp, cronSecret, push }: Context) {
@@ -291,9 +284,7 @@ export function zeppRoutes({ collections, withUser, zepp, cronSecret, push }: Co
   router.get(
     "/cron/zepp-sync",
     asyncRoute(async (req, res) => {
-      if (!cronSecret || !secretMatches(req.get("authorization"), `Bearer ${cronSecret}`)) {
-        return res.status(401).json({ error: "unauthorized" });
-      }
+      if (!isCronRequest(req, cronSecret)) return res.status(401).json({ error: "unauthorized" });
       const c = collections();
       const connections = await c.zeppConnections.find({ status: { $ne: "invalid-token" } }).toArray();
       let imported = 0;

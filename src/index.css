@@ -46,6 +46,28 @@
   color-scheme: dark;
 }
 
+/*
+ * Accent themes unlocked by streaks (src/accent.ts). Only the brand color changes; chart series
+ * and status colors keep their validated values. Contrast against white or the dark surface is
+ * at least 4.5:1 for text in either direction.
+ */
+:root[data-accent="gold"] {
+  --brand: #a16207;
+  --brand-ink: #ffffff;
+}
+:root[data-theme="dark"][data-accent="gold"] {
+  --brand: #eab308;
+  --brand-ink: #1a1300;
+}
+:root[data-accent="diamond"] {
+  --brand: #6d28d9;
+  --brand-ink: #ffffff;
+}
+:root[data-theme="dark"][data-accent="diamond"] {
+  --brand: #a78bfa;
+  --brand-ink: #12062b;
+}
+
 @theme {
   --color-bg: var(--bg);
   --color-surface: var(--surface);

@@ -10,6 +10,7 @@ import { ageAt, assess, basalMetabolicRate, bmi, bodyFatBands, healthyWeightRang
 import { lossPlan, SAFE_LOSS_KG_PER_WEEK } from "../../shared/fatLoss.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
 import { StreakCard, useNewLevels } from "../achievements.tsx";
+import { ReportCard, TrendLine } from "../reports.tsx";
 import { useCompareXiaomi } from "../compare.ts";
 import { bmiPercentile } from "../../shared/percentiles.ts";
 import { scoreOf } from "../../shared/score.ts";
@@ -24,7 +25,7 @@ import {
   nextBodyFatGoal,
   nextWeightGoal,
 } from "../../shared/goals.ts";
-import { CM_PER_IN, fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
+import { CM_PER_IN, fromKilograms, type GoalsDto, type StreakReward, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
 import { Button, Card, Field, RangeBar, StatusBadge, signed, useFormat } from "../ui.tsx";
 
@@ -320,10 +321,10 @@ function TipsCard({ profile, measurements, goals }: { profile: ProfileDto; measu
   );
 }
 
-function HomeStreak({ username }: { username: string }) {
+function HomeStreak({ username, reward }: { username: string; reward: StreakReward | null }) {
   const a = useAchievementsQuery().data;
   const { fresh } = useNewLevels(username, a);
-  return a ? <StreakCard a={a} fresh={fresh} /> : null;
+  return a ? <StreakCard a={a} fresh={fresh} reward={reward} /> : null;
 }
 
 /** Caliche Balance's own 0 to 100 score, first thing on Home, with every part visible. */
@@ -631,11 +632,13 @@ export function HomePage({
   measurements,
   username,
   goals,
+  streakReward,
 }: {
   profile: ProfileDto;
   measurements: MeasurementDto[];
   username: string;
   goals: GoalsDto;
+  streakReward: StreakReward | null;
 }) {
   const { t, tf } = useI18n();
   const f = useFormat();
@@ -706,7 +709,7 @@ export function HomePage({
 
       <BodyScoreCard profile={profile} measurements={measurements} />
 
-      <HomeStreak username={username} />
+      <HomeStreak username={username} reward={streakReward} />
 
       {result.notes.map((note) => (
         <p key={note} className="rounded-2xl bg-warn/15 px-4 py-3 text-sm text-ink">
@@ -720,7 +723,17 @@ export function HomePage({
         <p className="mt-3 text-sm text-ink-2">
           {t("healthyWeight")}: {f.weight(result.healthyWeight.min, profile.unit)} {t("rangeTo")} {f.weight(result.healthyWeight.max, profile.unit)}
         </p>
+        <TrendLine measurements={measurements} unit={profile.unit} />
       </Card>
+
+      <ReportCard
+        profile={profile}
+        measurements={measurements}
+        days={7}
+        unlock="weekly"
+        title={t("weeklyTitle")}
+        intro={t("weeklyIntro")}
+      />
 
       <PercentileCard profile={profile} latest={latest} />
 

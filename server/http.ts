@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import type { MeasurementDto } from "../shared/schemas.ts";
 import type { Collections, MeasurementDoc } from "./db.ts";
@@ -70,3 +71,11 @@ export function sendRateLimited(res: Response, limit: RateLimit) {
 export const asyncRoute =
   (handler: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) =>
     handler(req, res).catch(next);
+
+/** Vercel Cron sends the project's CRON_SECRET as a bearer token; compared in constant time. */
+export function isCronRequest(req: Request, cronSecret: string | undefined): boolean {
+  if (!cronSecret) return false;
+  const a = Buffer.from(req.get("authorization") ?? "");
+  const b = Buffer.from(`Bearer ${cronSecret}`);
+  return a.length === b.length && timingSafeEqual(a, b);
+}

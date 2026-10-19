@@ -8,7 +8,12 @@ export interface UserDoc {
   recoveryHash: string;
   profile: (Omit<ProfileDto, "displayName"> & { displayName: string | null }) | null;
   /** Which notifications the person wants; missing means on. */
-  notifications?: { newWeighIn: boolean; zepp: boolean; goals?: boolean };
+  notifications?: { newWeighIn: boolean; zepp: boolean; goals?: boolean; streak?: boolean };
+  streakReward?: { text: string; days: number; setAt: Date; earnedAt: Date | null } | null;
+  /** Streak length last announced (record near, tied or beaten), so each is told once. */
+  streakNudged?: number;
+  /** Local day (YYYY-MM-DD) of the last evening reminder, so it goes out at most once a day. */
+  streakReminderDay?: string;
   /** reachedAt and maintain are missing on goals saved before they existed: read them as null. */
   goals?: {
     weight: (Omit<WeightGoal, "setAt" | "reachedAt"> & { setAt: Date; reachedAt?: Date | null }) | null;

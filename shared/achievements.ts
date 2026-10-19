@@ -67,9 +67,87 @@ export interface ChallengeStatus {
   daysLeft: number;
 }
 
+export interface Streak {
+  /** Days weighed in the current streak; frozen days keep it going but do not add to it. */
+  current: number;
+  /** Longest streak ever, including the current one. */
+  best: number;
+  /** Longest streak before the current one, to tell when a record is near, tied or beaten. */
+  bestBefore: number;
+  weighedToday: boolean;
+  /** Freezes ready to cover a missed day. */
+  freezes: number;
+  /** Days weighed until the next freeze; null while holding the maximum. */
+  nextFreezeIn: number | null;
+  /** Days a freeze covered in the current streak, oldest first (YYYY-MM-DD). */
+  frozenDays: string[];
+}
+
+/**
+ * Freezes: one for every 7 days weighed in a streak, up to 2. A missed day uses one automatically
+ * and the streak goes on, so a trip or a sick day does not wipe out weeks of effort (and weighing
+ * in does not turn into pressure). A streak that breaks loses its freezes.
+ */
+export const FREEZE_EVERY = 7;
+export const MAX_FREEZES = 2;
+
+/** What a longer best streak unlocks; once reached, it stays unlocked. */
+export const STREAK_UNLOCKS = { trend: 7, weekly: 14, monthly: 30, gold: 30, diamond: 100 } as const;
+export type StreakUnlock = keyof typeof STREAK_UNLOCKS;
+
+const isoDay = (day: number) => new Date(day * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+/**
+ * Streaks over the local days with a weigh-in (sorted, unique). Calls `onDay` with the streak
+ * length after each weighed day, so badges can count every 7 and every 30 days.
+ */
+export function streakOf(days: number[], today: number, onDay: (index: number, run: number) => void = () => {}): Streak {
+  let run = 0;
+  let freezes = 0;
+  let frozen: number[] = [];
+  const runs: number[] = [];
+  days.forEach((day, i) => {
+    const missed = i === 0 ? Infinity : day - days[i - 1]! - 1;
+    if (missed <= freezes) {
+      freezes -= missed;
+      for (let d = days[i - 1]! + 1; d < day; d++) frozen.push(d);
+      run++;
+    } else {
+      if (run > 0) runs.push(run);
+      run = 1;
+      freezes = 0;
+      frozen = [];
+    }
+    if (run % FREEZE_EVERY === 0 && freezes < MAX_FREEZES) freezes++;
+    onDay(i, run);
+  });
+  const last = days[days.length - 1];
+  // Days missed before today; today's weigh-in may still be ahead.
+  const missed = last === undefined ? Infinity : Math.max(today - last - 1, 0);
+  const alive = missed <= freezes;
+  if (alive && last !== undefined) {
+    freezes -= missed;
+    for (let d = last + 1; d < today; d++) frozen.push(d);
+  }
+  const bestBefore = Math.max(0, ...runs);
+  return {
+    current: alive ? run : 0,
+    best: Math.max(bestBefore, run),
+    bestBefore: alive ? bestBefore : Math.max(bestBefore, run),
+    weighedToday: last === today,
+    freezes: alive ? freezes : 0,
+    nextFreezeIn: !alive ? FREEZE_EVERY : freezes >= MAX_FREEZES ? null : FREEZE_EVERY - (run % FREEZE_EVERY),
+    frozenDays: alive ? frozen.map(isoDay) : [],
+  };
+}
+
+export function unlocked(streak: Pick<Streak, "best">, unlock: StreakUnlock): boolean {
+  return streak.best >= STREAK_UNLOCKS[unlock];
+}
+
 export interface Achievements {
   badges: BadgeStatus[];
-  streak: { current: number; best: number; weighedToday: boolean };
+  streak: Streak;
   challenges: ChallengeStatus[];
 }
 
@@ -186,19 +264,16 @@ export function achievements(input: {
   for (const r of rows) if (days[days.length - 1]?.day !== r.day) days.push({ day: r.day, t: r.t });
   for (const d of days) add("weigh-days", d.t);
 
-  // Streaks: every 7 and every 30 days in a row count once.
-  let run = 0;
-  let best = 0;
-  days.forEach((d, i) => {
-    run = i > 0 && d.day === days[i - 1]!.day + 1 ? run + 1 : 1;
-    best = Math.max(best, run);
-    if (run % 7 === 0) add("streak-7", d.t);
-    if (run % 30 === 0) add("streak-30", d.t);
-  });
+  // Streaks: every 7 and every 30 days weighed in a row count once.
   const today = localDay(now, timeZone);
-  const last = days[days.length - 1];
-  // Today's weigh-in may still be ahead, so a streak through yesterday is still alive.
-  const current = last && last.day >= today - 1 ? run : 0;
+  const streak = streakOf(
+    days.map((d) => d.day),
+    today,
+    (i, run) => {
+      if (run % 7 === 0) add("streak-7", days[i]!.t);
+      if (run % 30 === 0) add("streak-30", days[i]!.t);
+    },
+  );
 
   // Weeks and months, counted when the target day is reached.
   for (const week of groupBy(days, (d) => weekOf(d.day))) {
@@ -303,7 +378,7 @@ export function achievements(input: {
         nextAt: level < b.levels.length ? b.levels[level]! : null,
       };
     }),
-    streak: { current, best, weighedToday: last?.day === today },
+    streak,
     challenges: [
       challenge("week-weigh-5", "week", distinctDays(inWeek), TARGETS.weekDays),
       challenge("week-full-3", "week", distinctDays(inWeek.filter((r) => r.impedance)), TARGETS.weekFull),

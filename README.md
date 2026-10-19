@@ -25,6 +25,12 @@ Cada persona tiene su propia cuenta (nombre de usuario y contraseña) y sus dato
 - **Edad de tu grasa corporal:** la edad a la que un adulto típico de Norteamérica de tu sexo tiene tu % de grasa, comparando con mexicoamericanos y con estadounidenses blancos (NHANES, DXA), en lugar de la "edad corporal" de Xiaomi.
 - **Consejos para bajar grasa:** si tu peso o tu grasa están arriba del rango saludable, Inicio te dice cuánto te falta para tu meta (o para el máximo de tu peso saludable), cuántas semanas tomaría a un ritmo seguro y consejos generales con fuente (calorías, proteína, plato, bebidas, fuerza, actividad, sueño y cómo pesarte).
 - **Logros y retos:** tu racha de días seguidos, retos de la semana y del mes (pesarte, pesadas completas, medir tu cintura, bajar grasa) y 17 logros de constancia, salud y metas. Cada logro se puede ganar muchas veces y sube de nivel (Bronce, Plata, Oro, Platino y Diamante) según cuántas veces lo logras; la app guarda cada fecha. El servidor los calcula con todo tu historial, en la zona horaria de tu teléfono, y te avisa cuando uno sube de nivel. Las imágenes se generan con los prompts de [docs/badges.md](docs/badges.md).
+- **Recompensas de la racha:**
+  - **Comodines:** uno por cada 7 días seguidos (máximo 2). Si un día no te pesas, se usa solo y la racha sigue.
+  - **Recordatorio en la noche** si no te has pesado (una vez al día, entre 5 y 11 p.m. de tu hora local), y avisos cuando estás cerca de tu récord, lo igualas o lo superas.
+  - **Desbloqueos con tu mejor racha, para siempre:** a los 7 días el **peso real** (tendencia suavizada al 10 %, como en *The Hacker's Diet*), a los 14 el **resumen semanal**, a los 30 el **reporte mensual** y el **tema dorado**, y a los 100 el **tema diamante**.
+  - **Tu premio:** eliges algo que te vas a regalar al llegar a cierta racha y la app te avisa cuando lo ganas.
+  - El icono de la racha cambia de color: verde, dorado desde 30 días y violeta desde 100.
 - **Notificaciones:** "Nueva pesada: 96.0 kg (−0.4 kg)", "¡Llegaste a tu meta!", "Tu peso quedó arriba de tu rango para mantener" y "Tu token de Zepp caducó", en el iPhone con la app instalada (iOS 16.4+).
 - **Metas de peso y de % de grasa:** barra de avance, cuánto te falta, una estimación de cuándo llegarías según tu ritmo de las últimas 4 semanas, y una línea punteada en las gráficas.
 - **Al cumplir una meta:** te llega una notificación (una sola vez por meta), Inicio dice la fecha y cuánto te tomó, y te sugiere qué sigue: una nueva meta (5 % menos, sin pasar del máximo de tu peso saludable; o el máximo saludable de grasa) o **mantener tu peso**. En modo mantener, te avisamos cuando tu peso sale de ±3 % (Stevens y col., Int J Obes 2006).
@@ -156,7 +162,7 @@ Alternativa: en Vercel puedes agregar la integración de MongoDB Atlas desde el 
    - `ZEPP_TOKEN_KEY`: llave para cifrar los tokens de Zepp. Genera una con `openssl rand -base64 32`. Usa la misma de tu `.env` si ya conectaste Zepp localmente contra la misma base; si la cambias, hay que volver a conectar Zepp.
    - `VAPID_PUBLIC_KEY` y `VAPID_PRIVATE_KEY`: las llaves de notificaciones (las de tu `.env`, o genera unas nuevas con `npx web-push generate-vapid-keys`). Si las cambias, cada dispositivo tiene que volver a activar las notificaciones.
    - `VAPID_SUBJECT`: la dirección `https://` de tu app en Vercel (Apple rechaza otros valores salvo `mailto:`).
-   - `CRON_SECRET`: una cadena larga y aleatoria. Vercel la manda a la sincronización diaria con Zepp (`vercel.json` la programa a las 12:00 UTC).
+   - `CRON_SECRET`: una cadena larga y aleatoria. Vercel la manda a sus dos tareas diarias (`vercel.json`): la sincronización con Zepp a las 12:00 UTC y el recordatorio de racha a las 23:00 UTC.
 4. Dale **Deploy**.
 
 `vercel.json` manda todo lo que empieza con `/api` a la función `api/index.ts` (la API de Express) y el resto a la web app. Las cookies de sesión son `Secure`, así que en producción la app debe abrirse por HTTPS (Vercel ya lo da).
@@ -190,6 +196,7 @@ Entre esos puntos la puntuación baja en línea recta. Las referencias son publi
 - **Token de Zepp caducado:** se avisa una sola vez, a quien conectó Zepp.
 - Cada tipo se puede apagar, y hay un botón para enviar una notificación de prueba. Al cerrar sesión, el dispositivo deja de recibirlas.
 - Las notificaciones llegan cuando corre una sincronización: al abrir la app o con el cron diario de Vercel (una vez al día en el plan gratis). Para recibirlas más seguido sin abrir la app, un servicio externo (por ejemplo cron-job.org) puede llamar cada 15 minutos a `https://TU-APP.vercel.app/api/cron/zepp-sync` con el encabezado `Authorization: Bearer TU_CRON_SECRET`.
+- **Recordatorio de racha:** corre a las 23:00 UTC (7 u 8 p.m. en el este de Canadá, según el horario de verano) y solo avisa a quien tiene la racha viva, no se ha pesado ese día y en su hora local es entre las 5 y las 11 p.m.; nunca más de una vez al día. Si estás en otra zona horaria o lo quieres más preciso, un servicio externo puede llamar cada hora a `https://TU-APP.vercel.app/api/cron/streak-reminder` con el mismo encabezado `Authorization`.
 - Requieren las variables `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` y `VAPID_SUBJECT` (ver Vercel abajo). Sin ellas, la app funciona igual pero sin notificaciones.
 
 ## Sin conexión (PWA)

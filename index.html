@@ -13,6 +13,8 @@
         var dark = saved ? saved === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
         document.documentElement.dataset.theme = dark ? "dark" : "light";
         document.querySelector('meta[name="theme-color"]').content = dark ? "#0b0f0d" : "#f6f8f7";
+        // The accent unlocked by streaks (src/accent.ts).
+        try { var accent = localStorage.getItem("accent"); if (accent) document.documentElement.dataset.accent = accent; } catch (e) {}
       })();
     </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
