@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { FiLock, FiTrash2 } from "react-icons/fi";
 import { type Accent, ACCENTS, useAccent } from "../accent.ts";
+import { AppleHealthCard } from "../appleHealth.tsx";
 import { useBestStreak } from "../reports.tsx";
 import { useLocation } from "react-router";
 import { ageAt, bodyFatBands, healthyWeightRange } from "../../shared/reference.ts";
@@ -436,6 +437,7 @@ export function SettingsPage({ user }: { user: UserDto }) {
       </div>
       <AccentCard />
       <ZeppCard />
+      <AppleHealthCard user={user} />
       <NotificationsCard user={user} />
       <Card>
         <h2 className="text-lg font-semibold">{t("account")}</h2>

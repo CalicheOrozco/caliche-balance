@@ -41,6 +41,7 @@ describe("Caliche Balance API", () => {
       goals: { weight: null, bodyFat: null, maintain: null },
       goalHistory: [],
       streakReward: null,
+      appleHealth: null,
       notifications: { newWeighIn: true, zepp: true, goals: true, streak: true },
     });
     expect(register.body.recoveryCode).toMatch(/^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/);
@@ -95,6 +96,49 @@ describe("Caliche Balance API", () => {
       ).status,
     ).toBe(401);
     expect((await request(app).post("/api/auth/login").send({ username: "caliche", password: "nueva-contraseña" })).status).toBe(200);
+  });
+
+  it("receives Apple Health days from the Shortcut with the person's own key", async () => {
+    const agent = request.agent(app);
+    await agent.post("/api/auth/register").send({ username: "salud", password: "contraseña-salud" });
+    await agent.put("/api/me/profile").send(profile);
+    await agent.get("/api/me/achievements?tz=America/Toronto");
+    const made = await agent.post("/api/me/apple-health/key");
+    expect(made.body.key).toMatch(/^cbh_[\w-]{43}$/);
+    expect((await agent.get("/api/me")).body.appleHealth).toEqual({ since: made.body.status.since, lastSyncAt: null });
+    const shortcut = (key: string, body: object) => request(app).post("/api/apple-health/ingest").set("Authorization", `Bearer ${key}`).send(body);
+
+    // Without a date it is today in the person's time zone; numbers may come as text.
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto" }).format(new Date());
+    const first = await shortcut(made.body.key, { steps: "8,452", activeKcal: "512,4 kcal", restingHr: 58 });
+    expect(first.status).toBe(200);
+    expect(first.body.saved).toEqual([{ date: today, steps: 8452, activeKcal: 512.4, exerciseMin: null, distanceKm: null, restingHr: 58, sleepHours: null }]);
+    // A later send for the same day only changes what it brings.
+    await shortcut(made.body.key, { steps: 9100, exerciseMin: 34 });
+    // Several days at once, to fill in missed ones.
+    await shortcut(made.body.key, { days: [{ date: "2026-10-01", steps: 6000 }, { date: "2026-10-02", distanceKm: "4,2" }] });
+
+    const days = (await agent.get("/api/me/apple-health/days")).body;
+    expect(days.map((d: { date: string }) => d.date)).toEqual(["2026-10-01", "2026-10-02", today]);
+    expect(days[2]).toMatchObject({ steps: 9100, activeKcal: 512.4, exerciseMin: 34, restingHr: 58 });
+    expect(days[1]).toMatchObject({ distanceKm: 4.2, steps: null });
+    expect((await agent.get("/api/me")).body.appleHealth.lastSyncAt).toEqual(expect.any(String));
+
+    // Wrong or missing keys, empty days and other people's data are refused.
+    expect((await shortcut("cbh_inventada", { steps: 1 })).status).toBe(401);
+    expect((await request(app).post("/api/apple-health/ingest").send({ steps: 1 })).status).toBe(401);
+    expect((await shortcut(made.body.key, { date: "2026-10-03" })).body.fields).toEqual([{ path: "days.0", code: "health-empty" }]);
+    const other = request.agent(app);
+    await other.post("/api/auth/register").send({ username: "otra", password: "contraseña-otra" });
+    expect((await other.get("/api/me/apple-health/days")).body).toEqual([]);
+
+    // A new key replaces the old one; disconnecting forgets the key but keeps the days.
+    const again = await agent.post("/api/me/apple-health/key");
+    expect((await shortcut(made.body.key, { steps: 1 })).status).toBe(401);
+    expect((await shortcut(again.body.key, { steps: 9500 })).status).toBe(200);
+    expect((await agent.delete("/api/me/apple-health/key")).status).toBe(204);
+    expect((await shortcut(again.body.key, { steps: 1 })).status).toBe(401);
+    expect((await agent.get("/api/me/apple-health/days")).body).toHaveLength(3);
   });
 
   it("saves goals with the starting point from the latest reading", async () => {

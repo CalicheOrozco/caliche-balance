@@ -11,6 +11,7 @@ import { lossPlan, SAFE_LOSS_KG_PER_WEEK } from "../../shared/fatLoss.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
 import { StreakCard, useNewLevels } from "../achievements.tsx";
 import { ReportCard, TrendLine } from "../reports.tsx";
+import { HealthTodayCard } from "../appleHealth.tsx";
 import { useCompareXiaomi } from "../compare.ts";
 import { bmiPercentile } from "../../shared/percentiles.ts";
 import { scoreOf } from "../../shared/score.ts";
@@ -633,12 +634,14 @@ export function HomePage({
   username,
   goals,
   streakReward,
+  appleHealthConnected,
 }: {
   profile: ProfileDto;
   measurements: MeasurementDto[];
   username: string;
   goals: GoalsDto;
   streakReward: StreakReward | null;
+  appleHealthConnected: boolean;
 }) {
   const { t, tf } = useI18n();
   const f = useFormat();
@@ -734,6 +737,8 @@ export function HomePage({
         title={t("weeklyTitle")}
         intro={t("weeklyIntro")}
       />
+
+      <HealthTodayCard connected={appleHealthConnected} />
 
       <PercentileCard profile={profile} latest={latest} />
 

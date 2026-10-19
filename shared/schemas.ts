@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AppleHealthStatus } from "./health.ts";
 
 /** Request contracts shared by the API (validation) and the web app (forms). */
 
@@ -158,6 +159,8 @@ export interface UserDto {
   goals: GoalsDto;
   goalHistory: GoalHistoryEntry[];
   streakReward: StreakReward | null;
+  /** Null until the person makes a key for the Apple Health Shortcut. */
+  appleHealth: AppleHealthStatus | null;
   notifications: NotificationPrefs;
 }
 

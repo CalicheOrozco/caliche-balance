@@ -102,7 +102,10 @@ function SignedIn({ user }: { user: UserDto }) {
             path="/"
             element={
               // streakReward is missing on an account cached offline by an older version of the app.
-              <HomePage profile={profile} measurements={list} username={user.username} goals={user.goals} streakReward={user.streakReward ?? null} />
+              <HomePage profile={profile} measurements={list} username={user.username} goals={user.goals} streakReward={user.streakReward ?? null}
+                // Missing on an account cached offline by an older version of the app.
+                appleHealthConnected={user.appleHealth != null}
+              />
             }
           />
           <Route
@@ -113,7 +116,7 @@ function SignedIn({ user }: { user: UserDto }) {
             path="/historial"
             element={
               <Suspense fallback={<p className="py-10 text-center text-muted">…</p>}>
-                <HistoryPage profile={profile} measurements={list} goals={user.goals} />
+                <HistoryPage profile={profile} measurements={list} goals={user.goals} appleHealthConnected={user.appleHealth != null} />
               </Suspense>
             }
           />

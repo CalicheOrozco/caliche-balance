@@ -31,6 +31,7 @@ import { bodyFatOf } from "../shared/composition.ts";
 import { isTimeZone } from "../shared/achievements.ts";
 import { maintainRange } from "../shared/goals.ts";
 import { achievementsFor, checkAchievements, remindStreaks } from "./achievementCheck.ts";
+import { appleHealthRoutes } from "./appleHealthRoutes.ts";
 import { checkGoals } from "./goalCheck.ts";
 import { messages, notifyUser, type PushSender } from "./push.ts";
 import { asyncRoute, clientIp, hitRateLimit, isCronRequest, peekRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
@@ -65,6 +66,9 @@ function toUserDto(user: UserDoc): UserDto {
       goals: user.notifications?.goals ?? true,
       streak: user.notifications?.streak ?? true,
     },
+    appleHealth: user.appleHealth
+      ? { since: user.appleHealth.since.toISOString(), lastSyncAt: user.appleHealth.lastSyncAt?.toISOString() ?? null }
+      : null,
     streakReward: user.streakReward
       ? { ...user.streakReward, setAt: user.streakReward.setAt.toISOString(), earnedAt: user.streakReward.earnedAt?.toISOString() ?? null }
       : null,
@@ -254,6 +258,7 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
         collections.measurements.deleteMany({ userId }),
         collections.sessions.deleteMany({ userId }),
         collections.pushSubscriptions.deleteMany({ userId }),
+        collections.healthDays.deleteMany({ userId }),
       ]);
       await collections.users.deleteOne({ _id: userId });
       res.clearCookie("cb_session", { path: "/" });
@@ -435,6 +440,7 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
   );
 
   router.use(zeppRoutes({ collections: () => collections, withUser, zepp, cronSecret, push }));
+  router.use(appleHealthRoutes({ collections: () => collections, withUser }));
 
   app.use("/api", router);
 

@@ -189,6 +189,24 @@ Entre esos puntos la puntuación baja en línea recta. Las referencias son publi
 
 `shared/percentiles.ts` usa las tablas 14 y 15 de *Anthropometric Reference Data for Children and Adults: United States, 2015-2018* (CDC, Vital Health Stat 3(46), 2021, NHANES): percentiles 5 a 95 de IMC por sexo y edad, para toda la población y para mexicoamericanos. Entre percentiles publicados se interpola en línea recta; fuera del 5 al 95 se dice "menos de 5 %" o "más de 95 %". No se usan datos de Canadá porque no se encontró una tabla equivalente publicada.
 
+## Apple Salud (con un Atajo)
+
+Apple Salud no tiene una conexión web: solo una app en el iPhone puede leerlo. Por eso Caliche Balance usa un **Atajo de iOS** que cada noche lee los totales del día y los manda con una llave personal.
+
+1. En **Ajustes > Apple Salud** creas tu llave (se muestra una sola vez; solo se guarda su huella).
+2. **Agregar el Atajo** descarga `public/shortcuts/caliche-salud.shortcut`. Al agregarlo, el Atajo te pide la llave.
+3. La primera vez que corre pide permiso para leer Salud. Después, una automatización diaria (11:30 p.m.) lo corre sola.
+
+Manda pasos, calorías activas, minutos de ejercicio, distancia (en km) y frecuencia cardiaca en reposo a `POST /api/apple-health/ingest` con `Authorization: Bearer <llave>`. Cada métrica se lee **agrupada por día** (como la cuenta Salud, sin sumar doble el iPhone y el Apple Watch). Acepta números como texto en cualquier formato regional ("8,452", "512,4 kcal"), un campo vacío cuenta como "sin dato", y `{ "days": [...] }` permite mandar varios días. Se ve en Inicio (hoy y promedio de 7 días) y en Historial.
+
+El Atajo se genera y se firma en una Mac (solo macOS puede firmarlos) con:
+
+```bash
+python3 scripts/build-health-shortcut.py https://caliche-balance.vercel.app
+```
+
+El formato de sus acciones viene de Atajos reales publicados; Ajustes también trae la guía para armarlo a mano por si el archivo no funciona en alguna versión de iOS.
+
 ## Notificaciones
 
 - En **Ajustes > Notificaciones** se activan en cada dispositivo. En iPhone hace falta tener la app instalada en la pantalla de inicio (iOS 16.4+) y aceptar el permiso.

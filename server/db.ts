@@ -20,6 +20,8 @@ export interface UserDoc {
     bodyFat: (Omit<BodyFatGoal, "setAt" | "reachedAt"> & { setAt: Date; reachedAt?: Date | null }) | null;
     maintain?: (Omit<MaintainGoal, "setAt"> & { setAt: Date }) | null;
   };
+  /** Apple Health via the iOS Shortcut: only the hash of the person's key is kept. */
+  appleHealth?: { keyHash: string; since: Date; lastSyncAt: Date | null };
   /** IANA time zone the app last reported; days, weeks and streaks are counted in it. */
   timeZone?: string;
   /** Badge levels last seen by the server, to notice when one goes up; missing until the first check. */
@@ -101,6 +103,21 @@ export interface RateLimitDoc {
   expiresAt: Date;
 }
 
+/** One local day of Apple Health totals; each metric is missing until the Shortcut sends it. */
+export interface HealthDayDoc {
+  _id: ObjectId;
+  userId: ObjectId;
+  /** Local date, YYYY-MM-DD. */
+  date: string;
+  steps?: number | null;
+  activeKcal?: number | null;
+  exerciseMin?: number | null;
+  distanceKm?: number | null;
+  restingHr?: number | null;
+  sleepHours?: number | null;
+  updatedAt: Date;
+}
+
 export interface Collections {
   users: Collection<UserDoc>;
   sessions: Collection<SessionDoc>;
@@ -109,6 +126,7 @@ export interface Collections {
   zeppConnections: Collection<ZeppConnectionDoc>;
   zeppMembers: Collection<ZeppMemberDoc>;
   pushSubscriptions: Collection<PushSubscriptionDoc>;
+  healthDays: Collection<HealthDayDoc>;
 }
 
 export function collections(db: Db): Collections {
@@ -120,6 +138,7 @@ export function collections(db: Db): Collections {
     zeppConnections: db.collection("zeppConnections"),
     zeppMembers: db.collection("zeppMembers"),
     pushSubscriptions: db.collection("pushSubscriptions"),
+    healthDays: db.collection("healthDays"),
   };
 }
 
@@ -141,6 +160,9 @@ export async function ensureIndexes(c: Collections): Promise<void> {
     c.zeppMembers.createIndex({ inviteCodeHash: 1 }, { unique: true, partialFilterExpression: { inviteCodeHash: { $type: "string" } } }),
     c.pushSubscriptions.createIndex({ endpoint: 1 }, { unique: true }),
     c.pushSubscriptions.createIndex({ userId: 1 }),
+    // One row per person per local day; the Shortcut's key is looked up by its hash.
+    c.healthDays.createIndex({ userId: 1, date: 1 }, { unique: true }),
+    c.users.createIndex({ "appleHealth.keyHash": 1 }, { unique: true, partialFilterExpression: { "appleHealth.keyHash": { $type: "string" } } }),
   ]);
 }
 

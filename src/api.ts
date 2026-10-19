@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Achievements } from "../shared/achievements.ts";
+import type { AppleHealthStatus, HealthDayDto } from "../shared/health.ts";
 import type { GoalsInput, MeasurementDto, NotificationPrefs, MeasurementInput, ProfileInput, UserDto, ZeppStatusDto } from "../shared/schemas.ts";
 
 export class ApiError extends Error {
@@ -44,6 +45,9 @@ export const api = {
   pushTest: () => call<{ sent: number }>("POST", "/push/test"),
   deleteAccount: () => call<void>("DELETE", "/me"),
   measurements: () => call<MeasurementDto[]>("GET", "/measurements?limit=1000"),
+  createHealthKey: () => call<{ key: string; status: AppleHealthStatus }>("POST", "/me/apple-health/key"),
+  removeHealthKey: () => call<void>("DELETE", "/me/apple-health/key"),
+  healthDays: (days = 90) => call<HealthDayDto[]>("GET", `/me/apple-health/days?days=${days}`),
   saveStreakReward: (reward: { text: string; days: number }) => call<UserDto>("PUT", "/me/streak-reward", reward),
   removeStreakReward: () => call<UserDto>("DELETE", "/me/streak-reward"),
   achievements: (timeZone: string) => call<Achievements>("GET", `/me/achievements?tz=${encodeURIComponent(timeZone)}`),

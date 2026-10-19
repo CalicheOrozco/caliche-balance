@@ -38,7 +38,8 @@ export default defineConfig({
         navigateFallback: "/index.html",
         // API responses are never cached by the service worker: they carry personal data and
         // the app persists only what it needs (see src/offline.ts).
-        navigateFallbackDenylist: [/^\/api\//],
+        // The Apple Health Shortcut is a file to download, not a screen of the app.
+        navigateFallbackDenylist: [/^\/api\//, /\.shortcut$/],
         cleanupOutdatedCaches: true,
         // Shows push notifications and opens the app when one is tapped.
         importScripts: ["/push-sw.js"],

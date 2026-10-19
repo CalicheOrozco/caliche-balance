@@ -11,6 +11,7 @@ import { scoreOf } from "../../shared/score.ts";
 import { STREAK_UNLOCKS } from "../../shared/achievements.ts";
 import { weightTrend } from "../../shared/trend.ts";
 import { ReportCard, useBestStreak } from "../reports.tsx";
+import { useHealthDays } from "../appleHealth.tsx";
 import { CM_PER_IN, fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { api } from "../api.ts";
 import { useAdvice } from "../advice.ts";
@@ -205,7 +206,17 @@ function TrendChart({
   );
 }
 
-export function HistoryPage({ profile, measurements, goals }: { profile: ProfileDto; measurements: MeasurementDto[]; goals: GoalsDto }) {
+export function HistoryPage({
+  profile,
+  measurements,
+  goals,
+  appleHealthConnected,
+}: {
+  profile: ProfileDto;
+  measurements: MeasurementDto[];
+  goals: GoalsDto;
+  appleHealthConnected: boolean;
+}) {
   const { t, tf } = useI18n();
   const f = useFormat();
   const queryClient = useQueryClient();
@@ -312,6 +323,15 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
         : tf("bodyAgeYears", { age: fatAge.age })
     : null;
   const waistCount = measurements.filter((m) => m.waistCm !== null).length;
+  // Apple Health days in the selected range, at local noon so each sits on its own day.
+  const healthDays = useHealthDays(appleHealthConnected).data ?? [];
+  const healthRows = useMemo<Row[]>(
+    () =>
+      healthDays
+        .map((d) => ({ t: new Date(`${d.date}T12:00:00`).getTime(), steps: d.steps, exerciseMin: d.exerciseMin, restingHr: d.restingHr }))
+        .filter((r) => r.t >= cutoff),
+    [healthDays, cutoff],
+  );
 
   return (
     <div className="space-y-4">
@@ -436,6 +456,38 @@ export function HistoryPage({ profile, measurements, goals }: { profile: Profile
         empty={waistCount === 0 ? t("now.waistNone") : waistCount === 1 ? t("now.waistOne") : undefined}
         {...plain}
       />
+
+      {healthRows.length > 0 && (
+        <>
+          <h2 className="px-1 pt-2 text-lg font-semibold">{t("ahTitle")}</h2>
+          <TrendChart
+            title={t("ahMetric.steps")}
+            rows={healthRows}
+            series={one("steps", t("ahMetric.steps"))}
+            formatTick={(n) => f.number(n, 0)}
+            formatValue={(n) => f.number(n, 0)}
+            about={t("about.ah.steps")}
+          />
+          <TrendChart
+            title={`${t("ahMetric.exerciseMin")} (min)`}
+            rows={healthRows}
+            series={one("exerciseMin", t("ahMetric.exerciseMin"))}
+            formatTick={(n) => f.number(n, 0)}
+            formatValue={(n) => f.number(n, 0)}
+            unit=" min"
+            about={t("about.ah.exerciseMin")}
+          />
+          <TrendChart
+            title={`${t("ahMetric.restingHr")} (${t("ahBpm")})`}
+            rows={healthRows}
+            series={one("restingHr", t("ahMetric.restingHr"))}
+            formatTick={(n) => f.number(n, 0)}
+            formatValue={(n) => f.number(n, 0)}
+            unit={` ${t("ahBpm")}`}
+            about={t("about.ah.restingHr")}
+          />
+        </>
+      )}
 
       {compare && (
         <>
