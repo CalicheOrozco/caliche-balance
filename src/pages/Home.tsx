@@ -1,11 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { FiChevronRight } from "react-icons/fi";
+import type { IconType } from "react-icons";
+import { FiActivity, FiBarChart2, FiCalendar, FiChevronRight, FiClock, FiDroplet, FiMoon, FiPieChart, FiTarget } from "react-icons/fi";
 import { Link } from "react-router";
 import { type BodyFatAge, bodyFatAge } from "../../shared/bodyAge.ts";
 import { assessWaist, WHTR_BANDS } from "../../shared/waist.ts";
 import { api } from "../api.ts";
-import { ageAt, assess, bmi, type SourceId } from "../../shared/reference.ts";
+import { ageAt, assess, basalMetabolicRate, bmi, bodyFatBands, healthyWeightRange, type SourceId } from "../../shared/reference.ts";
+import { lossPlan, SAFE_LOSS_KG_PER_WEEK } from "../../shared/fatLoss.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
 import { useCompareXiaomi } from "../compare.ts";
 import { bmiPercentile } from "../../shared/percentiles.ts";
@@ -126,6 +128,68 @@ function GoalsCard({ goals, measurements, profile }: { goals: GoalsDto; measurem
           format={(n) => `${f.number(n)} %`}
         />
       )}
+    </Card>
+  );
+}
+
+const TIPS: { key: string; Icon: IconType }[] = [
+  { key: "calories", Icon: FiBarChart2 },
+  { key: "protein", Icon: FiTarget },
+  { key: "plate", Icon: FiPieChart },
+  { key: "drinks", Icon: FiDroplet },
+  { key: "strength", Icon: FiActivity },
+  { key: "move", Icon: FiClock },
+  { key: "sleep", Icon: FiMoon },
+  { key: "weigh", Icon: FiCalendar },
+];
+
+/** Shown when there is weight or body fat to lose: a personal plan, then general evidence-based tips. */
+function TipsCard({ profile, measurements, goals }: { profile: ProfileDto; measurements: MeasurementDto[]; goals: GoalsDto }) {
+  const { t, tf } = useI18n();
+  const f = useFormat();
+  const latest = measurements[0];
+  if (!latest) return null;
+  const comp = measurements.find((m) => m.bodyFatPct !== null || m.impedance !== null) ?? null;
+  const age = ageAt(new Date(`${profile.birthDate}T00:00:00Z`), new Date(latest.measuredAt));
+  const fat = comp ? bodyFatOf(profile, comp) : null;
+  const fatMax = bodyFatBands(profile.sex, age).find((b) => b.key === "healthy")!.max!;
+  const fatHigh = fat !== null && fat.value > fatMax;
+  const plan = lossPlan(latest.weightKg, healthyWeightRange(profile.heightCm).max, goals.weight?.targetKg ?? null);
+  if (!plan && !fatHigh) return null;
+  const na = comp ? compositionOf(profile, comp) : null;
+  const bmr = na ? na.bmrKcal : basalMetabolicRate(latest.weightKg, profile.heightCm, age, profile.sex);
+  // 0.45 to 0.9 kg is 1 to 2 lb: shown exactly, since the weeks are computed from these values.
+  const paceText = (kg: number) => `${f.number(fromKilograms(kg, profile.unit), profile.unit === "kg" ? 2 : 0)} ${profile.unit}`;
+  const pace = { slow: paceText(SAFE_LOSS_KG_PER_WEEK.min), fast: paceText(SAFE_LOSS_KG_PER_WEEK.max) };
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold">{t("tipsTitle")}</h2>
+      <p className="mt-2 text-sm font-medium text-ink">
+        {plan
+          ? tf(`tipsPlan.${plan.target}`, {
+              target: f.weight(plan.targetKg, profile.unit),
+              amount: f.weight(plan.toLoseKg, profile.unit),
+              ...pace,
+              weeksFast: plan.weeksFast,
+              weeksSlow: plan.weeksSlow,
+            })
+          : t("tipsFatOnly")}
+      </p>
+      {plan && <p className="mt-2 text-sm text-ink-2">{tf("tipsEnergy", { bmr: f.number(bmr, 0), slow: pace.slow })}</p>}
+      <ul className="mt-4 space-y-3">
+        {TIPS.map(({ key, Icon }) => (
+          <li key={key} className="flex gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand" aria-hidden>
+              <Icon size={18} />
+            </span>
+            <div>
+              <p className="font-semibold">{t(`tip.${key}.title` as MessageKey)}</p>
+              <p className="text-sm text-ink-2">{t(`tip.${key}.body` as MessageKey)}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-4 text-sm text-muted">{t("tipsNote")}</p>
     </Card>
   );
 }
@@ -615,6 +679,8 @@ export function HomePage({
       {comp && <BodyAgeCard profile={profile} reading={comp} />}
 
       <WaistCard profile={profile} measurements={measurements} />
+
+      <TipsCard profile={profile} measurements={measurements} goals={goals} />
 
       <Card>
         <p className="text-sm font-medium text-ink-2">{t("bmr")}</p>

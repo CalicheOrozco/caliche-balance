@@ -23,6 +23,7 @@ Cada persona tiene su propia cuenta (nombre de usuario y contraseña) y sus dato
 - **Composición recalculada con ecuaciones de Norteamérica:** con la impedancia que mide la báscula se recalculan el % de grasa, la masa libre de grasa, el agua corporal, el músculo esquelético y el metabolismo basal, en lugar de usar las fórmulas de Xiaomi. También la masa magra sin minerales (comparable con el "músculo" de Xiaomi) y la proteína (experimental).
 - **Cintura y riesgo visceral:** la báscula no ve la grasa del abdomen, así que puedes anotar tu cintura al agregar una medición a mano o en cualquier pesada que ya exista (Inicio o Historial). Se calcula la relación cintura entre estatura y se compara con los cortes de EE. UU./Canadá y de México.
 - **Edad de tu grasa corporal:** la edad a la que un adulto típico de Norteamérica de tu sexo tiene tu % de grasa, comparando con mexicoamericanos y con estadounidenses blancos (NHANES, DXA), en lugar de la "edad corporal" de Xiaomi.
+- **Consejos para bajar grasa:** si tu peso o tu grasa están arriba del rango saludable, Inicio te dice cuánto te falta para tu meta (o para el máximo de tu peso saludable), cuántas semanas tomaría a un ritmo seguro y consejos generales con fuente (calorías, proteína, plato, bebidas, fuerza, actividad, sueño y cómo pesarte).
 - **Notificaciones:** "Nueva pesada: 96.0 kg (−0.4 kg)" y "Tu token de Zepp caducó", en el iPhone con la app instalada (iOS 16.4+).
 - **Metas de peso y de % de grasa:** barra de avance, cuánto te falta, una estimación de cuándo llegarías según tu ritmo de las últimas 4 semanas, y una línea punteada en las gráficas.
 - **PWA completa:** se instala en la pantalla de inicio, abre al instante y funciona sin internet con tus pesadas de los últimos 3 meses.
@@ -60,6 +61,20 @@ Los coeficientes de Sun se verificaron contra la tabla de ecuaciones de ESPEN (K
 - **Limitaciones:** estas ecuaciones se hicieron con aparatos que miden de mano a pie a 50 kHz, y la báscula Xiaomi mide de pie a pie. Los resultados son estimaciones para seguir tendencias, no un diagnóstico. La muestra de Sun no incluyó población mexicana; no hay una ecuación equivalente validada para México y Canadá juntos.
 - **Por qué Xiaomi da "músculo" y aquí no:** el "músculo" de Xiaomi es masa libre de grasa menos hueso (incluye órganos, piel y agua), no músculo esquelético. Su equivalente aquí es la masa magra sin minerales; el músculo esquelético (Janssen) es otra medida, mucho menor.
 - Masa ósea y grasa visceral no tienen ecuación de Norteamérica equivalente con impedancia de pie a pie; se muestran como las calcula Xiaomi. Para el riesgo visceral, usa la cintura.
+
+### Consejos para bajar grasa
+
+`shared/fatLoss.ts` calcula la meta (tu meta de peso si está abajo de tu peso actual; si no, el máximo de tu peso saludable) y las semanas a un ritmo de 0.45 a 0.9 kg (1 a 2 lb) por semana, el que recomienda el NIH (NHLBI, *Aim for a Healthy Weight*). Los consejos vienen de:
+
+| Consejo | Fuente |
+|---|---|
+| Ritmo, déficit de unas 500 kcal y calorías mínimas (1,200 a 1,500 mujeres, 1,500 a 1,800 hombres) | NIH, NHLBI |
+| Ejercicio de fuerza 2 días o más y 150 a 300 minutos de actividad moderada | Physical Activity Guidelines for Americans; Canadian 24-Hour Movement Guidelines |
+| Plato: mitad verduras y frutas, un cuarto proteína, un cuarto granos enteros | Guía Alimentaria de Canadá |
+| Bebidas azucaradas y alcohol | Dietary Guidelines for Americans |
+| Dormir 7 horas o más | American Academy of Sleep Medicine |
+
+Son consejos generales, no un plan médico.
 
 ### Cintura y riesgo visceral
 
