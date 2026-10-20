@@ -31,10 +31,10 @@ import { bodyFatOf } from "../shared/composition.ts";
 import { isTimeZone } from "../shared/achievements.ts";
 import { maintainRange } from "../shared/goals.ts";
 import { achievementsFor, checkAchievements, remindStreaks } from "./achievementCheck.ts";
-import { appleHealthRoutes } from "./appleHealthRoutes.ts";
+import { appleHealthRoutes, toAppleHealthStatus } from "./appleHealthRoutes.ts";
 import { checkGoals } from "./goalCheck.ts";
 import { messages, notifyUser, type PushSender } from "./push.ts";
-import { asyncRoute, clientIp, hitRateLimit, isCronRequest, peekRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
+import { asyncRoute, clientIp, fieldProblems, hitRateLimit, isCronRequest, peekRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
 import { type ZeppClient, zeppClient } from "./zepp.ts";
 import { deleteZeppDataFor, zeppRoutes } from "./zeppRoutes.ts";
 
@@ -69,7 +69,7 @@ function toUserDto(user: UserDoc): UserDto {
       streak: user.notifications?.streak ?? true,
     },
     appleHealth: user.appleHealth
-      ? { since: user.appleHealth.since.toISOString(), lastSyncAt: user.appleHealth.lastSyncAt?.toISOString() ?? null }
+      ? toAppleHealthStatus(user.appleHealth)
       : null,
     streakReward: user.streakReward
       ? { ...user.streakReward, setAt: user.streakReward.setAt.toISOString(), earnedAt: user.streakReward.earnedAt?.toISOString() ?? null }
@@ -452,7 +452,7 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
 
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "invalid", fields: error.issues.map((i) => ({ path: i.path.join("."), code: i.message, ...(typeof i.input === "string" || typeof i.input === "number" ? { received: i.input } : {}) })) });
+      return res.status(400).json({ error: "invalid", fields: fieldProblems(error) });
     }
     if (error instanceof SyntaxError) return res.status(400).json({ error: "invalid-json" });
     console.error(error);

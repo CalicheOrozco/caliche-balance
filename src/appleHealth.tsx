@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { FiCheck, FiChevronDown, FiCopy, FiDownload, FiHeart, FiMoon } from "react-icons/fi";
-import { type HealthMetric, healthAverages } from "../shared/health.ts";
+import { type AppleHealthStatus, HEALTH_METRICS, HEALTH_SHORTCUT_VERSION, type HealthMetric, healthAverages } from "../shared/health.ts";
 import type { UserDto } from "../shared/schemas.ts";
 import { api } from "./api.ts";
 import { type MessageKey, useI18n } from "./i18n.tsx";
@@ -40,6 +40,48 @@ function CopyChip({ value, label }: { value: string; label?: string }) {
 }
 
 /** Settings: the person's key, the one-tap Shortcut, its status, and a manual guide as a fallback. */
+/** Which copy of the Shortcut ran last and what came of it: saved days, or why it failed. */
+function LastRun({ attempt }: { attempt: NonNullable<AppleHealthStatus["lastAttempt"]> }) {
+  const { t, tf } = useI18n();
+  const f = useFormat();
+  const day = (date: string) => f.date(`${date}T12:00:00`);
+  // "days.0.restingHr" reads as the metric's name.
+  const field = (path: string) => {
+    const last = path.split(".").pop() ?? path;
+    return (HEALTH_METRICS as string[]).includes(last) ? t(`ahMetric.${last}` as MessageKey) : path;
+  };
+  const current = attempt.version === HEALTH_SHORTCUT_VERSION;
+  return (
+    <div className="mt-2 space-y-1 text-sm">
+      <p className={current ? "text-good" : "text-warn"}>
+        {current
+          ? tf("ahVersionCurrent", { n: attempt.version ?? 0 })
+          : tf("ahVersionOld", { n: attempt.version === null ? t("ahVersionNone") : String(attempt.version) })}
+      </p>
+      {attempt.ok ? (
+        <p className="text-ink-2">
+          {tf("ahLastOk", {
+            when: f.dateTime(attempt.at),
+            days: attempt.saved.map((d) => tf("ahDayCount", { date: day(d.date), n: d.count })).join(", "),
+          })}
+        </p>
+      ) : (
+        <div className="text-bad">
+          <p>{tf("ahLastFailed", { when: f.dateTime(attempt.at) })}</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            {attempt.problems.map((p) => (
+              <li key={p.path}>
+                {field(p.path)}: {p.code}
+                {p.received !== undefined && ` (${tf("ahReceived", { value: String(p.received) })})`}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AppleHealthCard({ user }: { user: UserDto }) {
   const { t, tf } = useI18n();
   const f = useFormat();
@@ -80,11 +122,14 @@ export function AppleHealthCard({ user }: { user: UserDto }) {
       {status && (
         <p className="mt-3 text-sm text-ink">
           {tf("ahConnectedSince", { date: f.date(status.since) })}{" "}
-          <span className={status.lastSyncAt ? "text-good" : "text-muted"}>
-            {status.lastSyncAt ? tf("ahLastSync", { when: f.dateTime(status.lastSyncAt) }) : t("ahNoSyncYet")}
-          </span>
+          {!status.lastAttempt && (
+            <span className={status.lastSyncAt ? "text-good" : "text-muted"}>
+              {status.lastSyncAt ? tf("ahLastSync", { when: f.dateTime(status.lastSyncAt) }) : t("ahNoSyncYet")}
+            </span>
+          )}
         </p>
       )}
+      {status?.lastAttempt && <LastRun attempt={status.lastAttempt} />}
 
       {key && (
         <div className="mt-3 rounded-2xl border-2 border-brand/40 p-3">

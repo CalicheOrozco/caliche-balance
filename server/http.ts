@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
+import type { z } from "zod";
 import type { MeasurementDto } from "../shared/schemas.ts";
 import type { Collections, MeasurementDoc } from "./db.ts";
 
@@ -78,4 +79,20 @@ export function isCronRequest(req: Request, cronSecret: string | undefined): boo
   const a = Buffer.from(req.get("authorization") ?? "");
   const b = Buffer.from(`Bearer ${cronSecret}`);
   return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** A problem with one field of a request, with the value received when it is a plain one. */
+export interface FieldProblem {
+  path: string;
+  code: string;
+  received?: string | number;
+}
+
+/** Field problems as the API reports them, with the value received when it is a plain one. */
+export function fieldProblems(error: z.ZodError): FieldProblem[] {
+  return error.issues.map((i) => ({
+    path: i.path.join("."),
+    code: i.message,
+    ...(typeof i.input === "string" || typeof i.input === "number" ? { received: typeof i.input === "string" ? i.input.slice(0, 200) : i.input } : {}),
+  }));
 }

@@ -19,7 +19,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { dateField, HEALTH_METRIC_SPECS, HEALTH_METRICS, HEALTH_SYMPTOM_KEYS, HEALTH_SYMPTOMS, symptomField } from "../shared/health.ts";
+import { dateField, HEALTH_METRIC_SPECS, HEALTH_SHORTCUT_VERSION, HEALTH_METRICS, HEALTH_SYMPTOM_KEYS, HEALTH_SYMPTOMS, symptomField } from "../shared/health.ts";
 
 const OBJ = "￼"; // where a variable sits inside a Shortcuts text field
 const ROOT = resolve(import.meta.dirname, "..");
@@ -178,6 +178,8 @@ function build(baseUrl: string): Record<string, Plist> {
     action("is.workflow.actions.text.combine", { UUID: combinedId, WFTextSeparator: "New Lines", text: attachment(output(repeatEnd, "Repeat Results")) }),
   );
   field("sleep", tokens([output(combinedId, "Combined Text")]));
+  // Lets Settings tell this copy from an older one.
+  field("shortcutVersion", text(String(HEALTH_SHORTCUT_VERSION)));
 
   actions.push(
     action("is.workflow.actions.downloadurl", {
@@ -238,4 +240,4 @@ writeFileSync(
 execFileSync("plutil", ["-convert", "binary1", "-o", unsigned, xml]);
 mkdirSync(join(ROOT, "public", "shortcuts"), { recursive: true });
 execFileSync("shortcuts", ["sign", "--mode", "anyone", "--input", unsigned, "--output", OUTPUT]);
-console.log(`signed: public/shortcuts/caliche-salud.shortcut (${HEALTH_METRICS.length} metrics, ${HEALTH_SYMPTOM_KEYS.length} symptoms, sleep)`);
+console.log(`signed: public/shortcuts/caliche-salud.shortcut (version ${HEALTH_SHORTCUT_VERSION}, ${HEALTH_METRICS.length} metrics, ${HEALTH_SYMPTOM_KEYS.length} symptoms, sleep)`);

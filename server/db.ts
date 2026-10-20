@@ -1,5 +1,5 @@
 import { type Collection, type Db, MongoClient, type ObjectId } from "mongodb";
-import type { HealthMetric, HealthSymptom, SleepSummary } from "../shared/health.ts";
+import type { HealthAttempt, HealthMetric, HealthSymptom, SleepSummary } from "../shared/health.ts";
 import type { BodyFatGoal, MaintainGoal, ProfileDto, WeightGoal } from "../shared/schemas.ts";
 
 export interface UserDoc {
@@ -22,7 +22,7 @@ export interface UserDoc {
     maintain?: (Omit<MaintainGoal, "setAt"> & { setAt: Date }) | null;
   };
   /** Apple Health via the iOS Shortcut: only the hash of the person's key is kept. */
-  appleHealth?: { keyHash: string; since: Date; lastSyncAt: Date | null };
+  appleHealth?: { keyHash: string; since: Date; lastSyncAt: Date | null; lastAttempt?: Omit<HealthAttempt, "at"> & { at: Date } };
   /** IANA time zone the app last reported; days, weeks and streaks are counted in it. */
   timeZone?: string;
   /** Badge levels last seen by the server, to notice when one goes up; missing until the first check. */

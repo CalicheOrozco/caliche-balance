@@ -2,11 +2,19 @@ import express, { type Request, type RequestHandler } from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { localDay } from "../shared/achievements.ts";
-import { HEALTH_METRICS, type HealthDayDto, type HealthDayInput, type HealthMetric, healthIngestSchema } from "../shared/health.ts";
+import {
+  type AppleHealthStatus,
+  HEALTH_METRICS,
+  type HealthAttempt,
+  type HealthDayDto,
+  type HealthMetric,
+  healthIngestSchema,
+  shortcutVersionOf,
+} from "../shared/health.ts";
 import { DEFAULT_TIME_ZONE } from "./achievementCheck.ts";
 import { hashSecret, newSecret } from "./auth.ts";
-import type { Collections, HealthDayDoc } from "./db.ts";
-import { asyncRoute, clientIp, hitRateLimit, peekRateLimit, sendRateLimited } from "./http.ts";
+import type { Collections, HealthDayDoc, UserDoc } from "./db.ts";
+import { asyncRoute, clientIp, fieldProblems, hitRateLimit, peekRateLimit, sendRateLimited } from "./http.ts";
 
 interface Context {
   collections: () => Collections;
@@ -25,6 +33,14 @@ export function toHealthDayDto(d: HealthDayDoc): HealthDayDto {
   return { date: d.date, ...metrics, sleep: d.sleep ?? null, symptoms: d.symptoms ?? {} };
 }
 
+export function toAppleHealthStatus(a: NonNullable<UserDoc["appleHealth"]>): AppleHealthStatus {
+  return {
+    since: a.since.toISOString(),
+    lastSyncAt: a.lastSyncAt?.toISOString() ?? null,
+    lastAttempt: a.lastAttempt ? { ...a.lastAttempt, at: a.lastAttempt.at.toISOString() } : null,
+  };
+}
+
 function bearer(req: Request): string | null {
   const match = /^Bearer\s+(\S+)$/i.exec(req.get("authorization") ?? "");
   return match ? match[1]! : null;
@@ -41,7 +57,7 @@ export function appleHealthRoutes({ collections, withUser }: Context) {
       const key = `${KEY_PREFIX}${newSecret()}`;
       const appleHealth = { keyHash: hashSecret(key), since: new Date(), lastSyncAt: null };
       await collections().users.updateOne({ _id: req.user!._id }, { $set: { appleHealth } });
-      res.json({ key, status: { since: appleHealth.since.toISOString(), lastSyncAt: null } });
+      res.json({ key, status: toAppleHealthStatus(appleHealth) });
     }),
   );
 
@@ -79,11 +95,24 @@ export function appleHealthRoutes({ collections, withUser }: Context) {
         await hitRateLimit(c, limitKey, BAD_KEY_LIMIT, BAD_KEY_WINDOW_MS);
         return res.status(401).json({ error: "invalid-health-key" });
       }
-      const days: HealthDayInput[] = healthIngestSchema.parse(req.body, { reportInput: true }).days; // errors show what the Shortcut sent
-      const today = new Date(localDay(Date.now(), user.timeZone ?? DEFAULT_TIME_ZONE) * 86_400_000).toISOString().slice(0, 10);
+      // Every run is recorded, failed ones too, so Settings can show which Shortcut ran and why it failed.
       const now = new Date();
+      const version = shortcutVersionOf(req.body);
+      const record = (attempt: Omit<HealthAttempt, "at" | "version">) =>
+        c.users.updateOne(
+          { _id: user._id },
+          { $set: { "appleHealth.lastAttempt": { ...attempt, at: now, version }, ...(attempt.ok ? { "appleHealth.lastSyncAt": now } : {}) } },
+        );
+      const parsed = healthIngestSchema.safeParse(req.body, { reportInput: true });
+      if (!parsed.success) {
+        const problems = fieldProblems(parsed.error);
+        await record({ ok: false, saved: [], problems });
+        return res.status(400).json({ error: "invalid", fields: problems });
+      }
+      const today = new Date(localDay(Date.now(), user.timeZone ?? DEFAULT_TIME_ZONE) * 86_400_000).toISOString().slice(0, 10);
       const saved: HealthDayDto[] = [];
-      for (const day of days) {
+      const counts: HealthAttempt["saved"] = [];
+      for (const day of parsed.data.days) {
         const date = day.date ?? today;
         // Only what was sent is written, so separate Shortcuts can each send their own part.
         const set: Record<string, unknown> = { ...day.values, updatedAt: now };
@@ -95,8 +124,10 @@ export function appleHealthRoutes({ collections, withUser }: Context) {
           { upsert: true, returnDocument: "after" },
         );
         saved.push(toHealthDayDto(doc!));
+        const count = Object.values(day.values).filter((v) => v !== null).length + (day.sleep ? 1 : 0) + Object.keys(day.symptoms).length;
+        counts.push({ date, count });
       }
-      await c.users.updateOne({ _id: user._id }, { $set: { "appleHealth.lastSyncAt": now } });
+      await record({ ok: true, saved: counts, problems: [] });
       res.json({ ok: true, saved });
     }),
   );

@@ -260,12 +260,15 @@ const isEmpty = (value: unknown) => value === null || (typeof value === "string"
 /**
  * The Shortcut sends each value with the day it belongs to ("steps_date"), because right after
  * midnight, or for something logged days ago, the latest data is not today's. Values are grouped
- * into one day each; without a date they go to "date" or today. Values with no data are skipped.
+ * into one day each; without a date they go to "date" or today. Values with no data, and fields
+ * that are not data (like "shortcutVersion"), are skipped.
  */
+const DATA_FIELDS = new Set<string>([...HEALTH_METRICS, ...HEALTH_SYMPTOM_KEYS.map(symptomField), "sleep"]);
+
 function splitByDate(body: Record<string, unknown>): Record<string, unknown>[] {
   const days = new Map<string, Record<string, unknown>>();
   for (const [key, value] of Object.entries(body)) {
-    if (key === "date" || key.endsWith("_date") || isEmpty(value)) continue;
+    if (!DATA_FIELDS.has(key) || isEmpty(value)) continue;
     const date = shortcutDay(body[dateField(key)]) ?? body.date;
     const id = typeof date === "string" ? date : "";
     const day = days.get(id) ?? (date === undefined ? {} : { date });
@@ -285,6 +288,13 @@ export const healthIngestSchema = z.preprocess(
 );
 export type HealthDayInput = z.output<typeof healthDaySchema>;
 
+/** The Shortcut's version, sent as text; anything else reads as an old copy. */
+export function shortcutVersionOf(body: unknown): number | null {
+  const raw = body !== null && typeof body === "object" ? (body as Record<string, unknown>).shortcutVersion : undefined;
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw.trim()) : Number.NaN;
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 // ---- Output -------------------------------------------------------------------------------
 
 export type HealthDayDto = { date: string; sleep: SleepSummary | null; symptoms: Partial<Record<HealthSymptom, string>> } & Record<
@@ -292,10 +302,36 @@ export type HealthDayDto = { date: string; sleep: SleepSummary | null; symptoms:
   number | null
 >;
 
-/** The person's key, shown once when made; only when it was made and when data last arrived are kept. */
+/**
+ * Version of the Shortcut in public/shortcuts, sent with every run so Settings can tell an old copy
+ * from the current one. Bump it whenever scripts/build-health-shortcut.ts changes what it sends.
+ * Copies from before versions existed send none.
+ */
+export const HEALTH_SHORTCUT_VERSION = 4;
+
+/** A problem with one field of a run, with what the Shortcut sent for it. */
+export interface HealthProblem {
+  path: string;
+  code: string;
+  received?: string | number;
+}
+
+/** What the last run of the Shortcut sent and what came of it. */
+export interface HealthAttempt {
+  at: string;
+  /** null for copies of the Shortcut from before versions existed. */
+  version: number | null;
+  ok: boolean;
+  /** Days saved and how many values each one got. */
+  saved: { date: string; count: number }[];
+  problems: HealthProblem[];
+}
+
+/** The person's key, shown once when made; only when it was made and what arrived last are kept. */
 export interface AppleHealthStatus {
   since: string;
   lastSyncAt: string | null;
+  lastAttempt: HealthAttempt | null;
 }
 
 /** Averages over the given days, skipping days without that metric. */

@@ -4,6 +4,7 @@ import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../server/app.ts";
 import { collections, ensureIndexes } from "../server/db.ts";
+import { HEALTH_SHORTCUT_VERSION } from "../shared/health.ts";
 
 let mongo: MongoMemoryServer;
 let client: MongoClient;
@@ -105,7 +106,7 @@ describe("Caliche Balance API", () => {
     await agent.get("/api/me/achievements?tz=America/Toronto");
     const made = await agent.post("/api/me/apple-health/key");
     expect(made.body.key).toMatch(/^cbh_[\w-]{43}$/);
-    expect((await agent.get("/api/me")).body.appleHealth).toEqual({ since: made.body.status.since, lastSyncAt: null });
+    expect((await agent.get("/api/me")).body.appleHealth).toEqual({ since: made.body.status.since, lastSyncAt: null, lastAttempt: null });
     const shortcut = (key: string, body: object) => request(app).post("/api/apple-health/ingest").set("Authorization", `Bearer ${key}`).send(body);
 
     // Without a date it is today in the person's time zone; numbers may come as text.
@@ -135,6 +136,13 @@ describe("Caliche Balance API", () => {
     expect((await shortcut("cbh_inventada", { steps: 1 })).status).toBe(401);
     expect((await request(app).post("/api/apple-health/ingest").send({ steps: 1 })).status).toBe(401);
     expect((await shortcut(made.body.key, { date: "2026-10-03" })).body.fields).toEqual([{ path: "days.0", code: "health-empty" }]);
+
+    // Settings shows which copy of the Shortcut ran last and what came of it, failures included.
+    const lastRun = async () => (await agent.get("/api/me")).body.appleHealth.lastAttempt;
+    await shortcut(made.body.key, { restingHr: "0.97 count/s", restingHr_date: `${today}T00:00:00-04:00`, hrvMs: "0", shortcutVersion: "3" });
+    expect(await lastRun()).toMatchObject({ version: 3, ok: false, saved: [], problems: [{ path: "days.1.hrvMs", received: 0 }] });
+    await shortcut(made.body.key, { steps: "9,300 count", steps_date: "2026-10-04T00:00:00-04:00", restingHr: "57 count/min", shortcutVersion: String(HEALTH_SHORTCUT_VERSION) });
+    expect(await lastRun()).toMatchObject({ version: HEALTH_SHORTCUT_VERSION, ok: true, saved: [{ date: "2026-10-04", count: 1 }, { date: today, count: 1 }], problems: [] });
     const other = request.agent(app);
     await other.post("/api/auth/register").send({ username: "otra", password: "contraseña-otra" });
     expect((await other.get("/api/me/apple-health/days")).body).toEqual([]);
@@ -145,7 +153,7 @@ describe("Caliche Balance API", () => {
     expect((await shortcut(again.body.key, { steps: 9500 })).status).toBe(200);
     expect((await agent.delete("/api/me/apple-health/key")).status).toBe(204);
     expect((await shortcut(again.body.key, { steps: 1 })).status).toBe(401);
-    expect((await agent.get("/api/me/apple-health/days")).body).toHaveLength(3);
+    expect((await agent.get("/api/me/apple-health/days")).body).toHaveLength(4);
   });
 
   it("saves goals with the starting point from the latest reading", async () => {
