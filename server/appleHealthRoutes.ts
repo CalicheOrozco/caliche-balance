@@ -115,19 +115,25 @@ export function appleHealthRoutes({ collections, withUser }: Context) {
       const today = new Date(localDay(Date.now(), user.timeZone ?? DEFAULT_TIME_ZONE) * 86_400_000).toISOString().slice(0, 10);
       const saved: HealthDayDto[] = [];
       const counts: HealthAttempt["saved"] = [];
+      // Values without a date go to today, which may also have come with its date: one write per day.
+      const byDate = new Map<string, { set: Record<string, unknown>; count: number }>();
       for (const day of days) {
         const date = day.date ?? today;
+        const entry = byDate.get(date) ?? { set: { updatedAt: now }, count: 0 };
         // Only what was sent is written, so separate Shortcuts can each send their own part.
-        const set: Record<string, unknown> = { ...day.values, updatedAt: now };
-        if (day.sleep !== undefined) set.sleep = day.sleep;
-        for (const [symptom, value] of Object.entries(day.symptoms)) set[`symptoms.${symptom}`] = value;
+        Object.assign(entry.set, day.values);
+        if (day.sleep !== undefined) entry.set.sleep = day.sleep;
+        for (const [symptom, value] of Object.entries(day.symptoms)) entry.set[`symptoms.${symptom}`] = value;
+        entry.count += Object.values(day.values).filter((v) => v !== null).length + (day.sleep ? 1 : 0) + Object.keys(day.symptoms).length;
+        byDate.set(date, entry);
+      }
+      for (const [date, { set, count }] of byDate) {
         const doc = await c.healthDays.findOneAndUpdate(
           { userId: user._id, date },
           { $set: set, $setOnInsert: { _id: new ObjectId(), userId: user._id, date } },
           { upsert: true, returnDocument: "after" },
         );
         saved.push(toHealthDayDto(doc!));
-        const count = Object.values(day.values).filter((v) => v !== null).length + (day.sleep ? 1 : 0) + Object.keys(day.symptoms).length;
         counts.push({ date, count });
       }
       await record({ ok: true, saved: counts, problems });

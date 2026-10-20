@@ -258,22 +258,43 @@ const shortcutDay = (value: unknown) => (typeof value === "string" ? /^\d{4}-\d{
 const isEmpty = (value: unknown) => value === null || (typeof value === "string" && value.trim() === "");
 
 /**
- * The Shortcut sends each value with the day it belongs to ("steps_date"), because right after
- * midnight, or for something logged days ago, the latest data is not today's. Values are grouped
- * into one day each; without a date they go to "date" or today. Values with no data, and fields
- * that are not data (like "shortcutVersion"), are skipped.
+ * The Shortcut sends each field as lines, one per item it found: "day|value|unit" for a metric
+ * (one line per day, added up by Health), "when|value" for a symptom, and "start|end|stage" for
+ * sleep. Values are filed on the day in their own date, so today without data yet, or days missed
+ * by earlier runs, are no problem. A night goes on the day you woke up. A plain value (from a
+ * hand-built Shortcut) goes on "<field>_date", "date" or today. Values with no data, and fields that
+ * are not data (like "shortcutVersion"), are skipped.
  */
 const DATA_FIELDS = new Set<string>([...HEALTH_METRICS, ...HEALTH_SYMPTOM_KEYS.map(symptomField), "sleep"]);
 
 function splitByDate(body: Record<string, unknown>): Record<string, unknown>[] {
   const days = new Map<string, Record<string, unknown>>();
-  for (const [key, value] of Object.entries(body)) {
-    if (!DATA_FIELDS.has(key) || isEmpty(value)) continue;
-    const date = shortcutDay(body[dateField(key)]) ?? body.date;
+  const put = (date: unknown, key: string, value: unknown) => {
     const id = typeof date === "string" ? date : "";
     const day = days.get(id) ?? (date === undefined ? {} : { date });
     day[key] = value;
     days.set(id, day);
+  };
+  const symptomKeys = new Set<string>(HEALTH_SYMPTOM_KEYS.map(symptomField));
+  for (const [key, value] of Object.entries(body)) {
+    if (!DATA_FIELDS.has(key) || isEmpty(value)) continue;
+    const rows = typeof value === "string" && value.includes("|") ? value.split(/\r?\n/).map((l) => l.split("|").map((p) => p.trim())) : null;
+    if (!rows) {
+      put(shortcutDay(body[dateField(key)]) ?? body.date, key, value);
+    } else if (key === "sleep") {
+      // The night belongs to the day it ended.
+      const ends = rows.map((r) => r[1] ?? "").filter((e) => shortcutDay(e)).sort();
+      put(shortcutDay(ends[ends.length - 1]) ?? body.date, key, value);
+    } else if (symptomKeys.has(key)) {
+      // The latest one logged each day.
+      for (const [when = "", ...rest] of [...rows].sort((a, b) => (a[0] ?? "").localeCompare(b[0] ?? ""))) {
+        if (shortcutDay(when) && !isEmpty(rest.join("|"))) put(shortcutDay(when), key, rest.join("|"));
+      }
+    } else {
+      for (const [when = "", amount = "", unit = ""] of rows) {
+        if (shortcutDay(when) && !isEmpty(amount)) put(shortcutDay(when), key, `${amount} ${unit}`.trim());
+      }
+    }
   }
   return days.size ? [...days.values()] : [body.date === undefined ? {} : { date: body.date }];
 }
@@ -344,7 +365,7 @@ export type HealthDayDto = { date: string; sleep: SleepSummary | null; symptoms:
  * from the current one. Bump it whenever scripts/build-health-shortcut.ts changes what it sends.
  * Copies from before versions existed send none.
  */
-export const HEALTH_SHORTCUT_VERSION = 4;
+export const HEALTH_SHORTCUT_VERSION = 5;
 
 /** A problem with one field of a run, with what the Shortcut sent for it. */
 export interface HealthProblem {

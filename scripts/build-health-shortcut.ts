@@ -8,10 +8,11 @@
  *
  * Actions come from the metric table in shared/health.ts, so the app and the Shortcut never
  * disagree on names or units. Their formats were read from real Shortcuts, including one built on
- * the owner's iPhone (iOS 26): "Find Health Samples" grouped by day ("WFHKSampleFilteringGroupBy"),
- * latest first, limited to 1, gives the day's total the way the Health app counts it. Sleep sends
- * every sample of the last 36 hours as "start|end|stage" lines and the server adds them up. Values
- * go with their unit; the server converts them (asking for a unit here made Health find nothing).
+ * the owner's iPhone (iOS 26). Every query sends one line per item ("day|value|unit" for metrics
+ * grouped by day, "start|end|stage" for sleep) through Repeat with Each, the pattern published
+ * Health-to-API Shortcuts use; the server owns parsing, units and dates. Sorting and limiting are
+ * left out: with grouping they most likely cut the samples before adding them up (a first run sent
+ * 9 steps for a whole day).
  */
 
 import { execFileSync } from "node:child_process";
@@ -19,7 +20,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { dateField, HEALTH_METRIC_SPECS, HEALTH_SHORTCUT_VERSION, HEALTH_METRICS, HEALTH_SYMPTOM_KEYS, HEALTH_SYMPTOMS, symptomField } from "../shared/health.ts";
+import { HEALTH_METRIC_SPECS, HEALTH_SHORTCUT_VERSION, HEALTH_METRICS, HEALTH_SYMPTOM_KEYS, HEALTH_SYMPTOMS, symptomField } from "../shared/health.ts";
 
 const OBJ = "￼"; // where a variable sits inside a Shortcuts text field
 const ROOT = resolve(import.meta.dirname, "..");
@@ -30,17 +31,13 @@ const HOUR = 32;
 /** "Start Date is in the last N <unit>". */
 const IN_THE_LAST = 1002;
 /**
- * How far back to look for the latest day with data. Asking only for today fails ("No Samples
- * Found") right after midnight or on days without data, so each value goes with its own date.
+ * How far back to look. Every day found is sent with its date, so today with no data yet does not
+ * fail, and days missed by earlier runs fill in.
  */
 const METRIC_DAYS = 7;
 const SYMPTOM_DAYS = 30;
 
-/** A number Shortcuts stores as a real even when it is whole (the result limit). */
-class Real {
-  constructor(readonly value: number) {}
-}
-type Plist = string | number | boolean | Real | Plist[] | { [key: string]: Plist };
+type Plist = string | number | boolean | Plist[] | { [key: string]: Plist };
 
 // ---- XML property list ----------------------------------------------------------------------
 
@@ -50,7 +47,6 @@ function toXml(value: Plist, indent = ""): string {
   const next = `${indent}\t`;
   if (typeof value === "string") return `${indent}<string>${escape(value)}</string>`;
   if (typeof value === "boolean") return `${indent}<${value}/>`;
-  if (value instanceof Real) return `${indent}<real>${value.value}</real>`;
   if (typeof value === "number") return Number.isInteger(value) ? `${indent}<integer>${value}</integer>` : `${indent}<real>${value}</real>`;
   if (Array.isArray(value)) return `${indent}<array>\n${value.map((v) => toXml(v, next)).join("\n")}\n${indent}</array>`;
   const entries = Object.entries(value).map(([k, v]) => `${next}<key>${escape(k)}</key>\n${toXml(v, next)}`);
@@ -83,7 +79,8 @@ function tokens(parts: (string | Record<string, Plist>)[]): Plist {
 const attachment = (ref: Record<string, Plist>): Plist => ({ Value: ref, WFSerializationType: "WFTextTokenAttachment" });
 const action = (identifier: string, params: Record<string, Plist>): Plist => ({ WFWorkflowActionIdentifier: identifier, WFWorkflowActionParameters: params });
 
-function findHealth(type: string, opts: { window: [number, number]; groupByDay: boolean; limit: number | null }) {
+/** No sort or limit: with "Group By" they most likely cut the samples before adding them up. */
+function findHealth(type: string, opts: { window: [number, number]; groupByDay: boolean }) {
   const id = uuid();
   const params: Record<string, Plist> = {
     UUID: id,
@@ -98,13 +95,7 @@ function findHealth(type: string, opts: { window: [number, number]; groupByDay: 
         ],
       },
     },
-    WFContentItemSortProperty: "Start Date",
-    WFContentItemSortOrder: "Latest First",
   };
-  if (opts.limit !== null) {
-    params.WFContentItemLimitEnabled = true;
-    params.WFContentItemLimitNumber = new Real(opts.limit);
-  }
   if (opts.groupByDay) params.WFHKSampleFilteringGroupBy = "Day";
   return { id, action: action("is.workflow.actions.filter.health.quantity", params) };
 }
@@ -130,54 +121,46 @@ function build(baseUrl: string): Record<string, Plist> {
   const keyId = uuid();
   actions.push(action("is.workflow.actions.gettext", { UUID: keyId, WFTextActionText: text("") }));
 
-  // One value per metric: the latest day's group, with its unit ("1,935 kcal") and its date. Health
-  // gives values in the person's preferred unit; the server converts them.
+  /**
+   * One line per item found: Repeat with Each, Get Details for each property, a Text line with them
+   * joined by "|", and the lines combined. Returns the field value for the JSON body.
+   */
+  const lines = (foundId: string, properties: string[]) => {
+    const group = uuid();
+    const repeatEnd = uuid();
+    const combinedId = uuid();
+    const item = attachment({ Type: "Variable", VariableName: "Repeat Item" });
+    const got = properties.map((property) => ({ property, ...details(item, property) }));
+    const lineParts = got.flatMap((g, i) => [...(i ? ["|"] : []), output(g.id, g.property, g.property.endsWith("Date") ? ISO_DATE : undefined)]);
+    actions.push(
+      action("is.workflow.actions.repeat.each", { UUID: uuid(), GroupingIdentifier: group, WFControlFlowMode: 0, WFInput: attachment(output(foundId, "Health Samples")) }),
+      ...got.map((g) => g.action),
+      action("is.workflow.actions.gettext", { UUID: uuid(), WFTextActionText: tokens(lineParts) }),
+      action("is.workflow.actions.repeat.each", { UUID: repeatEnd, GroupingIdentifier: group, WFControlFlowMode: 2 }),
+      action("is.workflow.actions.text.combine", { UUID: combinedId, WFTextSeparator: "New Lines", text: attachment(output(repeatEnd, "Repeat Results")) }),
+    );
+    return tokens([output(combinedId, "Combined Text")]);
+  };
+
+  // Metrics: each day of the last week, added up by Health ("Group By: Day"), as "day|value|unit".
+  // Health gives the person's preferred unit; the server converts it and files each value on its day.
   for (const metric of HEALTH_METRICS) {
-    const found = findHealth(HEALTH_METRIC_SPECS[metric].type, { window: [METRIC_DAYS, DAY], groupByDay: true, limit: 1 });
-    const samples = attachment(output(found.id, "Health Samples"));
-    const value = details(samples, "Value");
-    const unit = details(samples, "Unit");
-    const date = details(samples, "Start Date");
-    actions.push(found.action, value.action, unit.action, date.action);
-    field(metric, tokens([output(value.id, "Value"), " ", output(unit.id, "Unit")]));
-    field(dateField(metric), tokens([output(date.id, "Start Date", ISO_DATE)]));
+    const found = findHealth(HEALTH_METRIC_SPECS[metric].type, { window: [METRIC_DAYS, DAY], groupByDay: true });
+    actions.push(found.action);
+    field(metric, lines(found.id, ["Start Date", "Value", "Unit"]));
   }
 
-  // Symptoms: the latest one logged and its date ("Mild", "Present"...).
+  // Symptoms logged in the last month, as "when|value" ("Mild", "Present"...).
   for (const symptom of HEALTH_SYMPTOM_KEYS) {
-    const found = findHealth(HEALTH_SYMPTOMS[symptom], { window: [SYMPTOM_DAYS, DAY], groupByDay: false, limit: 1 });
-    const samples = attachment(output(found.id, "Health Samples"));
-    const value = details(samples, "Value");
-    const date = details(samples, "Start Date");
-    actions.push(found.action, value.action, date.action);
-    field(symptomField(symptom), tokens([output(value.id, "Value")]));
-    field(dateField(symptomField(symptom)), tokens([output(date.id, "Start Date", ISO_DATE)]));
+    const found = findHealth(HEALTH_SYMPTOMS[symptom], { window: [SYMPTOM_DAYS, DAY], groupByDay: false });
+    actions.push(found.action);
+    field(symptomField(symptom), lines(found.id, ["Start Date", "Value"]));
   }
 
-  // Sleep: every sample of the last 36 hours (last night, even when it started early) as lines.
-  const sleep = findHealth("Sleep", { window: [36, HOUR], groupByDay: false, limit: null });
-  const group = uuid();
-  const repeatEnd = uuid();
-  const item = attachment({ Type: "Variable", VariableName: "Repeat Item" });
-  const start = details(item, "Start Date");
-  const end = details(item, "End Date");
-  const stage = details(item, "Value");
-  const lineId = uuid();
-  const combinedId = uuid();
-  actions.push(
-    sleep.action,
-    action("is.workflow.actions.repeat.each", { UUID: uuid(), GroupingIdentifier: group, WFControlFlowMode: 0, WFInput: attachment(output(sleep.id, "Health Samples")) }),
-    start.action,
-    end.action,
-    stage.action,
-    action("is.workflow.actions.gettext", {
-      UUID: lineId,
-      WFTextActionText: tokens([output(start.id, "Start Date", ISO_DATE), "|", output(end.id, "End Date", ISO_DATE), "|", output(stage.id, "Value")]),
-    }),
-    action("is.workflow.actions.repeat.each", { UUID: repeatEnd, GroupingIdentifier: group, WFControlFlowMode: 2 }),
-    action("is.workflow.actions.text.combine", { UUID: combinedId, WFTextSeparator: "New Lines", text: attachment(output(repeatEnd, "Repeat Results")) }),
-  );
-  field("sleep", tokens([output(combinedId, "Combined Text")]));
+  // Sleep: every sample of the last 36 hours (last night, even when it started early) as "start|end|stage".
+  const sleep = findHealth("Sleep", { window: [36, HOUR], groupByDay: false });
+  actions.push(sleep.action);
+  field("sleep", lines(sleep.id, ["Start Date", "End Date", "Value"]));
   // Lets Settings tell this copy from an older one.
   field("shortcutVersion", text(String(HEALTH_SHORTCUT_VERSION)));
 
