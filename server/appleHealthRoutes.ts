@@ -79,7 +79,7 @@ export function appleHealthRoutes({ collections, withUser }: Context) {
         await hitRateLimit(c, limitKey, BAD_KEY_LIMIT, BAD_KEY_WINDOW_MS);
         return res.status(401).json({ error: "invalid-health-key" });
       }
-      const days: HealthDayInput[] = healthIngestSchema.parse(req.body).days;
+      const days: HealthDayInput[] = healthIngestSchema.parse(req.body, { reportInput: true }).days; // errors show what the Shortcut sent
       const today = new Date(localDay(Date.now(), user.timeZone ?? DEFAULT_TIME_ZONE) * 86_400_000).toISOString().slice(0, 10);
       const now = new Date();
       const saved: HealthDayDto[] = [];

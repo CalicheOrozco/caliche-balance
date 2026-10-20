@@ -10,7 +10,8 @@
  * disagree on names or units. Their formats were read from real Shortcuts, including one built on
  * the owner's iPhone (iOS 26): "Find Health Samples" grouped by day ("WFHKSampleFilteringGroupBy"),
  * latest first, limited to 1, gives the day's total the way the Health app counts it. Sleep sends
- * every sample of the last 36 hours as "start|end|stage" lines and the server adds them up.
+ * every sample of the last 36 hours as "start|end|stage" lines and the server adds them up. Values
+ * go with their unit; the server converts them (asking for a unit here made Health find nothing).
  */
 
 import { execFileSync } from "node:child_process";
@@ -76,7 +77,7 @@ function tokens(parts: (string | Record<string, Plist>)[]): Plist {
 const attachment = (ref: Record<string, Plist>): Plist => ({ Value: ref, WFSerializationType: "WFTextTokenAttachment" });
 const action = (identifier: string, params: Record<string, Plist>): Plist => ({ WFWorkflowActionIdentifier: identifier, WFWorkflowActionParameters: params });
 
-function findHealth(type: string, opts: { unit?: string; window: [number, number]; groupByDay: boolean; limit: number | null }) {
+function findHealth(type: string, opts: { window: [number, number]; groupByDay: boolean; limit: number | null }) {
   const id = uuid();
   const params: Record<string, Plist> = {
     UUID: id,
@@ -99,7 +100,6 @@ function findHealth(type: string, opts: { unit?: string; window: [number, number
     params.WFContentItemLimitNumber = new Real(opts.limit);
   }
   if (opts.groupByDay) params.WFHKSampleFilteringGroupBy = "Day";
-  if (opts.unit) params.WFHKSampleFilteringUnit = opts.unit;
   return { id, action: action("is.workflow.actions.filter.health.quantity", params) };
 }
 
@@ -124,13 +124,16 @@ function build(baseUrl: string): Record<string, Plist> {
   const keyId = uuid();
   actions.push(action("is.workflow.actions.gettext", { UUID: keyId, WFTextActionText: text("") }));
 
-  // One value per metric: today's group, latest first, limited to 1.
+  // One value per metric: today's group, latest first, limited to 1. Health gives it in the person's
+  // preferred unit, so the unit goes along ("1,935 kcal") and the server converts it.
   for (const metric of HEALTH_METRICS) {
     const spec = HEALTH_METRIC_SPECS[metric];
-    const found = findHealth(spec.type, { unit: spec.unit, window: [spec.days, DAY], groupByDay: true, limit: 1 });
-    const value = details(attachment(output(found.id, "Health Samples")), "Value");
-    actions.push(found.action, value.action);
-    field(metric, tokens([output(value.id, "Value")]));
+    const found = findHealth(spec.type, { window: [spec.days, DAY], groupByDay: true, limit: 1 });
+    const samples = attachment(output(found.id, "Health Samples"));
+    const value = details(samples, "Value");
+    const unit = details(samples, "Unit");
+    actions.push(found.action, value.action, unit.action);
+    field(metric, tokens([output(value.id, "Value"), " ", output(unit.id, "Unit")]));
   }
 
   // Symptoms logged today: the latest one's value ("Mild", "Present"...).

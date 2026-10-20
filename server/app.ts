@@ -452,7 +452,7 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
 
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "invalid", fields: error.issues.map((i) => ({ path: i.path.join("."), code: i.message })) });
+      return res.status(400).json({ error: "invalid", fields: error.issues.map((i) => ({ path: i.path.join("."), code: i.message, ...(typeof i.input === "string" || typeof i.input === "number" ? { received: i.input } : {}) })) });
     }
     if (error instanceof SyntaxError) return res.status(400).json({ error: "invalid-json" });
     console.error(error);

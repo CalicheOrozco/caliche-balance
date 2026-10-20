@@ -10,8 +10,8 @@ import { z } from "zod";
 export interface HealthMetricSpec {
   /** Health type exactly as the Shortcuts "Find Health Samples" menu names it. */
   type: string;
-  /** HealthKit unit the Shortcut asks for, so values always arrive in this unit. */
-  unit: string;
+  /** Unit the value is kept in. Health sends the person's preferred unit, converted with UNIT_CONVERSIONS. */
+  unit: HealthUnit;
   /** Days back the Shortcut looks; most are today's total, a few change rarely. */
   days: number;
   min: number;
@@ -19,7 +19,7 @@ export interface HealthMetricSpec {
   group: "activity" | "energy" | "heart" | "body";
 }
 
-/** Type names checked against the Shortcuts menu on iOS 26; units are HealthKit unit strings. */
+/** Type names checked against the Shortcuts menu on iOS 26. */
 export const HEALTH_METRIC_SPECS = {
   steps: { type: "Steps", unit: "count", days: 1, min: 0, max: 200_000, group: "activity" },
   distanceKm: { type: "Walking + Running Distance", unit: "km", days: 1, min: 0, max: 500, group: "activity" },
@@ -54,7 +54,7 @@ export const symptomField = (s: HealthSymptom) => `symptom_${s}` as const;
  * the last one is the decimal mark; one repeated mark separates thousands. A single mark followed
  * by exactly three digits could be either ("1,935" is 1935 in English and 1.935 in Spanish):
  * Shortcuts writes thousands with it, so that reading wins unless it falls outside the metric's
- * range, as "15.234" breaths a minute would.
+ * range, as "15.234" breaths a minute would, or starts with 0 ("0.045" seconds).
  */
 export function parseHealthNumber(value: unknown, range: { min: number; max: number }): unknown {
   if (typeof value !== "string") return value;
@@ -73,22 +73,56 @@ export function parseHealthNumber(value: unknown, range: { min: number; max: num
     const mark = commas ? "," : ".";
     const after = text.length - text.indexOf(mark) - 1;
     const thousands = Number(text.replace(mark, ""));
-    normalized = after === 3 && thousands >= range.min && thousands <= range.max ? text.replace(mark, "") : text.replace(mark, ".");
+    const whole = text.slice(0, text.indexOf(mark)).replace("-", "");
+    normalized = after === 3 && /^[1-9]/.test(whole) && thousands >= range.min && thousands <= range.max ? text.replace(mark, "") : text.replace(mark, ".");
   }
   const n = Number(normalized);
   return Number.isFinite(n) ? n : value;
+}
+
+export const KM_PER_MI = 1.609344;
+
+export type HealthUnit = "count" | "km" | "min" | "kcal" | "count/min" | "ms" | "degC" | "mL";
+
+/**
+ * How to bring each unit Health may report into the metric's own unit. Shortcuts gives values in the
+ * person's preferred units (the Health app's choice per type), so the Shortcut sends "<value> <unit>"
+ * and the conversion happens here, once. Keys are lowercase without spaces or dots.
+ */
+const UNIT_CONVERSIONS: Record<HealthUnit, Record<string, (n: number) => number>> = {
+  count: {},
+  km: { km: (n) => n, mi: (n) => n * KM_PER_MI, m: (n) => n / 1000 },
+  min: { min: (n) => n, h: (n) => n * 60, hr: (n) => n * 60, s: (n) => n / 60 },
+  kcal: { kcal: (n) => n, cal: (n) => n, kj: (n) => n / 4.184 },
+  "count/min": { "count/min": (n) => n, bpm: (n) => n, "count/s": (n) => n * 60 },
+  ms: { ms: (n) => n, s: (n) => n * 1000 },
+  degC: { degc: (n) => n, "°c": (n) => n, degf: (n) => ((n - 32) * 5) / 9, "°f": (n) => ((n - 32) * 5) / 9 },
+  mL: { ml: (n) => n, l: (n) => n * 1000, fl_oz_us: (n) => n * 29.5735, floz: (n) => n * 29.5735, oz: (n) => n * 29.5735, cup_us: (n) => n * 236.588 },
+};
+
+/**
+ * Reads "<number> <unit>" in the metric's unit. A unit that is missing, or not one this metric can
+ * come in (like "count" for steps), leaves the number as is; the range check still applies.
+ */
+export function parseHealthValue(value: unknown, spec: Pick<HealthMetricSpec, "unit" | "min" | "max">): unknown {
+  if (typeof value !== "string") return value;
+  const match = /^\s*(-?[\d.,\s\u00a0\u202f]*\d)\s*(.*)$/.exec(value);
+  if (!match) return value;
+  const n = parseHealthNumber(match[1] ?? "", spec);
+  if (typeof n !== "number") return value;
+  const unit = (match[2] ?? "").toLowerCase().replace(/[\s.]/g, "");
+  const convert = UNIT_CONVERSIONS[spec.unit][unit];
+  return convert ? convert(n) : n;
 }
 
 /** A metric the Shortcut found no samples for arrives as empty text: that is "no data", not an error. */
 const metric = (spec: HealthMetricSpec) =>
   z
     .preprocess(
-      (v) => (typeof v === "string" && v.trim() === "" ? null : parseHealthNumber(v, spec)),
+      (v) => (typeof v === "string" && v.trim() === "" ? null : parseHealthValue(v, spec)),
       z.number().min(spec.min).max(spec.max).nullable(),
     )
     .optional();
-
-export const KM_PER_MI = 1.609344;
 
 // ---- Sleep ----------------------------------------------------------------------------------
 
@@ -188,21 +222,19 @@ const symptomShape = Object.fromEntries(
 const NOT_PRESENT = /^(|not present|no presente|ausente)$/i;
 
 /**
- * One day. The date is the person's local day; left out, it is today in their time zone. The
- * Shortcut asks Health for fixed units; "distanceUnit": "mi" still converts a hand-built one.
+ * One day. The date is the person's local day; left out, it is today in their time zone. Values may
+ * carry their unit ("3.1 mi"), which is converted to the metric's own.
  */
 export const healthDaySchema = z
   .object({
     date: z.iso.date().optional(),
-    distanceUnit: z.enum(["km", "mi"]).optional(),
     ...metricShape,
     /** Sleep samples as "start|end|value" lines. */
     sleep: z.string().max(200_000).nullable().optional(),
     ...symptomShape,
   })
-  .transform(({ distanceUnit, sleep, ...rest }) => {
+  .transform(({ sleep, ...rest }) => {
     const values = Object.fromEntries(HEALTH_METRICS.filter((m) => rest[m] !== undefined).map((m) => [m, rest[m]])) as Partial<Record<HealthMetric, number | null>>;
-    if (distanceUnit === "mi" && typeof values.distanceKm === "number") values.distanceKm *= KM_PER_MI;
     const symptoms = Object.fromEntries(
       HEALTH_SYMPTOM_KEYS.flatMap((s) => {
         const v = rest[symptomField(s)]?.trim() ?? "";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type HealthDayDto, HEALTH_METRICS, healthAverages, healthDaySchema, parseHealthNumber, sleepStage, summarizeSleep } from "../shared/health.ts";
+import { type HealthDayDto, type HealthMetric, HEALTH_METRIC_SPECS, HEALTH_METRICS, healthAverages, healthDaySchema, parseHealthNumber, parseHealthValue, sleepStage, summarizeSleep } from "../shared/health.ts";
 
 describe("parseHealthNumber", () => {
   const steps = { min: 0, max: 200_000 };
@@ -24,6 +24,27 @@ describe("parseHealthNumber", () => {
     expect(parseHealthNumber("1,800", { min: 0, max: 20_000 })).toBe(1800);
     // 15,234 breaths a minute is impossible, so it is 15.234.
     expect(parseHealthNumber("15.234", breaths)).toBe(15.234);
+    expect(parseHealthNumber("0.045", { min: 0, max: 500 })).toBe(0.045);
+  });
+});
+
+describe("parseHealthValue", () => {
+  it("converts the person's preferred units into the metric's own", () => {
+    const v = (metric: HealthMetric, value: string) => parseHealthValue(value, HEALTH_METRIC_SPECS[metric]);
+    expect(v("restingHr", "58 count/min")).toBe(58);
+    expect(v("restingHr", "0.97 count/s")).toBeCloseTo(58.2, 1);
+    expect(v("hrvMs", "45 ms")).toBe(45);
+    expect(v("hrvMs", "0.045 s")).toBeCloseTo(45, 6);
+    expect(v("activeKcal", "1,935 kcal")).toBe(1935);
+    expect(v("activeKcal", "418.4 kJ")).toBeCloseTo(100, 6);
+    expect(v("exerciseMin", "1.5 hr")).toBe(90);
+    expect(v("wristTempC", "96.8 degF")).toBeCloseTo(36, 6);
+    expect(v("waterMl", "1.5 L")).toBe(1500);
+    expect(v("waterMl", "8 fl_oz_us")).toBeCloseTo(236.588, 3);
+    expect(v("steps", "8,452 count")).toBe(8452);
+    // No unit, or one this metric never uses, keeps the number.
+    expect(v("steps", "8452")).toBe(8452);
+    expect(v("standMin", "35 something")).toBe(35);
   });
 });
 
@@ -31,8 +52,8 @@ describe("healthDaySchema", () => {
   it("accepts any subset of metrics and rejects an empty or impossible day", () => {
     expect(healthDaySchema.parse({ steps: "8,452", restingHr: 58 }).values).toEqual({ steps: 8452, restingHr: 58 });
     expect(healthDaySchema.safeParse({ date: "2026-10-19" }).success).toBe(false);
-    // Distance from a hand-built Shortcut on an iPhone set to miles.
-    expect(healthDaySchema.parse({ distanceKm: "3,1", distanceUnit: "mi" }).values.distanceKm).toBeCloseTo(4.989, 3);
+    // Distance from an iPhone set to miles.
+    expect(healthDaySchema.parse({ distanceKm: "3,1 mi" }).values.distanceKm).toBeCloseTo(4.989, 3);
     // Without an Apple Watch some metrics have no samples and come as empty text.
     expect(healthDaySchema.parse({ steps: "8452", exerciseMin: "", restingHr: " " }).values).toEqual({ steps: 8452, exerciseMin: null, restingHr: null });
     expect(healthDaySchema.safeParse({ steps: "", restingHr: "" }).success).toBe(false);
