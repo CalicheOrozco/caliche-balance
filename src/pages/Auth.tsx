@@ -3,7 +3,7 @@ import { type FormEvent, useState } from "react";
 import { api } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { Controls } from "../Controls.tsx";
-import { Button, Card, CopyButton, Field, Logo, PasswordField } from "../ui.tsx";
+import { AppVersion, Button, Card, CopyButton, Field, Logo, PasswordField } from "../ui.tsx";
 
 type Mode = "login" | "register" | "recover";
 
@@ -143,6 +143,9 @@ function Shell({ children }: { children: React.ReactNode }) {
       </div>
       {children}
       <p className="mt-8 text-center text-sm text-muted">{t("madeBy")}</p>
+      <div className="mt-1">
+        <AppVersion />
+      </div>
     </main>
   );
 }

@@ -16,7 +16,7 @@ import { disablePush, enablePush, type PushState, pushState } from "../push.ts";
 import { useI18n } from "../i18n.tsx";
 import { DatePicker } from "../DatePicker.tsx";
 import { ZeppCard } from "./Zepp.tsx";
-import { Button, Card, Field, Segmented, Switch, useFormat } from "../ui.tsx";
+import { AppVersion, Button, Card, Field, Segmented, Switch, useFormat } from "../ui.tsx";
 
 /** Profile form; also the first screen after registering, when the profile is still empty. */
 export function ProfileForm({ user, onSaved }: { user: UserDto; onSaved?: () => void }) {
@@ -460,6 +460,7 @@ export function SettingsPage({ user }: { user: UserDto }) {
           </Button>
         </div>
       </Card>
+      <AppVersion />
     </div>
   );
 }

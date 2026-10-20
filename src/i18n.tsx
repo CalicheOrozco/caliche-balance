@@ -659,6 +659,7 @@ const es = {
   scoreHowTotal: "Con esos pesos, tu puntuación es {score} de 100.",
   scoreHowNote: "Los rangos son publicados (Gallagher 2000, OMS y Janssen 2004); cuánto vale cada parte lo decidió Caliche Balance. Xiaomi no publica cómo calcula la suya.",
   madeBy: "Hecho con 💚 por Caliche",
+  appVersion: "Versión de la app: {version} ({when})",
 };
 
 type Messages = typeof es;
@@ -1304,6 +1305,7 @@ const en: Messages = {
   scoreHowTotal: "With those weights, your score is {score} out of 100.",
   scoreHowNote: "The ranges are published (Gallagher 2000, WHO and Janssen 2004); how much each part counts is Caliche Balance's choice. Xiaomi does not publish how it calculates its own.",
   madeBy: "Made with 💚 by Caliche",
+  appVersion: "App version: {version} ({when})",
 };
 
 const messages: Record<Language, Messages> = { es, en };

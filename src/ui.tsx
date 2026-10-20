@@ -221,3 +221,10 @@ export function CopyButton({ text }: { text: string }) {
 export function Logo({ size = 40 }: { size?: number }) {
   return <img src="/icon-192.png" alt="" width={size} height={size} className="rounded-[22%]" />;
 }
+
+/** Which build of the app this is, to tell whether an installed copy (PWA) has updated. */
+export function AppVersion() {
+  const { tf } = useI18n();
+  const f = useFormat();
+  return <p className="text-center text-xs text-muted">{tf("appVersion", { version: __APP_VERSION__, when: f.dateTime(__APP_BUILT_AT__) })}</p>;
+}
