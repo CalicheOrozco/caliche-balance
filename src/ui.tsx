@@ -224,7 +224,9 @@ export function Logo({ size = 40 }: { size?: number }) {
 
 /** Which build of the app this is, to tell whether an installed copy (PWA) has updated. */
 export function AppVersion() {
-  const { tf } = useI18n();
+  const { t, tf } = useI18n();
   const f = useFormat();
-  return <p className="text-center text-xs text-muted">{tf("appVersion", { version: __APP_VERSION__, when: f.dateTime(__APP_BUILT_AT__) })}</p>;
+  // The dev server always runs the code as it is now; a commit would be the one it started on.
+  const text = __APP_VERSION__ === "local" ? t("appVersionLocal") : tf("appVersion", { version: __APP_VERSION__, when: f.dateTime(__APP_BUILT_AT__) });
+  return <p className="text-center text-xs text-muted">{text}</p>;
 }

@@ -17,9 +17,10 @@ function buildCommit(): string {
   }
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  // The dev server reads these once when it starts, so it shows "local" instead of a stale commit.
   define: {
-    __APP_VERSION__: JSON.stringify(buildCommit()),
+    __APP_VERSION__: JSON.stringify(command === "serve" ? "local" : buildCommit()),
     __APP_BUILT_AT__: JSON.stringify(new Date().toISOString()),
   },
   plugins: [
@@ -68,4 +69,4 @@ export default defineConfig({
     testTimeout: 30_000,
     hookTimeout: 120_000,
   },
-});
+}));
