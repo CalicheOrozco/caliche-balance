@@ -19,7 +19,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { HEALTH_METRIC_SPECS, HEALTH_METRICS, HEALTH_SYMPTOM_KEYS, HEALTH_SYMPTOMS, symptomField } from "../shared/health.ts";
+import { dateField, HEALTH_METRIC_SPECS, HEALTH_METRICS, HEALTH_SYMPTOM_KEYS, HEALTH_SYMPTOMS, symptomField } from "../shared/health.ts";
 
 const OBJ = "￼"; // where a variable sits inside a Shortcuts text field
 const ROOT = resolve(import.meta.dirname, "..");
@@ -29,6 +29,12 @@ const DAY = 16;
 const HOUR = 32;
 /** "Start Date is in the last N <unit>". */
 const IN_THE_LAST = 1002;
+/**
+ * How far back to look for the latest day with data. Asking only for today fails ("No Samples
+ * Found") right after midnight or on days without data, so each value goes with its own date.
+ */
+const METRIC_DAYS = 7;
+const SYMPTOM_DAYS = 30;
 
 /** A number Shortcuts stores as a real even when it is whole (the result limit). */
 class Real {
@@ -124,24 +130,28 @@ function build(baseUrl: string): Record<string, Plist> {
   const keyId = uuid();
   actions.push(action("is.workflow.actions.gettext", { UUID: keyId, WFTextActionText: text("") }));
 
-  // One value per metric: today's group, latest first, limited to 1. Health gives it in the person's
-  // preferred unit, so the unit goes along ("1,935 kcal") and the server converts it.
+  // One value per metric: the latest day's group, with its unit ("1,935 kcal") and its date. Health
+  // gives values in the person's preferred unit; the server converts them.
   for (const metric of HEALTH_METRICS) {
-    const spec = HEALTH_METRIC_SPECS[metric];
-    const found = findHealth(spec.type, { window: [spec.days, DAY], groupByDay: true, limit: 1 });
+    const found = findHealth(HEALTH_METRIC_SPECS[metric].type, { window: [METRIC_DAYS, DAY], groupByDay: true, limit: 1 });
     const samples = attachment(output(found.id, "Health Samples"));
     const value = details(samples, "Value");
     const unit = details(samples, "Unit");
-    actions.push(found.action, value.action, unit.action);
+    const date = details(samples, "Start Date");
+    actions.push(found.action, value.action, unit.action, date.action);
     field(metric, tokens([output(value.id, "Value"), " ", output(unit.id, "Unit")]));
+    field(dateField(metric), tokens([output(date.id, "Start Date", ISO_DATE)]));
   }
 
-  // Symptoms logged today: the latest one's value ("Mild", "Present"...).
+  // Symptoms: the latest one logged and its date ("Mild", "Present"...).
   for (const symptom of HEALTH_SYMPTOM_KEYS) {
-    const found = findHealth(HEALTH_SYMPTOMS[symptom], { window: [1, DAY], groupByDay: false, limit: 1 });
-    const value = details(attachment(output(found.id, "Health Samples")), "Value");
-    actions.push(found.action, value.action);
+    const found = findHealth(HEALTH_SYMPTOMS[symptom], { window: [SYMPTOM_DAYS, DAY], groupByDay: false, limit: 1 });
+    const samples = attachment(output(found.id, "Health Samples"));
+    const value = details(samples, "Value");
+    const date = details(samples, "Start Date");
+    actions.push(found.action, value.action, date.action);
     field(symptomField(symptom), tokens([output(value.id, "Value")]));
+    field(dateField(symptomField(symptom)), tokens([output(date.id, "Start Date", ISO_DATE)]));
   }
 
   // Sleep: every sample of the last 36 hours (last night, even when it started early) as lines.

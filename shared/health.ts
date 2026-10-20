@@ -12,8 +12,6 @@ export interface HealthMetricSpec {
   type: string;
   /** Unit the value is kept in. Health sends the person's preferred unit, converted with UNIT_CONVERSIONS. */
   unit: HealthUnit;
-  /** Days back the Shortcut looks; most are today's total, a few change rarely. */
-  days: number;
   min: number;
   max: number;
   group: "activity" | "energy" | "heart" | "body";
@@ -21,32 +19,34 @@ export interface HealthMetricSpec {
 
 /** Type names checked against the Shortcuts menu on iOS 26. */
 export const HEALTH_METRIC_SPECS = {
-  steps: { type: "Steps", unit: "count", days: 1, min: 0, max: 200_000, group: "activity" },
-  distanceKm: { type: "Walking + Running Distance", unit: "km", days: 1, min: 0, max: 500, group: "activity" },
-  flightsClimbed: { type: "Flights Climbed", unit: "count", days: 1, min: 0, max: 2_000, group: "activity" },
-  exerciseMin: { type: "Exercise Minutes", unit: "min", days: 1, min: 0, max: 1_440, group: "activity" },
-  standMin: { type: "Stand Minutes", unit: "min", days: 1, min: 0, max: 1_440, group: "activity" },
-  moveMin: { type: "Move Minutes", unit: "min", days: 1, min: 0, max: 1_440, group: "activity" },
-  mindfulMin: { type: "Mindful Minutes", unit: "min", days: 1, min: 0, max: 1_440, group: "activity" },
-  activeKcal: { type: "Active Energy", unit: "kcal", days: 1, min: 0, max: 20_000, group: "energy" },
-  restingKcal: { type: "Resting Energy", unit: "kcal", days: 1, min: 0, max: 10_000, group: "energy" },
-  restingHr: { type: "Resting Heart Rate", unit: "count/min", days: 1, min: 20, max: 250, group: "heart" },
-  hrvMs: { type: "Heart Rate Variability", unit: "ms", days: 1, min: 1, max: 500, group: "heart" },
-  walkingHr: { type: "Walking Heart Rate Average", unit: "count/min", days: 1, min: 30, max: 250, group: "heart" },
-  respiratoryRate: { type: "Respiratory Rate", unit: "count/min", days: 1, min: 4, max: 60, group: "heart" },
-  wristTempC: { type: "Wrist Temperature", unit: "degC", days: 1, min: 20, max: 45, group: "body" },
-  waterMl: { type: "Water", unit: "mL", days: 1, min: 0, max: 20_000, group: "body" },
+  steps: { type: "Steps", unit: "count", min: 0, max: 200_000, group: "activity" },
+  distanceKm: { type: "Walking + Running Distance", unit: "km", min: 0, max: 500, group: "activity" },
+  flightsClimbed: { type: "Flights Climbed", unit: "count", min: 0, max: 2_000, group: "activity" },
+  exerciseMin: { type: "Exercise Minutes", unit: "min", min: 0, max: 1_440, group: "activity" },
+  standMin: { type: "Stand Minutes", unit: "min", min: 0, max: 1_440, group: "activity" },
+  moveMin: { type: "Move Minutes", unit: "min", min: 0, max: 1_440, group: "activity" },
+  mindfulMin: { type: "Mindful Minutes", unit: "min", min: 0, max: 1_440, group: "activity" },
+  activeKcal: { type: "Active Energy", unit: "kcal", min: 0, max: 20_000, group: "energy" },
+  restingKcal: { type: "Resting Energy", unit: "kcal", min: 0, max: 10_000, group: "energy" },
+  restingHr: { type: "Resting Heart Rate", unit: "count/min", min: 20, max: 250, group: "heart" },
+  hrvMs: { type: "Heart Rate Variability", unit: "ms", min: 1, max: 500, group: "heart" },
+  walkingHr: { type: "Walking Heart Rate Average", unit: "count/min", min: 30, max: 250, group: "heart" },
+  respiratoryRate: { type: "Respiratory Rate", unit: "count/min", min: 4, max: 60, group: "heart" },
+  wristTempC: { type: "Wrist Temperature", unit: "degC", min: 20, max: 45, group: "body" },
+  waterMl: { type: "Water", unit: "mL", min: 0, max: 20_000, group: "body" },
 } as const satisfies Record<string, HealthMetricSpec>;
 
 export type HealthMetric = keyof typeof HEALTH_METRIC_SPECS;
 export const HEALTH_METRICS = Object.keys(HEALTH_METRIC_SPECS) as HealthMetric[];
 
-/** Symptoms logged by hand in the Health app; the Shortcut sends the latest one of the day. */
+/** Symptoms logged by hand in the Health app; the Shortcut sends the latest one. */
 export const HEALTH_SYMPTOMS = { fatigue: "Fatigue", fever: "Fever", nausea: "Nausea", soreThroat: "Sore Throat" } as const;
 export type HealthSymptom = keyof typeof HEALTH_SYMPTOMS;
 export const HEALTH_SYMPTOM_KEYS = Object.keys(HEALTH_SYMPTOMS) as HealthSymptom[];
 /** The JSON field a symptom arrives in, kept apart from the numeric metrics. */
 export const symptomField = (s: HealthSymptom) => `symptom_${s}` as const;
+/** The JSON field with the day a value belongs to, so the latest day with data can be sent any time. */
+export const dateField = (field: string) => `${field}_date` as const;
 
 /**
  * Reads a number as a Shortcut may send it: a JSON number, or text in the iPhone's region format
@@ -253,12 +253,34 @@ export const healthDaySchema = z
     { message: "health-empty" },
   );
 
+/** "2026-10-19T00:00:00-06:00" from the Shortcut is already in the iPhone's time zone: its date part is the day. */
+const shortcutDay = (value: unknown) => (typeof value === "string" ? /^\d{4}-\d{2}-\d{2}/.exec(value.trim())?.[0] : undefined);
+const isEmpty = (value: unknown) => value === null || (typeof value === "string" && value.trim() === "");
+
+/**
+ * The Shortcut sends each value with the day it belongs to ("steps_date"), because right after
+ * midnight, or for something logged days ago, the latest data is not today's. Values are grouped
+ * into one day each; without a date they go to "date" or today. Values with no data are skipped.
+ */
+function splitByDate(body: Record<string, unknown>): Record<string, unknown>[] {
+  const days = new Map<string, Record<string, unknown>>();
+  for (const [key, value] of Object.entries(body)) {
+    if (key === "date" || key.endsWith("_date") || isEmpty(value)) continue;
+    const date = shortcutDay(body[dateField(key)]) ?? body.date;
+    const id = typeof date === "string" ? date : "";
+    const day = days.get(id) ?? (date === undefined ? {} : { date });
+    day[key] = value;
+    days.set(id, day);
+  }
+  return days.size ? [...days.values()] : [body.date === undefined ? {} : { date: body.date }];
+}
+
 /**
  * A single day, or several at once as { days: [...] } (to fill in days the Shortcut missed). A single
  * day is read as a list of one, so its own errors (like "health-empty") reach the Shortcut as is.
  */
 export const healthIngestSchema = z.preprocess(
-  (body) => (body !== null && typeof body === "object" && "days" in body ? body : { days: [body] }),
+  (body) => (body !== null && typeof body === "object" && !Array.isArray(body) ? ("days" in body ? body : { days: splitByDate(body as Record<string, unknown>) }) : { days: [body] }),
   z.object({ days: z.array(healthDaySchema).min(1).max(31) }),
 );
 export type HealthDayInput = z.output<typeof healthDaySchema>;

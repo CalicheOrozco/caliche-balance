@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type HealthDayDto, type HealthMetric, HEALTH_METRIC_SPECS, HEALTH_METRICS, healthAverages, healthDaySchema, parseHealthNumber, parseHealthValue, sleepStage, summarizeSleep } from "../shared/health.ts";
+import { type HealthDayDto, type HealthMetric, HEALTH_METRIC_SPECS, HEALTH_METRICS, healthAverages, healthDaySchema, healthIngestSchema, parseHealthNumber, parseHealthValue, sleepStage, summarizeSleep } from "../shared/health.ts";
 
 describe("parseHealthNumber", () => {
   const steps = { min: 0, max: 200_000 };
@@ -59,6 +59,27 @@ describe("healthDaySchema", () => {
     expect(healthDaySchema.safeParse({ steps: "", restingHr: "" }).success).toBe(false);
     expect(healthDaySchema.safeParse({ steps: -5 }).success).toBe(false);
     expect(healthDaySchema.safeParse({ restingHr: 400 }).success).toBe(false);
+  });
+
+  it("puts each value on the day it belongs to", () => {
+    // Right after midnight the latest steps are yesterday's; nothing found arrives empty.
+    const days = healthIngestSchema.parse({
+      steps: "8,452 count",
+      steps_date: "2026-10-19T00:00:00-04:00",
+      restingHr: "58 count/min",
+      restingHr_date: "2026-10-20T00:00:00-04:00",
+      waterMl: " ",
+      waterMl_date: "",
+      symptom_fatigue: "Mild",
+      symptom_fatigue_date: "2026-10-02T21:15:00-04:00",
+    }).days;
+    expect(days.map((d) => [d.date, d.values, d.symptoms])).toEqual([
+      ["2026-10-19", { steps: 8452 }, {}],
+      ["2026-10-20", { restingHr: 58 }, {}],
+      ["2026-10-02", {}, { fatigue: "Mild" }],
+    ]);
+    // Nothing found at all is still an empty day.
+    expect(healthIngestSchema.safeParse({ steps: "", steps_date: "" }).error?.issues[0]?.message).toBe("health-empty");
   });
 
   it("keeps symptoms that were logged and drops the empty ones", () => {
