@@ -127,11 +127,7 @@ cd "/Users/calicheorozco/Documents/Web Development/caliche-balance" && npm run d
 
 3. Abre http://localhost:5173 y crea una cuenta.
 
-Sin configurar nada, la API usa un MongoDB local que guarda los datos en `.data/` (no se sube a git). Para usar tu MongoDB Atlas en desarrollo, copia `.env.example` a `.env.local`, llena `MONGODB_URI` y arranca con:
-
-```bash
-cd "/Users/calicheorozco/Documents/Web Development/caliche-balance" && node --env-file=.env.local scripts/dev.mjs
-```
+`npm run dev` lee `.env` y luego `.env.local` (este gana si ambos traen la misma variable). Con `MONGODB_URI` usa esa base, por ejemplo tu MongoDB Atlas; sin ella, la API usa un MongoDB local que guarda los datos en `.data/` (no se sube a git).
 
 ### Pruebas y revisión de tipos
 

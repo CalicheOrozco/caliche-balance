@@ -5,7 +5,7 @@ import { connect } from "./db.ts";
 import { webPushSetup } from "./push.ts";
 
 /**
- * Local API on port 3001. Uses MONGODB_URI when set (for example your Atlas cluster);
+ * Local API on port 3001. Uses MONGODB_URI when set (`npm run dev` reads it from .env and .env.local);
  * otherwise starts an embedded MongoDB that keeps its data in .data/ between runs.
  */
 let uri = process.env.MONGODB_URI;
