@@ -8,13 +8,13 @@ import {
   type HealthAttempt,
   type HealthDayDto,
   type HealthMetric,
-  healthIngestSchema,
+  readHealthSend,
   shortcutVersionOf,
 } from "../shared/health.ts";
 import { DEFAULT_TIME_ZONE } from "./achievementCheck.ts";
 import { hashSecret, newSecret } from "./auth.ts";
 import type { Collections, HealthDayDoc, UserDoc } from "./db.ts";
-import { asyncRoute, clientIp, fieldProblems, hitRateLimit, peekRateLimit, sendRateLimited } from "./http.ts";
+import { asyncRoute, clientIp, hitRateLimit, peekRateLimit, sendRateLimited } from "./http.ts";
 
 interface Context {
   collections: () => Collections;
@@ -27,6 +27,8 @@ const KEY_PREFIX = "cbh_";
 const BAD_KEY_LIMIT = 20;
 const BAD_KEY_WINDOW_MS = 60 * 60 * 1000;
 const MAX_DAYS = 400;
+/** Characters of the last send kept for Settings; one run of the Shortcut is about 3,000. */
+const RECEIVED_MAX = 20_000;
 
 export function toHealthDayDto(d: HealthDayDoc): HealthDayDto {
   const metrics = Object.fromEntries(HEALTH_METRICS.map((m) => [m, d[m] ?? null])) as Record<HealthMetric, number | null>;
@@ -98,21 +100,22 @@ export function appleHealthRoutes({ collections, withUser }: Context) {
       // Every run is recorded, failed ones too, so Settings can show which Shortcut ran and why it failed.
       const now = new Date();
       const version = shortcutVersionOf(req.body);
-      const record = (attempt: Omit<HealthAttempt, "at" | "version">) =>
+      // What arrived, as sent, so a run can be checked value by value; the key travels in a header, not here.
+      const received = JSON.stringify(req.body ?? null, null, 1).slice(0, RECEIVED_MAX);
+      const record = (attempt: Omit<HealthAttempt, "at" | "version" | "received">) =>
         c.users.updateOne(
           { _id: user._id },
-          { $set: { "appleHealth.lastAttempt": { ...attempt, at: now, version }, ...(attempt.ok ? { "appleHealth.lastSyncAt": now } : {}) } },
+          { $set: { "appleHealth.lastAttempt": { ...attempt, at: now, version, received }, ...(attempt.ok ? { "appleHealth.lastSyncAt": now } : {}) } },
         );
-      const parsed = healthIngestSchema.safeParse(req.body, { reportInput: true });
-      if (!parsed.success) {
-        const problems = fieldProblems(parsed.error);
+      const { days, problems } = readHealthSend(req.body);
+      if (days.length === 0) {
         await record({ ok: false, saved: [], problems });
         return res.status(400).json({ error: "invalid", fields: problems });
       }
       const today = new Date(localDay(Date.now(), user.timeZone ?? DEFAULT_TIME_ZONE) * 86_400_000).toISOString().slice(0, 10);
       const saved: HealthDayDto[] = [];
       const counts: HealthAttempt["saved"] = [];
-      for (const day of parsed.data.days) {
+      for (const day of days) {
         const date = day.date ?? today;
         // Only what was sent is written, so separate Shortcuts can each send their own part.
         const set: Record<string, unknown> = { ...day.values, updatedAt: now };
@@ -127,8 +130,8 @@ export function appleHealthRoutes({ collections, withUser }: Context) {
         const count = Object.values(day.values).filter((v) => v !== null).length + (day.sleep ? 1 : 0) + Object.keys(day.symptoms).length;
         counts.push({ date, count });
       }
-      await record({ ok: true, saved: counts, problems: [] });
-      res.json({ ok: true, saved });
+      await record({ ok: true, saved: counts, problems });
+      res.json({ ok: true, saved, problems });
     }),
   );
 

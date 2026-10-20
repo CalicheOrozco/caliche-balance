@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type HealthDayDto, type HealthMetric, HEALTH_METRIC_SPECS, HEALTH_METRICS, healthAverages, healthDaySchema, healthIngestSchema, parseHealthNumber, parseHealthValue, sleepStage, summarizeSleep } from "../shared/health.ts";
+import { type HealthDayDto, type HealthMetric, HEALTH_METRIC_SPECS, HEALTH_METRICS, healthAverages, healthDaySchema, parseHealthNumber, parseHealthValue, readHealthSend, sleepStage, summarizeSleep } from "../shared/health.ts";
 
 describe("parseHealthNumber", () => {
   const steps = { min: 0, max: 200_000 };
@@ -63,7 +63,7 @@ describe("healthDaySchema", () => {
 
   it("puts each value on the day it belongs to", () => {
     // Right after midnight the latest steps are yesterday's; nothing found arrives empty.
-    const days = healthIngestSchema.parse({
+    const { days, problems } = readHealthSend({
       steps: "8,452 count",
       steps_date: "2026-10-19T00:00:00-04:00",
       restingHr: "58 count/min",
@@ -72,14 +72,29 @@ describe("healthDaySchema", () => {
       waterMl_date: "",
       symptom_fatigue: "Mild",
       symptom_fatigue_date: "2026-10-02T21:15:00-04:00",
-    }).days;
+    });
+    expect(problems).toEqual([]);
     expect(days.map((d) => [d.date, d.values, d.symptoms])).toEqual([
       ["2026-10-19", { steps: 8452 }, {}],
       ["2026-10-20", { restingHr: 58 }, {}],
       ["2026-10-02", {}, { fatigue: "Mild" }],
     ]);
     // Nothing found at all is still an empty day.
-    expect(healthIngestSchema.safeParse({ steps: "", steps_date: "" }).error?.issues[0]?.message).toBe("health-empty");
+    expect(readHealthSend({ steps: "", steps_date: "" })).toEqual({ days: [], problems: [{ path: "days.0", code: "health-empty" }] });
+  });
+
+  it("keeps what is valid when a value is out of range or the night cannot be read", () => {
+    const { days, problems } = readHealthSend({
+      steps: "8452 count",
+      restingHr: "0.2 count/min",
+      sleep: "algo que no es una noche",
+      steps_date: "2026-10-20T00:00:00-04:00",
+    });
+    // The steps are saved; the impossible pulse is reported with what came; the unreadable night is dropped.
+    expect(days.map((d) => [d.date, d.values])).toEqual([["2026-10-20", { steps: 8452 }]]);
+    expect(problems).toEqual([{ path: "days.1.restingHr", code: "Too small: expected number to be >=20", received: 0.2 }]);
+    expect(readHealthSend("nada").problems).toEqual([{ path: "", code: "invalid" }]);
+    expect(readHealthSend({ days: [] }).problems).toEqual([{ path: "days", code: "invalid" }]);
   });
 
   it("keeps symptoms that were logged and drops the empty ones", () => {

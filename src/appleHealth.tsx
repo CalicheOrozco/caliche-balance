@@ -66,8 +66,11 @@ function LastRun({ attempt }: { attempt: NonNullable<AppleHealthStatus["lastAtte
           })}
         </p>
       ) : (
-        <div className="text-bad">
-          <p>{tf("ahLastFailed", { when: f.dateTime(attempt.at) })}</p>
+        <p className="text-bad">{tf("ahLastFailed", { when: f.dateTime(attempt.at) })}</p>
+      )}
+      {attempt.problems.length > 0 && (
+        <div className={attempt.ok ? "text-warn" : "text-bad"}>
+          {attempt.ok && <p>{t("ahLeftOut")}</p>}
           <ul className="mt-1 list-disc space-y-0.5 pl-5">
             {attempt.problems.map((p) => (
               <li key={p.path}>
@@ -77,6 +80,14 @@ function LastRun({ attempt }: { attempt: NonNullable<AppleHealthStatus["lastAtte
             ))}
           </ul>
         </div>
+      )}
+      {attempt.received && (
+        <details className="group">
+          <summary className="flex cursor-pointer list-none items-center gap-1 font-medium text-brand [&::-webkit-details-marker]:hidden">
+            {t("ahReceivedTitle")} <FiChevronDown className="transition group-open:rotate-180" aria-hidden />
+          </summary>
+          <pre className="mt-2 max-h-80 overflow-auto rounded-xl bg-surface-2 p-2 text-xs whitespace-pre-wrap break-all text-ink-2">{attempt.received}</pre>
+        </details>
       )}
     </div>
   );
@@ -152,7 +163,7 @@ export function AppleHealthCard({ user }: { user: UserDto }) {
               download="Caliche Salud.shortcut"
               className="flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-brand px-4 py-2.5 font-semibold text-brand-ink"
             >
-              <FiDownload aria-hidden /> {t("ahAddShortcut")}
+              <FiDownload aria-hidden /> {tf("ahAddShortcut", { n: HEALTH_SHORTCUT_VERSION })}
             </a>
             <Button
               variant="secondary"

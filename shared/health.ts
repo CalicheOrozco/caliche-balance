@@ -278,14 +278,51 @@ function splitByDate(body: Record<string, unknown>): Record<string, unknown>[] {
   return days.size ? [...days.values()] : [body.date === undefined ? {} : { date: body.date }];
 }
 
+const MAX_DAYS_PER_SEND = 31;
+
 /**
- * A single day, or several at once as { days: [...] } (to fill in days the Shortcut missed). A single
- * day is read as a list of one, so its own errors (like "health-empty") reach the Shortcut as is.
+ * Reads a send from the Shortcut: one flat set of values (split by their dates), or several days as
+ * { days: [...] } to fill in missed ones. Whatever is valid is kept: a value out of range is
+ * reported and left out, and a day left with nothing is skipped, so one bad value or an empty night
+ * never throws away the rest. "health-empty" is reported only when nothing at all could be read.
  */
-export const healthIngestSchema = z.preprocess(
-  (body) => (body !== null && typeof body === "object" && !Array.isArray(body) ? ("days" in body ? body : { days: splitByDate(body as Record<string, unknown>) }) : { days: [body] }),
-  z.object({ days: z.array(healthDaySchema).min(1).max(31) }),
-);
+export function readHealthSend(body: unknown): { days: HealthDayInput[]; problems: HealthProblem[] } {
+  const isObject = body !== null && typeof body === "object" && !Array.isArray(body);
+  const listed = isObject && "days" in body ? (body as { days: unknown }).days : undefined;
+  if (!isObject || (listed !== undefined && (!Array.isArray(listed) || listed.length < 1 || listed.length > MAX_DAYS_PER_SEND))) {
+    return { days: [], problems: [{ path: listed === undefined ? "" : "days", code: "invalid" }] };
+  }
+  const raw = (listed as unknown[] | undefined) ?? splitByDate(body as Record<string, unknown>);
+  const days: HealthDayInput[] = [];
+  const problems: HealthProblem[] = [];
+  const empty: HealthProblem[] = [];
+  raw.forEach((rawDay, i) => {
+    const first = healthDaySchema.safeParse(rawDay, { reportInput: true });
+    if (first.success) return void days.push(first.data);
+    // Leave out the values that were rejected and read the day again.
+    const rejected = first.error.issues.filter((issue) => typeof issue.path[0] === "string");
+    for (const issue of rejected) problems.push(problemOf(issue, i));
+    const kept =
+      rejected.length && rawDay !== null && typeof rawDay === "object"
+        ? healthDaySchema.safeParse(Object.fromEntries(Object.entries(rawDay).filter(([key]) => !rejected.some((issue) => issue.path[0] === key))))
+        : first;
+    if (kept.success) return void days.push(kept.data);
+    for (const issue of kept.error.issues.filter((issue) => !rejected.includes(issue))) {
+      (issue.message === "health-empty" ? empty : problems).push(problemOf(issue, i));
+    }
+  });
+  return { days, problems: days.length ? problems : [...problems, ...empty] };
+}
+
+function problemOf(issue: z.core.$ZodIssue, day: number): HealthProblem {
+  const received = issue.input;
+  return {
+    path: ["days", day, ...issue.path].join("."),
+    code: issue.message,
+    ...(typeof received === "string" ? { received: received.slice(0, 200) } : typeof received === "number" ? { received } : {}),
+  };
+}
+
 export type HealthDayInput = z.output<typeof healthDaySchema>;
 
 /** The Shortcut's version, sent as text; anything else reads as an old copy. */
@@ -324,7 +361,10 @@ export interface HealthAttempt {
   ok: boolean;
   /** Days saved and how many values each one got. */
   saved: { date: string; count: number }[];
+  /** Values left out (or, when nothing was saved, why). */
   problems: HealthProblem[];
+  /** The send as it arrived (JSON, cut at 20,000 characters). */
+  received: string;
 }
 
 /** The person's key, shown once when made; only when it was made and what arrived last are kept. */

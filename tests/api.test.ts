@@ -139,8 +139,12 @@ describe("Caliche Balance API", () => {
 
     // Settings shows which copy of the Shortcut ran last and what came of it, failures included.
     const lastRun = async () => (await agent.get("/api/me")).body.appleHealth.lastAttempt;
-    await shortcut(made.body.key, { restingHr: "0.97 count/s", restingHr_date: `${today}T00:00:00-04:00`, hrvMs: "0", shortcutVersion: "3" });
-    expect(await lastRun()).toMatchObject({ version: 3, ok: false, saved: [], problems: [{ path: "days.1.hrvMs", received: 0 }] });
+    expect(await lastRun()).toMatchObject({ version: null, ok: false, saved: [], problems: [{ path: "days.0", code: "health-empty" }] });
+    // A value out of range is left out and reported; the rest of the send is still saved.
+    const partial = await shortcut(made.body.key, { restingHr: "0.97 count/s", restingHr_date: `${today}T00:00:00-04:00`, hrvMs: "0", shortcutVersion: "3" });
+    expect(partial.body).toMatchObject({ ok: true, problems: [{ path: "days.1.hrvMs", received: 0 }] });
+    expect(await lastRun()).toMatchObject({ version: 3, ok: true, saved: [{ date: today, count: 1 }], problems: [{ path: "days.1.hrvMs", received: 0 }] });
+    expect(JSON.parse((await lastRun()).received)).toMatchObject({ restingHr: "0.97 count/s", shortcutVersion: "3" });
     await shortcut(made.body.key, { steps: "9,300 count", steps_date: "2026-10-04T00:00:00-04:00", restingHr: "57 count/min", shortcutVersion: String(HEALTH_SHORTCUT_VERSION) });
     expect(await lastRun()).toMatchObject({ version: HEALTH_SHORTCUT_VERSION, ok: true, saved: [{ date: "2026-10-04", count: 1 }, { date: today, count: 1 }], problems: [] });
     const other = request.agent(app);
