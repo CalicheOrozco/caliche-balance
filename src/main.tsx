@@ -9,8 +9,23 @@ import { I18nProvider } from "./i18n.tsx";
 import { OFFLINE_MAX_AGE_MS, OFFLINE_VERSION, PERSISTED_QUERIES, offlinePersister } from "./offline.ts";
 import "./index.css";
 
-// Installs the service worker; a new version takes over on the next open.
-registerSW({ immediate: true });
+// Installs the service worker. With autoUpdate a new version takes over and the page reloads as
+// soon as it is found, but iOS keeps an installed app asleep in the background and only checks on
+// a cold start, so it also checks whenever the app comes back to the screen and every minute.
+const UPDATE_CHECK_MS = 60_000;
+registerSW({
+  immediate: true,
+  onRegisteredSW(_url, registration) {
+    if (!registration) return;
+    const check = () => {
+      if (navigator.onLine) void registration.update().catch(() => {});
+    };
+    setInterval(check, UPDATE_CHECK_MS);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") check();
+    });
+  },
+});
 
 const queryClient = new QueryClient({
   defaultOptions: {
