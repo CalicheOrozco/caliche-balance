@@ -267,7 +267,7 @@ const isEmpty = (value: unknown) => value === null || (typeof value === "string"
  */
 const DATA_FIELDS = new Set<string>([...HEALTH_METRICS, ...HEALTH_SYMPTOM_KEYS.map(symptomField), "sleep"]);
 
-function splitByDate(body: Record<string, unknown>): Record<string, unknown>[] {
+function splitByDate(body: Record<string, unknown>, now: number): Record<string, unknown>[] {
   const days = new Map<string, Record<string, unknown>>();
   const put = (date: unknown, key: string, value: unknown) => {
     const id = typeof date === "string" ? date : "";
@@ -292,7 +292,8 @@ function splitByDate(body: Record<string, unknown>): Record<string, unknown>[] {
       }
     } else {
       for (const [when = "", amount = "", unit = ""] of rows) {
-        if (shortcutDay(when) && !isEmpty(amount)) put(shortcutDay(when), key, `${amount} ${unit}`.trim());
+        // Grouping by day can add an empty group for a day that has not started yet ("tomorrow|0").
+        if (shortcutDay(when) && !isEmpty(amount) && !(Date.parse(when) > now)) put(shortcutDay(when), key, `${amount} ${unit}`.trim());
       }
     }
   }
@@ -307,13 +308,13 @@ const MAX_DAYS_PER_SEND = 31;
  * reported and left out, and a day left with nothing is skipped, so one bad value or an empty night
  * never throws away the rest. "health-empty" is reported only when nothing at all could be read.
  */
-export function readHealthSend(body: unknown): { days: HealthDayInput[]; problems: HealthProblem[] } {
+export function readHealthSend(body: unknown, now = Date.now()): { days: HealthDayInput[]; problems: HealthProblem[] } {
   const isObject = body !== null && typeof body === "object" && !Array.isArray(body);
   const listed = isObject && "days" in body ? (body as { days: unknown }).days : undefined;
   if (!isObject || (listed !== undefined && (!Array.isArray(listed) || listed.length < 1 || listed.length > MAX_DAYS_PER_SEND))) {
     return { days: [], problems: [{ path: listed === undefined ? "" : "days", code: "invalid" }] };
   }
-  const raw = (listed as unknown[] | undefined) ?? splitByDate(body as Record<string, unknown>);
+  const raw = (listed as unknown[] | undefined) ?? splitByDate(body as Record<string, unknown>, now);
   const days: HealthDayInput[] = [];
   const problems: HealthProblem[] = [];
   const empty: HealthProblem[] = [];

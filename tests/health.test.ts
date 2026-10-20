@@ -86,13 +86,15 @@ describe("healthDaySchema", () => {
   it("reads the Shortcut's lines: one per day for metrics, the latest symptom, the night on the wake-up day", () => {
     const d = (day: string, time = "00:00:00") => `2026-10-${day}T${time}-04:00`;
     const { days, problems } = readHealthSend({
-      steps: [`${d("18")}|10,240|count`, `${d("19")}|9,312|count`, `${d("20")}|412|count`].join("\n"),
+      // As an iPhone sent it: the first group starts at the day's first sample, and an empty group
+      // for tomorrow comes last.
+      steps: [`${d("18")}|10,240|count`, `${d("19")}|9,312|count`, `${d("20", "00:12:49")}|412|count`, `${d("21")}|0|count`].join("\n"),
       restingHr: `${d("19")}|58|count/min`,
       waterMl: "",
       symptom_fatigue: [`${d("19", "21:00:00")}|Severe`, `${d("19", "08:00:00")}|Mild`].join("\n"),
       sleep: [`${d("19", "23:40:00")}|${d("20", "03:00:00")}|Core`, `${d("20", "03:00:00")}|${d("20", "06:30:00")}|Deep`].join("\n"),
       shortcutVersion: "5",
-    });
+    }, Date.parse("2026-10-20T08:00:00-04:00"));
     expect(problems).toEqual([]);
     expect(days.map((x) => [x.date, x.values, x.symptoms, x.sleep?.asleepMin ?? null])).toEqual([
       ["2026-10-18", { steps: 10240 }, {}, null],
