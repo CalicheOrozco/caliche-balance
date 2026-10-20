@@ -112,10 +112,17 @@ describe("Caliche Balance API", () => {
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto" }).format(new Date());
     const first = await shortcut(made.body.key, { steps: "8,452", activeKcal: "512,4 kcal", restingHr: 58 });
     expect(first.status).toBe(200);
-    expect(first.body.saved).toEqual([{ date: today, steps: 8452, activeKcal: 512.4, exerciseMin: null, distanceKm: null, restingHr: 58, sleepHours: null }]);
+    expect(first.body.saved).toMatchObject([{ date: today, steps: 8452, activeKcal: 512.4, exerciseMin: null, distanceKm: null, restingHr: 58, sleep: null, symptoms: {} }]);
     // A later send for the same day only changes what it brings.
     await shortcut(made.body.key, { steps: 9100, exerciseMin: 34 });
-    // Several days at once, to fill in missed ones.
+    // The night's sleep samples and a logged symptom come in the same send.
+    const night = ["00:00|07:00|In Bed", "00:10|03:00|Core", "03:00|04:00|Deep", "04:00|05:00|REM", "05:00|06:50|Core"]
+      .map((l) => l.split("|"))
+      .map(([s, e, v]) => `${today}T${s}:00-04:00|${today}T${e}:00-04:00|${v}`)
+      .join("\n");
+    const slept = await shortcut(made.body.key, { sleep: night, symptom_fatigue: "Mild", hrvMs: "42,5" });
+    expect(slept.body.saved[0]).toMatchObject({ steps: 9100, hrvMs: 42.5, symptoms: { fatigue: "Mild" }, sleep: { asleepMin: 400, deepMin: 60, remMin: 60, coreMin: 280 } });
+        // Several days at once, to fill in missed ones.
     await shortcut(made.body.key, { days: [{ date: "2026-10-01", steps: 6000 }, { date: "2026-10-02", distanceKm: "4,2" }] });
 
     const days = (await agent.get("/api/me/apple-health/days")).body;

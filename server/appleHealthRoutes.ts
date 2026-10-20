@@ -2,7 +2,7 @@ import express, { type Request, type RequestHandler } from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { localDay } from "../shared/achievements.ts";
-import { HEALTH_METRICS, type HealthDayDto, type HealthDayInput, healthIngestSchema } from "../shared/health.ts";
+import { HEALTH_METRICS, type HealthDayDto, type HealthDayInput, type HealthMetric, healthIngestSchema } from "../shared/health.ts";
 import { DEFAULT_TIME_ZONE } from "./achievementCheck.ts";
 import { hashSecret, newSecret } from "./auth.ts";
 import type { Collections, HealthDayDoc } from "./db.ts";
@@ -21,7 +21,8 @@ const BAD_KEY_WINDOW_MS = 60 * 60 * 1000;
 const MAX_DAYS = 400;
 
 export function toHealthDayDto(d: HealthDayDoc): HealthDayDto {
-  return Object.fromEntries([["date", d.date], ...HEALTH_METRICS.map((m) => [m, d[m] ?? null])]) as unknown as HealthDayDto;
+  const metrics = Object.fromEntries(HEALTH_METRICS.map((m) => [m, d[m] ?? null])) as Record<HealthMetric, number | null>;
+  return { date: d.date, ...metrics, sleep: d.sleep ?? null, symptoms: d.symptoms ?? {} };
 }
 
 function bearer(req: Request): string | null {
@@ -84,11 +85,13 @@ export function appleHealthRoutes({ collections, withUser }: Context) {
       const saved: HealthDayDto[] = [];
       for (const day of days) {
         const date = day.date ?? today;
-        // Only the metrics sent are written, so separate Shortcuts can each send their own.
-        const values = Object.fromEntries(HEALTH_METRICS.filter((m) => day[m] !== undefined).map((m) => [m, day[m]]));
+        // Only what was sent is written, so separate Shortcuts can each send their own part.
+        const set: Record<string, unknown> = { ...day.values, updatedAt: now };
+        if (day.sleep !== undefined) set.sleep = day.sleep;
+        for (const [symptom, value] of Object.entries(day.symptoms)) set[`symptoms.${symptom}`] = value;
         const doc = await c.healthDays.findOneAndUpdate(
           { userId: user._id, date },
-          { $set: { ...values, updatedAt: now }, $setOnInsert: { _id: new ObjectId(), userId: user._id, date } },
+          { $set: set, $setOnInsert: { _id: new ObjectId(), userId: user._id, date } },
           { upsert: true, returnDocument: "after" },
         );
         saved.push(toHealthDayDto(doc!));

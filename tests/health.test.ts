@@ -1,43 +1,105 @@
 import { describe, expect, it } from "vitest";
-import { healthAverages, healthDaySchema, parseHealthNumber } from "../shared/health.ts";
+import { type HealthDayDto, HEALTH_METRICS, healthAverages, healthDaySchema, parseHealthNumber, sleepStage, summarizeSleep } from "../shared/health.ts";
 
 describe("parseHealthNumber", () => {
+  const steps = { min: 0, max: 200_000 };
+  const kcal = { min: 0, max: 20_000 };
+  const breaths = { min: 4, max: 60 };
+
   it("reads what a Shortcut can send in any region format", () => {
-    expect(parseHealthNumber(8452, true)).toBe(8452);
+    expect(parseHealthNumber(8452, steps)).toBe(8452);
     // Steps with a thousands separator: English, Spanish (Mexico), Spain, and with a space.
-    expect(["8,452", "8.452", "8 452", "8 452", "8452 pasos"].map((v) => parseHealthNumber(v, true))).toEqual([8452, 8452, 8452, 8452, 8452]);
+    expect(["8,452", "8.452", "8 452", "8\u202f452", "8452 pasos"].map((v) => parseHealthNumber(v, steps))).toEqual([8452, 8452, 8452, 8452, 8452]);
     // Decimals in a measure that has them.
-    expect(["512.4", "512,4", "512,4 kcal", "1,234.5", "1.234,5", "6,25 km"].map((v) => parseHealthNumber(v, false))).toEqual([512.4, 512.4, 512.4, 1234.5, 1234.5, 6.25]);
+    expect(["512.4", "512,4", "512,4 kcal", "1,234.5", "1.234,5", "6,25 km"].map((v) => parseHealthNumber(v, kcal))).toEqual([512.4, 512.4, 512.4, 1234.5, 1234.5, 6.25]);
     // A repeated mark always separates thousands.
-    expect(parseHealthNumber("12,345,678", true)).toBe(12345678);
+    expect(parseHealthNumber("12,345,678", { min: 0, max: 1e9 })).toBe(12345678);
     // Text with no number is left for the schema to reject.
-    expect(parseHealthNumber("nada", true)).toBe("nada");
+    expect(parseHealthNumber("nada", steps)).toBe("nada");
+  });
+
+  it("reads a single mark before three digits as thousands unless that is out of range", () => {
+    // What an iPhone in English sends for resting energy and water: thousands, not decimals.
+    expect(parseHealthNumber("1,935", kcal)).toBe(1935);
+    expect(parseHealthNumber("1,800", { min: 0, max: 20_000 })).toBe(1800);
+    // 15,234 breaths a minute is impossible, so it is 15.234.
+    expect(parseHealthNumber("15.234", breaths)).toBe(15.234);
   });
 });
 
 describe("healthDaySchema", () => {
   it("accepts any subset of metrics and rejects an empty or impossible day", () => {
-    expect(healthDaySchema.parse({ steps: "8,452", restingHr: 58 })).toEqual({ steps: 8452, restingHr: 58 });
+    expect(healthDaySchema.parse({ steps: "8,452", restingHr: 58 }).values).toEqual({ steps: 8452, restingHr: 58 });
     expect(healthDaySchema.safeParse({ date: "2026-10-19" }).success).toBe(false);
-    // Distance from an iPhone set to miles.
-    expect(healthDaySchema.parse({ distanceKm: "3,1", distanceUnit: "mi" }).distanceKm).toBeCloseTo(4.989, 3);
+    // Distance from a hand-built Shortcut on an iPhone set to miles.
+    expect(healthDaySchema.parse({ distanceKm: "3,1", distanceUnit: "mi" }).values.distanceKm).toBeCloseTo(4.989, 3);
     // Without an Apple Watch some metrics have no samples and come as empty text.
-    expect(healthDaySchema.parse({ steps: "8452", exerciseMin: "", restingHr: " " })).toEqual({ steps: 8452, exerciseMin: null, restingHr: null });
+    expect(healthDaySchema.parse({ steps: "8452", exerciseMin: "", restingHr: " " }).values).toEqual({ steps: 8452, exerciseMin: null, restingHr: null });
     expect(healthDaySchema.safeParse({ steps: "", restingHr: "" }).success).toBe(false);
     expect(healthDaySchema.safeParse({ steps: -5 }).success).toBe(false);
     expect(healthDaySchema.safeParse({ restingHr: 400 }).success).toBe(false);
   });
 
+  it("keeps symptoms that were logged and drops the empty ones", () => {
+    expect(healthDaySchema.parse({ symptom_fatigue: "Mild", symptom_fever: "", symptom_nausea: "Not Present" }).symptoms).toEqual({ fatigue: "Mild" });
+  });
+
   it("averages only the days that have each metric", () => {
-    const day = (steps: number | null, restingHr: number | null) => ({
+    const day = (steps: number | null, restingHr: number | null, asleepMin?: number): HealthDayDto => ({
+      ...(Object.fromEntries(HEALTH_METRICS.map((m) => [m, null])) as Record<(typeof HEALTH_METRICS)[number], null>),
       date: "2026-10-19",
       steps,
-      activeKcal: null,
-      exerciseMin: null,
-      distanceKm: null,
       restingHr,
-      sleepHours: null,
+      sleep: asleepMin === undefined ? null : { asleepMin, inBedMin: null, deepMin: null, coreMin: null, remMin: null, awakeMin: null, awakenings: 0, start: "", end: "" },
+      symptoms: {},
     });
-    expect(healthAverages([day(8000, 60), day(10000, null)])).toMatchObject({ steps: 9000, restingHr: 60, sleepHours: null });
+    expect(healthAverages([day(8000, 60, 420), day(10000, null)])).toMatchObject({ steps: 9000, restingHr: 60, sleepMin: 420, hrvMs: null });
+  });
+});
+
+describe("sleep", () => {
+  const line = (start: string, end: string, value: string) => `2026-10-19T${start}:00-03:00|2026-10-19T${end}:00-03:00|${value}`;
+
+  it("names stages in English or Spanish", () => {
+    expect(["In Bed", "Awake", "Core", "Deep", "REM", "Asleep", "En cama", "Profundo", "Despierto"].map(sleepStage)).toEqual([
+      "inBed",
+      "awake",
+      "core",
+      "deep",
+      "rem",
+      "asleep",
+      "inBed",
+      "deep",
+      "awake",
+    ]);
+  });
+
+  it("adds up a night by stage, counting minutes recorded by two devices once", () => {
+    const night = [
+      line("00:00", "08:00", "In Bed"),
+      line("00:10", "01:10", "Core"),
+      line("01:10", "02:00", "Deep"),
+      line("02:00", "02:10", "Awake"),
+      line("02:10", "03:00", "REM"),
+      line("03:00", "06:30", "Core"),
+      // The iPhone's own estimate overlaps the Watch's stages: not counted twice.
+      line("00:30", "06:00", "Asleep"),
+      line("06:30", "06:40", "Awake"),
+      line("06:40", "07:00", "Core"),
+      "una línea que no se entiende",
+    ].join("\n");
+    const s = summarizeSleep(night)!;
+    expect(s).toMatchObject({ coreMin: 290, deepMin: 50, remMin: 50, awakeMin: 20, awakenings: 2, inBedMin: 480 });
+    // Asleep from 00:10 to 07:00 minus the two 10-minute awakenings; the iPhone's plain "Asleep"
+    // estimate does not hide the one at 02:00.
+    expect(s.asleepMin).toBe(390);
+    expect(s.start).toBe(new Date("2026-10-19T00:10:00-03:00").toISOString());
+    expect(s.end).toBe(new Date("2026-10-19T07:00:00-03:00").toISOString());
+  });
+
+  it("works without an Apple Watch (only in bed or asleep) and with nothing readable", () => {
+    expect(summarizeSleep(line("00:00", "07:30", "In Bed"))).toMatchObject({ asleepMin: 0, inBedMin: 450, deepMin: null, awakenings: 0 });
+    expect(summarizeSleep([line("00:00", "07:30", "In Bed"), line("00:20", "07:00", "Asleep")].join("\n"))).toMatchObject({ asleepMin: 400, deepMin: null });
+    expect(summarizeSleep("basura\n||")).toBeNull();
   });
 });

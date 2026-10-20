@@ -197,15 +197,22 @@ Apple Salud no tiene una conexión web: solo una app en el iPhone puede leerlo. 
 2. **Agregar el Atajo** descarga `public/shortcuts/caliche-salud.shortcut`. Al agregarlo, el Atajo te pide la llave.
 3. La primera vez que corre pide permiso para leer Salud. Después, una automatización diaria (11:30 p.m.) lo corre sola.
 
-Manda pasos, calorías activas, minutos de ejercicio, distancia (en km) y frecuencia cardiaca en reposo a `POST /api/apple-health/ingest` con `Authorization: Bearer <llave>`. Cada métrica se lee **agrupada por día** (como la cuenta Salud, sin sumar doble el iPhone y el Apple Watch). Acepta números como texto en cualquier formato regional ("8,452", "512,4 kcal"), un campo vacío cuenta como "sin dato", y `{ "days": [...] }` permite mandar varios días. Se ve en Inicio (hoy y promedio de 7 días) y en Historial.
+Cada noche manda a `POST /api/apple-health/ingest` (con `Authorization: Bearer <llave>`):
+
+- **Movimiento y energía:** pasos, distancia, pisos, minutos de ejercicio, de pie, en movimiento y de atención plena, calorías activas y en reposo (juntas dan el gasto total del día).
+- **Corazón y cuerpo:** frecuencia cardiaca en reposo y al caminar, HRV, frecuencia respiratoria, temperatura de la muñeca y agua.
+- **Sueño:** cada muestra de las últimas 36 horas como `inicio|fin|fase`. El servidor suma cada fase (profundo, core, REM, despierto, en cama) como unión de intervalos, para no contar doble lo que registran el iPhone y el Apple Watch; si hay fases del reloj, el "Asleep" del iPhone no cuenta.
+- **Síntomas** registrados a mano en Salud (fatiga, fiebre, náusea, dolor de garganta).
+
+Cada métrica se lee **agrupada por día** y en una unidad fija. La tabla de métricas vive en `shared/health.ts` y de ahí salen la validación del servidor, las pantallas y las acciones del Atajo. Acepta números como texto en cualquier formato regional, un campo vacío cuenta como "sin dato", y `{ "days": [...] }` permite mandar varios días. Se ve en Inicio (sueño, gasto total, actividad, corazón) y en Historial.
 
 El Atajo se genera y se firma en una Mac (solo macOS puede firmarlos) con:
 
 ```bash
-python3 scripts/build-health-shortcut.py https://caliche-balance.vercel.app
+npx tsx scripts/build-health-shortcut.ts https://caliche-balance.vercel.app
 ```
 
-El formato de sus acciones viene de Atajos reales publicados; Ajustes también trae la guía para armarlo a mano por si el archivo no funciona en alguna versión de iOS.
+El formato de sus acciones viene de Atajos reales, incluido uno creado en un iPhone con iOS 26. Ajustes también trae la guía para armarlo a mano por si el archivo no funciona en alguna versión de iOS.
 
 ## Notificaciones
 

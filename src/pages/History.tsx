@@ -328,7 +328,16 @@ export function HistoryPage({
   const healthRows = useMemo<Row[]>(
     () =>
       healthDays
-        .map((d) => ({ t: new Date(`${d.date}T12:00:00`).getTime(), steps: d.steps, exerciseMin: d.exerciseMin, restingHr: d.restingHr }))
+        .map((d) => ({
+          t: new Date(`${d.date}T12:00:00`).getTime(),
+          steps: d.steps,
+          exerciseMin: d.exerciseMin,
+          restingHr: d.restingHr,
+          hrvMs: d.hrvMs,
+          standMin: d.standMin,
+          totalKcal: d.activeKcal !== null && d.restingKcal !== null ? d.activeKcal + d.restingKcal : null,
+          sleepHours: d.sleep && d.sleep.asleepMin > 0 ? d.sleep.asleepMin / 60 : null,
+        }))
         .filter((r) => r.t >= cutoff),
     [healthDays, cutoff],
   );
@@ -461,6 +470,25 @@ export function HistoryPage({
         <>
           <h2 className="px-1 pt-2 text-lg font-semibold">{t("ahTitle")}</h2>
           <TrendChart
+            title={`${t("sleepTitle")} (h)`}
+            rows={healthRows}
+            series={one("sleepHours", t("sleepTitle"))}
+            band={{ min: 7, max: 9 }}
+            formatTick={(n) => f.number(n, 0)}
+            formatValue={(n) => f.number(n)}
+            unit=" h"
+            about={t("about.ah.sleep")}
+          />
+          <TrendChart
+            title={`${t("ahTotalKcal")} (kcal)`}
+            rows={healthRows}
+            series={one("totalKcal", t("ahTotalKcal"))}
+            formatTick={(n) => f.number(n, 0)}
+            formatValue={(n) => f.number(n, 0)}
+            unit=" kcal"
+            about={t("about.ah.totalKcal")}
+          />
+          <TrendChart
             title={t("ahMetric.steps")}
             rows={healthRows}
             series={one("steps", t("ahMetric.steps"))}
@@ -485,6 +513,24 @@ export function HistoryPage({
             formatValue={(n) => f.number(n, 0)}
             unit={` ${t("ahBpm")}`}
             about={t("about.ah.restingHr")}
+          />
+          <TrendChart
+            title={`${t("ahMetric.hrvMs")} (ms)`}
+            rows={healthRows}
+            series={one("hrvMs", t("ahMetric.hrvMs"))}
+            formatTick={(n) => f.number(n, 0)}
+            formatValue={(n) => f.number(n, 0)}
+            unit=" ms"
+            about={t("about.ah.hrvMs")}
+          />
+          <TrendChart
+            title={`${t("ahMetric.standMin")} (min)`}
+            rows={healthRows}
+            series={one("standMin", t("ahMetric.standMin"))}
+            formatTick={(n) => f.number(n, 0)}
+            formatValue={(n) => f.number(n, 0)}
+            unit=" min"
+            about={t("about.ah.standMin")}
           />
         </>
       )}

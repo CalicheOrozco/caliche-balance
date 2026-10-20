@@ -11,7 +11,7 @@ import { lossPlan, SAFE_LOSS_KG_PER_WEEK } from "../../shared/fatLoss.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
 import { StreakCard, useNewLevels } from "../achievements.tsx";
 import { ReportCard, TrendLine } from "../reports.tsx";
-import { HealthTodayCard } from "../appleHealth.tsx";
+import { HealthTodayCard, SleepCard } from "../appleHealth.tsx";
 import { useCompareXiaomi } from "../compare.ts";
 import { bmiPercentile } from "../../shared/percentiles.ts";
 import { scoreOf } from "../../shared/score.ts";
@@ -737,6 +737,8 @@ export function HomePage({
         title={t("weeklyTitle")}
         intro={t("weeklyIntro")}
       />
+
+      <SleepCard connected={appleHealthConnected} />
 
       <HealthTodayCard connected={appleHealthConnected} />
 

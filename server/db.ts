@@ -1,4 +1,5 @@
 import { type Collection, type Db, MongoClient, type ObjectId } from "mongodb";
+import type { HealthMetric, HealthSymptom, SleepSummary } from "../shared/health.ts";
 import type { BodyFatGoal, MaintainGoal, ProfileDto, WeightGoal } from "../shared/schemas.ts";
 
 export interface UserDoc {
@@ -103,20 +104,17 @@ export interface RateLimitDoc {
   expiresAt: Date;
 }
 
-/** One local day of Apple Health totals; each metric is missing until the Shortcut sends it. */
-export interface HealthDayDoc {
+/** One local day of Apple Health data; each value is missing until the Shortcut sends it. */
+export type HealthDayDoc = {
   _id: ObjectId;
   userId: ObjectId;
   /** Local date, YYYY-MM-DD. */
   date: string;
-  steps?: number | null;
-  activeKcal?: number | null;
-  exerciseMin?: number | null;
-  distanceKm?: number | null;
-  restingHr?: number | null;
-  sleepHours?: number | null;
+  /** The night that ended this day. */
+  sleep?: SleepSummary | null;
+  symptoms?: Partial<Record<HealthSymptom, string>>;
   updatedAt: Date;
-}
+} & Partial<Record<HealthMetric, number | null>>;
 
 export interface Collections {
   users: Collection<UserDoc>;

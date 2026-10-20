@@ -1,24 +1,62 @@
 import { z } from "zod";
 
 /**
- * Daily activity from Apple Health, sent by an iOS Shortcut. Apple Health has no web API: only an
- * app on the iPhone can read it, so the Shortcut reads the day's totals and posts them here with
- * the person's own key.
+ * Daily data from Apple Health, sent by an iOS Shortcut. Apple Health has no web API: only an app
+ * on the iPhone can read it, so the Shortcut reads the day's values and posts them here with the
+ * person's own key. This table owns every metric: the API validates against it, the screens label
+ * from it, and scripts/build-health-shortcut.ts builds the Shortcut's actions from it.
  */
 
-export const HEALTH_METRICS = ["steps", "activeKcal", "exerciseMin", "distanceKm", "restingHr", "sleepHours"] as const;
-export type HealthMetric = (typeof HEALTH_METRICS)[number];
+export interface HealthMetricSpec {
+  /** Health type exactly as the Shortcuts "Find Health Samples" menu names it. */
+  type: string;
+  /** HealthKit unit the Shortcut asks for, so values always arrive in this unit. */
+  unit: string;
+  /** Days back the Shortcut looks; most are today's total, a few change rarely. */
+  days: number;
+  min: number;
+  max: number;
+  group: "activity" | "energy" | "heart" | "body";
+}
 
-/** Whole-number metrics: a single "," or "." followed by three digits is a thousands separator. */
-const WHOLE: ReadonlySet<HealthMetric> = new Set(["steps", "exerciseMin", "restingHr"]);
+/** Type names checked against the Shortcuts menu on iOS 26; units are HealthKit unit strings. */
+export const HEALTH_METRIC_SPECS = {
+  steps: { type: "Steps", unit: "count", days: 1, min: 0, max: 200_000, group: "activity" },
+  distanceKm: { type: "Walking + Running Distance", unit: "km", days: 1, min: 0, max: 500, group: "activity" },
+  flightsClimbed: { type: "Flights Climbed", unit: "count", days: 1, min: 0, max: 2_000, group: "activity" },
+  exerciseMin: { type: "Exercise Minutes", unit: "min", days: 1, min: 0, max: 1_440, group: "activity" },
+  standMin: { type: "Stand Minutes", unit: "min", days: 1, min: 0, max: 1_440, group: "activity" },
+  moveMin: { type: "Move Minutes", unit: "min", days: 1, min: 0, max: 1_440, group: "activity" },
+  mindfulMin: { type: "Mindful Minutes", unit: "min", days: 1, min: 0, max: 1_440, group: "activity" },
+  activeKcal: { type: "Active Energy", unit: "kcal", days: 1, min: 0, max: 20_000, group: "energy" },
+  restingKcal: { type: "Resting Energy", unit: "kcal", days: 1, min: 0, max: 10_000, group: "energy" },
+  restingHr: { type: "Resting Heart Rate", unit: "count/min", days: 1, min: 20, max: 250, group: "heart" },
+  hrvMs: { type: "Heart Rate Variability", unit: "ms", days: 1, min: 1, max: 500, group: "heart" },
+  walkingHr: { type: "Walking Heart Rate Average", unit: "count/min", days: 1, min: 30, max: 250, group: "heart" },
+  respiratoryRate: { type: "Respiratory Rate", unit: "count/min", days: 1, min: 4, max: 60, group: "heart" },
+  wristTempC: { type: "Wrist Temperature", unit: "degC", days: 1, min: 20, max: 45, group: "body" },
+  waterMl: { type: "Water", unit: "mL", days: 1, min: 0, max: 20_000, group: "body" },
+} as const satisfies Record<string, HealthMetricSpec>;
+
+export type HealthMetric = keyof typeof HEALTH_METRIC_SPECS;
+export const HEALTH_METRICS = Object.keys(HEALTH_METRIC_SPECS) as HealthMetric[];
+
+/** Symptoms logged by hand in the Health app; the Shortcut sends the latest one of the day. */
+export const HEALTH_SYMPTOMS = { fatigue: "Fatigue", fever: "Fever", nausea: "Nausea", soreThroat: "Sore Throat" } as const;
+export type HealthSymptom = keyof typeof HEALTH_SYMPTOMS;
+export const HEALTH_SYMPTOM_KEYS = Object.keys(HEALTH_SYMPTOMS) as HealthSymptom[];
+/** The JSON field a symptom arrives in, kept apart from the numeric metrics. */
+export const symptomField = (s: HealthSymptom) => `symptom_${s}` as const;
 
 /**
  * Reads a number as a Shortcut may send it: a JSON number, or text in the iPhone's region format
- * ("8,452", "8.452", "8 452", "512,4 kcal"). Units and spaces are dropped. With both "," and ".",
- * the last one is the decimal mark; one repeated mark separates thousands; a single mark is
- * decimal, except in whole-number metrics when exactly three digits follow it.
+ * ("8,452", "8.452", "8 452", "1,935 kcal"). Units and spaces are dropped. With both "," and ".",
+ * the last one is the decimal mark; one repeated mark separates thousands. A single mark followed
+ * by exactly three digits could be either ("1,935" is 1935 in English and 1.935 in Spanish):
+ * Shortcuts writes thousands with it, so that reading wins unless it falls outside the metric's
+ * range, as "15.234" breaths a minute would.
  */
-export function parseHealthNumber(value: unknown, whole: boolean): unknown {
+export function parseHealthNumber(value: unknown, range: { min: number; max: number }): unknown {
   if (typeof value !== "string") return value;
   const text = value.replace(/[\s  ]/g, "").replace(/[^\d.,-]/g, "");
   if (!/\d/.test(text)) return value;
@@ -34,38 +72,153 @@ export function parseHealthNumber(value: unknown, whole: boolean): unknown {
   } else if (commas + dots === 1) {
     const mark = commas ? "," : ".";
     const after = text.length - text.indexOf(mark) - 1;
-    normalized = whole && after === 3 ? text.replace(mark, "") : text.replace(mark, ".");
+    const thousands = Number(text.replace(mark, ""));
+    normalized = after === 3 && thousands >= range.min && thousands <= range.max ? text.replace(mark, "") : text.replace(mark, ".");
   }
   const n = Number(normalized);
   return Number.isFinite(n) ? n : value;
 }
 
 /** A metric the Shortcut found no samples for arrives as empty text: that is "no data", not an error. */
-const metric = (name: HealthMetric, min: number, max: number) =>
+const metric = (spec: HealthMetricSpec) =>
   z
-    .preprocess((v) => (typeof v === "string" && v.trim() === "" ? null : parseHealthNumber(v, WHOLE.has(name))), z.number().min(min).max(max).nullable())
+    .preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? null : parseHealthNumber(v, spec)),
+      z.number().min(spec.min).max(spec.max).nullable(),
+    )
     .optional();
 
 export const KM_PER_MI = 1.609344;
 
+// ---- Sleep ----------------------------------------------------------------------------------
+
+export type SleepStage = "inBed" | "awake" | "core" | "deep" | "rem" | "asleep";
+
+export interface SleepSummary {
+  /** Time asleep in any stage, overlaps between devices counted once. */
+  asleepMin: number;
+  inBedMin: number | null;
+  deepMin: number | null;
+  coreMin: number | null;
+  remMin: number | null;
+  awakeMin: number | null;
+  /** Times awake between falling asleep and waking up. */
+  awakenings: number;
+  /** Fell asleep / woke up (ISO), from the asleep stages or, without them, time in bed. */
+  start: string;
+  end: string;
+}
+
+/** Sleep values as Health reports them, in English or Spanish. */
+export function sleepStage(value: string): SleepStage | null {
+  const v = value.trim().toLowerCase();
+  if (/in bed|en cama/.test(v)) return "inBed";
+  if (/awake|despiert/.test(v)) return "awake";
+  if (/deep|profund/.test(v)) return "deep";
+  if (/\brem\b/.test(v)) return "rem";
+  if (/core|n[uú]cleo|b[aá]sico|ligero|light/.test(v)) return "core";
+  if (/asleep|dormid|unspecified/.test(v)) return "asleep";
+  return null;
+}
+
+type Interval = [number, number];
+
+function merge(intervals: Interval[]): Interval[] {
+  const sorted = [...intervals].sort((a, b) => a[0] - b[0]);
+  const out: Interval[] = [];
+  for (const [s, e] of sorted) {
+    const last = out[out.length - 1];
+    if (last && s <= last[1]) last[1] = Math.max(last[1], e);
+    else out.push([s, e]);
+  }
+  return out;
+}
+
+const minutes = (intervals: Interval[]) => merge(intervals).reduce((sum, [s, e]) => sum + (e - s), 0) / 60_000;
+
 /**
- * One day of activity. The date is the person's local day; left out, it is today in their time zone.
- * The Shortcut sends distance in the unit the iPhone uses; "mi" is converted to kilometers here.
+ * Adds up the night from the Shortcut's sleep samples, one per line as "start|end|value" with ISO
+ * dates. An iPhone and an Apple Watch can record the same minutes, so every stage is a union of
+ * intervals, never a plain sum. Lines that cannot be read are skipped.
+ */
+export function summarizeSleep(text: string): SleepSummary | null {
+  const byStage = new Map<SleepStage, Interval[]>();
+  for (const line of text.split(/\r?\n/)) {
+    const [startText, endText, ...rest] = line.split("|");
+    const stage = sleepStage(rest.join("|"));
+    const start = Date.parse(startText?.trim() ?? "");
+    const end = Date.parse(endText?.trim() ?? "");
+    if (!stage || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    byStage.set(stage, [...(byStage.get(stage) ?? []), [start, end]]);
+  }
+  const get = (s: SleepStage) => byStage.get(s) ?? [];
+  // The Watch's stages are the measurement; the iPhone's plain "Asleep" estimate would paper over
+  // the awakenings the Watch recorded, so it only counts on nights without stages.
+  const hasStages = get("core").length + get("deep").length + get("rem").length > 0;
+  const asleep = hasStages ? [...get("core"), ...get("deep"), ...get("rem")] : get("asleep");
+  const span = asleep.length ? asleep : get("inBed");
+  if (span.length === 0) return null;
+  const start = Math.min(...span.map((i) => i[0]));
+  const end = Math.max(...span.map((i) => i[1]));
+  const stageMin = (s: SleepStage) => (hasStages ? Math.round(minutes(get(s))) : null);
+  const awakenings = merge(get("awake")).filter(([s, e]) => s > start && e < end).length;
+  return {
+    asleepMin: Math.round(minutes(asleep)),
+    inBedMin: get("inBed").length ? Math.round(minutes(get("inBed"))) : null,
+    deepMin: stageMin("deep"),
+    coreMin: stageMin("core"),
+    remMin: stageMin("rem"),
+    awakeMin: get("awake").length ? Math.round(minutes(get("awake"))) : hasStages ? 0 : null,
+    awakenings,
+    start: new Date(start).toISOString(),
+    end: new Date(end).toISOString(),
+  };
+}
+
+// ---- Input --------------------------------------------------------------------------------
+
+const metricShape = Object.fromEntries(HEALTH_METRICS.map((m) => [m, metric(HEALTH_METRIC_SPECS[m])])) as {
+  [K in HealthMetric]: ReturnType<typeof metric>;
+};
+const symptomShape = Object.fromEntries(
+  HEALTH_SYMPTOM_KEYS.map((s) => [symptomField(s), z.string().max(40).nullable().optional()]),
+) as { [K in HealthSymptom as `symptom_${K}`]: z.ZodOptional<z.ZodNullable<z.ZodString>> };
+
+/** Symptom values that mean it was not there. */
+const NOT_PRESENT = /^(|not present|no presente|ausente)$/i;
+
+/**
+ * One day. The date is the person's local day; left out, it is today in their time zone. The
+ * Shortcut asks Health for fixed units; "distanceUnit": "mi" still converts a hand-built one.
  */
 export const healthDaySchema = z
   .object({
     date: z.iso.date().optional(),
     distanceUnit: z.enum(["km", "mi"]).optional(),
-    steps: metric("steps", 0, 200_000),
-    activeKcal: metric("activeKcal", 0, 20_000),
-    exerciseMin: metric("exerciseMin", 0, 1_440),
-    distanceKm: metric("distanceKm", 0, 500),
-    restingHr: metric("restingHr", 20, 250),
-    sleepHours: metric("sleepHours", 0, 24),
+    ...metricShape,
+    /** Sleep samples as "start|end|value" lines. */
+    sleep: z.string().max(200_000).nullable().optional(),
+    ...symptomShape,
   })
-  .refine((d) => HEALTH_METRICS.some((m) => d[m] !== undefined && d[m] !== null), { message: "health-empty" })
-  .transform(({ distanceUnit, ...day }) =>
-    distanceUnit === "mi" && typeof day.distanceKm === "number" ? { ...day, distanceKm: day.distanceKm * KM_PER_MI } : day,
+  .transform(({ distanceUnit, sleep, ...rest }) => {
+    const values = Object.fromEntries(HEALTH_METRICS.filter((m) => rest[m] !== undefined).map((m) => [m, rest[m]])) as Partial<Record<HealthMetric, number | null>>;
+    if (distanceUnit === "mi" && typeof values.distanceKm === "number") values.distanceKm *= KM_PER_MI;
+    const symptoms = Object.fromEntries(
+      HEALTH_SYMPTOM_KEYS.flatMap((s) => {
+        const v = rest[symptomField(s)]?.trim() ?? "";
+        return NOT_PRESENT.test(v) ? [] : [[s, v]];
+      }),
+    ) as Partial<Record<HealthSymptom, string>>;
+    return {
+      date: rest.date,
+      values,
+      sleep: typeof sleep === "string" && sleep.trim() ? summarizeSleep(sleep) : undefined,
+      symptoms,
+    };
+  })
+  .refine(
+    (d) => Object.values(d.values).some((v) => v !== null && v !== undefined) || d.sleep || Object.keys(d.symptoms).length > 0,
+    { message: "health-empty" },
   );
 
 /**
@@ -78,15 +231,12 @@ export const healthIngestSchema = z.preprocess(
 );
 export type HealthDayInput = z.output<typeof healthDaySchema>;
 
-export interface HealthDayDto {
-  date: string;
-  steps: number | null;
-  activeKcal: number | null;
-  exerciseMin: number | null;
-  distanceKm: number | null;
-  restingHr: number | null;
-  sleepHours: number | null;
-}
+// ---- Output -------------------------------------------------------------------------------
+
+export type HealthDayDto = { date: string; sleep: SleepSummary | null; symptoms: Partial<Record<HealthSymptom, string>> } & Record<
+  HealthMetric,
+  number | null
+>;
 
 /** The person's key, shown once when made; only when it was made and when data last arrived are kept. */
 export interface AppleHealthStatus {
@@ -95,11 +245,13 @@ export interface AppleHealthStatus {
 }
 
 /** Averages over the given days, skipping days without that metric. */
-export function healthAverages(days: HealthDayDto[]): Record<HealthMetric, number | null> {
-  return Object.fromEntries(
-    HEALTH_METRICS.map((m) => {
-      const values = days.map((d) => d[m]).filter((v): v is number => v !== null);
-      return [m, values.length ? values.reduce((a, b) => a + b, 0) / values.length : null];
-    }),
-  ) as Record<HealthMetric, number | null>;
+export function healthAverages(days: HealthDayDto[]): Record<HealthMetric | "sleepMin", number | null> {
+  const avg = (values: (number | null | undefined)[]) => {
+    const present = values.filter((v): v is number => typeof v === "number");
+    return present.length ? present.reduce((a, b) => a + b, 0) / present.length : null;
+  };
+  return {
+    ...(Object.fromEntries(HEALTH_METRICS.map((m) => [m, avg(days.map((d) => d[m]))])) as Record<HealthMetric, number | null>),
+    sleepMin: avg(days.map((d) => d.sleep?.asleepMin)),
+  };
 }

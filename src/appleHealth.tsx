@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { FiActivity, FiCheck, FiChevronDown, FiCopy, FiDownload, FiHeart, FiMapPin, FiZap } from "react-icons/fi";
-import type { IconType } from "react-icons";
+import { FiCheck, FiChevronDown, FiCopy, FiDownload, FiHeart, FiMoon } from "react-icons/fi";
 import { type HealthMetric, healthAverages } from "../shared/health.ts";
 import type { UserDto } from "../shared/schemas.ts";
 import { api } from "./api.ts";
@@ -11,7 +10,7 @@ import { Button, Card, useFormat } from "./ui.tsx";
 /** The signed Shortcut built by scripts/build-health-shortcut.py. */
 const SHORTCUT_FILE = "/shortcuts/caliche-salud.shortcut";
 /** Metrics the Shortcut sends today; sleep can be sent by hand-built Shortcuts. */
-const SENT: Exclude<HealthMetric, "sleepHours">[] = ["steps", "activeKcal", "exerciseMin", "distanceKm", "restingHr"];
+const SENT: HealthMetric[] = ["steps", "activeKcal", "exerciseMin", "distanceKm", "restingHr"];
 
 export function useHealthDays(enabled: boolean) {
   return useQuery({ queryKey: ["apple-health", "days"], queryFn: () => api.healthDays(90), enabled });
@@ -169,47 +168,164 @@ export function AppleHealthCard({ user }: { user: UserDto }) {
   );
 }
 
-const ICON: Record<Exclude<HealthMetric, "sleepHours">, IconType> = {
-  steps: FiActivity,
-  activeKcal: FiZap,
-  exerciseMin: FiActivity,
-  distanceKm: FiMapPin,
-  restingHr: FiHeart,
-};
+/** How each metric reads on screen; the unit labels come from the person's language where needed. */
+function useMetricFormat() {
+  const { t } = useI18n();
+  const f = useFormat();
+  return (m: HealthMetric, v: number | null | undefined): string => {
+    if (v === null || v === undefined) return "-";
+    switch (m) {
+      case "distanceKm":
+        return `${f.number(v)} km`;
+      case "activeKcal":
+      case "restingKcal":
+        return `${f.number(v, 0)} kcal`;
+      case "exerciseMin":
+      case "standMin":
+      case "moveMin":
+      case "mindfulMin":
+        return `${f.number(v, 0)} min`;
+      case "restingHr":
+      case "walkingHr":
+        return `${f.number(v, 0)} ${t("ahBpm")}`;
+      case "hrvMs":
+        return `${f.number(v, 0)} ms`;
+      case "respiratoryRate":
+        return `${f.number(v)} rpm`;
+      case "wristTempC":
+        return `${f.number(v)} °C`;
+      case "waterMl":
+        return `${f.number(v / 1000)} L`;
+      default:
+        return f.number(v, 0);
+    }
+  };
+}
 
-/** Home: the latest day from Apple Health next to the 7-day average. */
+/** "7 h 05 min", or "55 min" under an hour. */
+export function hoursText(minutes: number): string {
+  const total = Math.round(minutes);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return h === 0 ? `${m} min` : `${h} h ${String(m).padStart(2, "0")} min`;
+}
+
+const GROUPS: { key: "activity" | "energy" | "heart" | "body"; metrics: HealthMetric[] }[] = [
+  { key: "activity", metrics: ["steps", "distanceKm", "flightsClimbed", "exerciseMin", "standMin", "moveMin"] },
+  { key: "energy", metrics: ["activeKcal", "restingKcal"] },
+  { key: "heart", metrics: ["restingHr", "hrvMs", "walkingHr", "respiratoryRate"] },
+  { key: "body", metrics: ["wristTempC", "waterMl", "mindfulMin"] },
+];
+
+/** Home: the latest day from Apple Health next to the 7-day average, by group, with total calories burned. */
 export function HealthTodayCard({ connected }: { connected: boolean }) {
   const { t, tf } = useI18n();
   const f = useFormat();
+  const format = useMetricFormat();
   const days = useHealthDays(connected).data ?? [];
   const latest = days[days.length - 1];
   if (!latest) return null;
   const week = healthAverages(days.slice(-7));
-  const format = (m: HealthMetric, v: number | null) =>
-    v === null ? "-" : m === "distanceKm" ? `${f.number(v)} km` : m === "activeKcal" ? `${f.number(v, 0)} kcal` : m === "exerciseMin" ? `${f.number(v, 0)} min` : m === "restingHr" ? `${f.number(v, 0)} ${t("ahBpm")}` : f.number(v, 0);
-  const shown = SENT.filter((m) => latest[m] !== null || week[m] !== null);
+  const total = latest.activeKcal !== null && latest.restingKcal !== null ? latest.activeKcal + latest.restingKcal : null;
+  const weekTotal = week.activeKcal !== null && week.restingKcal !== null ? week.activeKcal + week.restingKcal : null;
+  const symptoms = Object.entries(latest.symptoms) as [keyof typeof latest.symptoms, string][];
   return (
     <Card>
       <h2 className="flex items-center gap-2 text-lg font-semibold">
         <FiHeart className="text-bad" aria-hidden /> {t("ahTodayTitle")}
       </h2>
       <p className="text-sm text-muted">{tf("ahFrom", { date: f.date(`${latest.date}T12:00:00`) })}</p>
-      <dl className="mt-3 grid grid-cols-2 gap-3">
-        {shown.map((m) => {
-          const Icon = ICON[m];
-          return (
-            <div key={m} className="rounded-2xl bg-surface-2 p-3">
-              <dt className="flex items-center gap-1.5 text-sm text-ink-2">
-                <Icon size={14} aria-hidden /> {t(`ahMetric.${m}` as MessageKey)}
-              </dt>
-              <dd className="text-xl font-semibold">{format(m, latest[m])}</dd>
-              <dd className="text-xs text-muted">
-                {t("ahWeekAvg")}: {format(m, week[m])}
-              </dd>
-            </div>
-          );
-        })}
-      </dl>
+      {total !== null && (
+        <div className="mt-3 rounded-2xl bg-brand/10 p-3">
+          <p className="text-sm text-ink-2">{t("ahTotalKcal")}</p>
+          <p className="text-2xl font-bold">{f.number(total, 0)} kcal</p>
+          {weekTotal !== null && (
+            <p className="text-xs text-muted">
+              {t("ahWeekAvg")}: {f.number(weekTotal, 0)} kcal
+            </p>
+          )}
+          <p className="mt-1 text-xs text-ink-2">{t("ahTotalKcalHint")}</p>
+        </div>
+      )}
+      {GROUPS.map((g) => {
+        const shown = g.metrics.filter((m) => latest[m] !== null || week[m] !== null);
+        if (shown.length === 0) return null;
+        return (
+          <div key={g.key} className="mt-4">
+            <p className="text-sm font-semibold text-ink-2">{t(`ahGroup.${g.key}` as MessageKey)}</p>
+            <dl className="mt-2 grid grid-cols-2 gap-2">
+              {shown.map((m) => (
+                <div key={m} className="rounded-2xl bg-surface-2 p-3">
+                  <dt className="text-xs text-ink-2">{t(`ahMetric.${m}` as MessageKey)}</dt>
+                  <dd className="text-lg font-semibold">{format(m, latest[m])}</dd>
+                  <dd className="text-xs text-muted">
+                    {t("ahWeekAvg")}: {format(m, week[m])}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        );
+      })}
+      {symptoms.length > 0 && (
+        <div className="mt-4">
+          <p className="text-sm font-semibold text-ink-2">{t("ahSymptomsTitle")}</p>
+          <ul className="mt-1 text-sm text-ink">
+            {symptoms.map(([s, v]) => (
+              <li key={s}>
+                {t(`ahSymptom.${s}` as MessageKey)}: {v}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+const STAGE_COLOR = { deep: "bg-[#3b5bdb]", core: "bg-[#4dabf7]", rem: "bg-[#22b8cf]", awake: "bg-[#f59f00]" } as const;
+
+/** Home: last night's sleep with its stages, against the 7-day average. */
+export function SleepCard({ connected }: { connected: boolean }) {
+  const { t, tf, locale } = useI18n();
+  const days = useHealthDays(connected).data ?? [];
+  const night = [...days].reverse().find((d) => d.sleep)?.sleep;
+  if (!night) return null;
+  const week = healthAverages(days.slice(-7)).sleepMin;
+  const time = (iso: string) => new Date(iso).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+  const stages = (["deep", "core", "rem", "awake"] as const).map((k) => ({ k, min: night[`${k}Min`] })).filter((s) => s.min !== null && s.min > 0);
+  const total = stages.reduce((sum, s) => sum + (s.min ?? 0), 0);
+  return (
+    <Card>
+      <h2 className="flex items-center gap-2 text-lg font-semibold">
+        <FiMoon className="text-brand" aria-hidden /> {t("sleepTitle")}
+      </h2>
+      <p className="mt-2 text-2xl font-bold">{tf("sleepAsleep", { hours: hoursText(night.asleepMin) })}</p>
+      <p className="text-sm text-ink-2">{tf("sleepSpan", { start: time(night.start), end: time(night.end) })}</p>
+      {night.inBedMin !== null && <p className="text-sm text-muted">{tf("sleepInBed", { hours: hoursText(night.inBedMin) })}</p>}
+      {total > 0 ? (
+        <>
+          <div className="mt-3 flex h-3 gap-0.5 overflow-hidden rounded-full" aria-hidden>
+            {stages.map((s) => (
+              <div key={s.k} className={STAGE_COLOR[s.k]} style={{ width: `${((s.min ?? 0) / total) * 100}%` }} />
+            ))}
+          </div>
+          <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
+            {stages.map((s) => (
+              <div key={s.k} className="flex items-center gap-2">
+                <span className={`h-2.5 w-2.5 rounded-full ${STAGE_COLOR[s.k]}`} aria-hidden />
+                <dt className="text-ink-2">{t(`sleepStage.${s.k}` as MessageKey)}</dt>
+                <dd className="ml-auto font-medium">{hoursText(s.min ?? 0)}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-2 text-sm text-ink-2">{night.awakenings === 1 ? t("sleepAwakeningsOne") : tf("sleepAwakenings", { n: night.awakenings })}</p>
+        </>
+      ) : (
+        <p className="mt-2 text-sm text-muted">{t("sleepNoStages")}</p>
+      )}
+      {week !== null && <p className="mt-2 text-sm text-muted">{tf("sleepWeekAvg", { hours: hoursText(week) })}</p>}
+      {night.asleepMin > 0 && night.asleepMin < 7 * 60 && <p className="mt-2 text-sm text-warn">{t("sleepShort")}</p>}
     </Card>
   );
 }
