@@ -1,11 +1,12 @@
-import { api } from "./api.ts";
+import { api, ApiError } from "./api.ts";
 
 /**
  * Push notifications on this device. On iPhone they need the app installed on the home screen
  * (iOS 16.4+) and permission granted from a tap.
  */
 
-export type PushState = "unsupported" | "needs-install" | "unavailable" | "denied" | "off" | "on";
+/** "misconfigured": the server has notification keys, but in a format it cannot use. */
+export type PushState = "unsupported" | "needs-install" | "unavailable" | "misconfigured" | "denied" | "off" | "on";
 
 function isStandalone(): boolean {
   return window.matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true;
@@ -42,7 +43,8 @@ export async function pushState(): Promise<PushState> {
 export async function enablePush(): Promise<PushState> {
   const permission = await Notification.requestPermission();
   if (permission !== "granted") return permission === "denied" ? "denied" : "off";
-  const key = await api.pushKey().catch(() => null);
+  const key = await api.pushKey().catch((error: unknown) => (error instanceof ApiError && error.code === "push-misconfigured" ? "misconfigured" : null));
+  if (key === "misconfigured") return "misconfigured";
   if (!key) return "unavailable";
   const reg = await navigator.serviceWorker.ready;
   const subscription =

@@ -49,6 +49,8 @@ export interface AppOptions {
   cronSecret?: string;
   /** Web Push sender; undefined turns notifications off (no VAPID keys). */
   push?: PushSender;
+  /** Why push is off, so the app can say whether the keys are missing or malformed. */
+  pushProblem?: "missing" | "invalid" | null;
 }
 
 const MAX_MEASUREMENTS_PAGE = 1000;
@@ -81,7 +83,7 @@ function toUserDto(user: UserDoc): UserDto {
   };
 }
 
-export function createApp({ getCollections, secureCookies, zepp = zeppClient, cronSecret, push }: AppOptions) {
+export function createApp({ getCollections, secureCookies, zepp = zeppClient, cronSecret, push, pushProblem = null }: AppOptions) {
   const app = express();
   app.set("trust proxy", true);
   app.disable("x-powered-by");
@@ -337,7 +339,7 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
   );
 
   router.get("/push/key", (_req, res) => {
-    if (!push) return res.status(404).json({ error: "push-unavailable" });
+    if (!push) return res.status(404).json({ error: pushProblem === "invalid" ? "push-misconfigured" : "push-unavailable" });
     res.json({ publicKey: push.publicKey });
   });
 

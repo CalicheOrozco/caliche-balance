@@ -330,6 +330,8 @@ function NotificationsCard({ user }: { user: UserDto }) {
         ? t("notificationsUnsupported")
         : state === "unavailable"
           ? t("notificationsUnavailable")
+          : state === "misconfigured"
+            ? t("notificationsMisconfigured")
           : state === "denied"
             ? t("notificationsDenied")
             : null;

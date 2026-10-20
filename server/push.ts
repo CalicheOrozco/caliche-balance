@@ -21,13 +21,42 @@ export interface PushSender {
   send(target: PushTarget, payload: string): Promise<"sent" | "gone">;
 }
 
-export function webPushSender(): PushSender | undefined {
-  const publicKey = process.env.VAPID_PUBLIC_KEY;
-  const privateKey = process.env.VAPID_PRIVATE_KEY;
+/**
+ * Reads a setting the way people paste it into a hosting dashboard: surrounding spaces, quotes,
+ * or the whole "NAME=value" line from a .env file are removed.
+ */
+export function envValue(name: string, env: Record<string, string | undefined> = process.env): string | undefined {
+  let value = env[name]?.trim();
+  if (!value) return undefined;
+  if (value.startsWith(`${name}=`)) value = value.slice(name.length + 1).trim();
+  const quoted = /^(["'])(.*)\1$/.exec(value);
+  return (quoted ? quoted[2]! : value).trim() || undefined;
+}
+
+export type PushSetup = { sender: PushSender; problem: null } | { sender: undefined; problem: "missing" | "invalid" };
+
+/**
+ * Notifications are optional: without the three settings, or with ones that web-push rejects, the
+ * API still starts and only notifications are off. The log names the setting at fault, never its value.
+ */
+export function webPushSetup(env: Record<string, string | undefined> = process.env): PushSetup {
+  const publicKey = envValue("VAPID_PUBLIC_KEY", env);
+  const privateKey = envValue("VAPID_PRIVATE_KEY", env);
   // Apple rejects subjects that are not a mailto: or a public https URL.
-  const subject = process.env.VAPID_SUBJECT;
-  if (!publicKey || !privateKey || !subject) return undefined;
-  webpush.setVapidDetails(subject, publicKey, privateKey);
+  const subject = envValue("VAPID_SUBJECT", env);
+  if (!publicKey || !privateKey || !subject) return { sender: undefined, problem: "missing" };
+  try {
+    webpush.setVapidDetails(subject, publicKey, privateKey);
+  } catch (error) {
+    const message = (error as Error).message;
+    const which = /subject/i.test(message) ? "VAPID_SUBJECT" : /private/i.test(message) ? "VAPID_PRIVATE_KEY" : "VAPID_PUBLIC_KEY";
+    console.error(`Notifications are off: ${which} is not valid. Check its value in the hosting settings.`);
+    return { sender: undefined, problem: "invalid" };
+  }
+  return { sender: webPushClient(publicKey), problem: null };
+}
+
+function webPushClient(publicKey: string): PushSender {
   return {
     publicKey,
     async send(target, payload) {
