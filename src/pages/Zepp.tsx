@@ -126,18 +126,27 @@ function SyncRow({ status }: { status: ZeppStatusDto }) {
   const sync = useMutation({
     mutationFn: api.zeppSync,
     onSuccess: (r) => {
-      setResult(t("syncedCount").replace("{n}", String(r.imported)));
+      setResult(r.status === "ok" ? t("syncedCount").replace("{n}", String(r.imported)) : null);
       refresh();
     },
   });
   const tone = status.status === "ok" ? "bg-good/15 text-good" : "bg-warn/15 text-warn";
   return (
     <div className="mt-4 space-y-3">
-      <p className={`rounded-2xl px-4 py-3 text-sm font-medium ${tone}`}>{t(`zeppStatus.${status.status}` as MessageKey)}</p>
+      <div className={`rounded-2xl px-4 py-3 text-sm font-medium ${tone}`}>
+        <p>{t(`zeppStatus.${status.status}` as MessageKey)}</p>
+        {/* What Zepp or the network actually said, so a failure can be told apart from the next. */}
+        {status.status !== "ok" && status.lastError && (
+          <p className="mt-1 text-xs font-normal break-words opacity-90">
+            {t("zeppErrorDetail")}: {status.lastError}
+          </p>
+        )}
+      </div>
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-muted">
           {t("lastSync")}: {status.lastSyncAt ? f.dateTime(status.lastSyncAt) : t("never")}
           {result && <span className="block text-ink-2">{result}</span>}
+          {sync.isError && <span className="block text-bad">{(sync.error as Error).message}</span>}
         </p>
         <Button variant="secondary" disabled={sync.isPending || status.status === "invalid-token"} onClick={() => sync.mutate()} className="flex shrink-0 items-center gap-2">
           <FiRefreshCw size={16} aria-hidden className={sync.isPending ? "animate-spin" : ""} />

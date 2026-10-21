@@ -67,10 +67,13 @@ async function getJson(url: string, token: string): Promise<unknown> {
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (error) {
-    throw new ZeppError("unavailable", `Zepp did not respond: ${(error as Error).message}`);
+    // fetch only says "fetch failed"; the network reason (timeout, reset, DNS, TLS) is in its cause.
+    const cause = (error as { cause?: { code?: string; message?: string } }).cause;
+    const reason = cause ? ` (${[cause.code, cause.message].filter(Boolean).join(": ")})` : "";
+    throw new ZeppError("unavailable", `Zepp did not respond: ${(error as Error).message}${reason}`);
   }
   if (res.status === 401 || res.status === 403) throw new ZeppError("invalid-token", `Zepp rejected the token (${res.status})`);
-  if (!res.ok) throw new ZeppError("unavailable", `Zepp answered ${res.status}`);
+  if (!res.ok) throw new ZeppError("unavailable", `Zepp answered ${res.status}: ${(await res.text().catch(() => "")).slice(0, 120)}`);
   return res.json().catch(() => {
     throw new ZeppError("unexpected-response", "Zepp answered with something that is not JSON");
   });
