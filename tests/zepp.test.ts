@@ -7,7 +7,7 @@ import { createApp } from "../server/app.ts";
 import { collections, ensureIndexes } from "../server/db.ts";
 import { remindStreaks } from "../server/achievementCheck.ts";
 import type { PushSender, PushTarget } from "../server/push.ts";
-import { type ZeppClient, ZeppError, type ZeppMember, type ZeppRecord, decryptToken } from "../server/zepp.ts";
+import { type ZeppClient, ZeppError, type ZeppMember, type ZeppRecord, decryptToken, encryptToken } from "../server/zepp.ts";
 
 process.env.ZEPP_TOKEN_KEY = randomBytes(32).toString("base64");
 
@@ -111,6 +111,34 @@ describe("Zepp connection", () => {
     const stored = await client.db(`zepp${dbName - 1}`).collection("zeppConnections").findOne({});
     expect(JSON.stringify(stored)).not.toContain(GOOD_TOKEN);
     expect(decryptToken(stored!.tokenEncrypted)).toBe(GOOD_TOKEN);
+  });
+
+  it("reads the key as pasted into a hosting dashboard and names a bad one as this server's setup", () => {
+    const good = process.env.ZEPP_TOKEN_KEY!;
+    const stored = encryptToken(GOOD_TOKEN);
+    try {
+      // Quotes, spaces or the whole .env line around the key still work.
+      for (const pasted of [`"${good}"`, `  ${good}  `, `ZEPP_TOKEN_KEY=${good}`]) {
+        process.env.ZEPP_TOKEN_KEY = pasted;
+        expect(decryptToken(stored)).toBe(GOOD_TOKEN);
+      }
+      const setup = (fn: () => unknown) => {
+        try {
+          fn();
+        } catch (error) {
+          return error instanceof ZeppError ? [error.code, error.message] : error;
+        }
+      };
+      process.env.ZEPP_TOKEN_KEY = "";
+      expect(setup(() => decryptToken(stored))).toEqual(["misconfigured", "ZEPP_TOKEN_KEY is not set on this server"]);
+      process.env.ZEPP_TOKEN_KEY = "abc";
+      expect(setup(() => decryptToken(stored))).toEqual(["misconfigured", "ZEPP_TOKEN_KEY must be 32 bytes in base64 (it decodes to 2)"]);
+      // Another environment's key: valid, but not the one the token was saved with.
+      process.env.ZEPP_TOKEN_KEY = randomBytes(32).toString("base64");
+      expect(setup(() => decryptToken(stored))).toEqual(["misconfigured", "ZEPP_TOKEN_KEY is not the key this Zepp token was saved with"]);
+    } finally {
+      process.env.ZEPP_TOKEN_KEY = good;
+    }
   });
 
   it("rejects a token Zepp does not accept", async () => {

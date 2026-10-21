@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { z } from "zod";
+import { envValue } from "./env.ts";
 
 /**
  * Client for the unofficial Zepp Life cloud API (the one the app itself uses), as found in
@@ -13,7 +14,8 @@ const TIMEOUT_MS = 20_000;
 
 export class ZeppError extends Error {
   constructor(
-    readonly code: "invalid-token" | "unavailable" | "unexpected-response",
+    /** "misconfigured" is this server's setup (ZEPP_TOKEN_KEY), not Zepp. */
+    readonly code: "invalid-token" | "unavailable" | "unexpected-response" | "misconfigured",
     message: string,
   ) {
     super(message);
@@ -135,9 +137,12 @@ export const zeppClient: ZeppClient = {
  * AES-256-GCM. The key (32 bytes, base64) lives only in the server environment.
  */
 function key(): Buffer {
-  const raw = process.env.ZEPP_TOKEN_KEY;
-  const buf = raw ? Buffer.from(raw, "base64") : null;
-  if (!buf || buf.length !== 32) throw new Error("ZEPP_TOKEN_KEY must be 32 bytes in base64");
+  // Cleaned like the other settings: a value pasted with quotes or as "ZEPP_TOKEN_KEY=..." still works.
+  const raw = envValue("ZEPP_TOKEN_KEY");
+  if (!raw) throw new ZeppError("misconfigured", "ZEPP_TOKEN_KEY is not set on this server");
+  const buf = Buffer.from(raw, "base64");
+  // The length only, never the value.
+  if (buf.length !== 32) throw new ZeppError("misconfigured", `ZEPP_TOKEN_KEY must be 32 bytes in base64 (it decodes to ${buf.length})`);
   return buf;
 }
 
@@ -153,5 +158,10 @@ export function decryptToken(stored: string): string {
   if (!iv || !tag || !data) throw new Error("Stored Zepp token is malformed");
   const decipher = createDecipheriv("aes-256-gcm", key(), iv);
   decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
+  try {
+    return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
+  } catch {
+    // A valid key that is not the one the token was saved with (another environment's key).
+    throw new ZeppError("misconfigured", "ZEPP_TOKEN_KEY is not the key this Zepp token was saved with");
+  }
 }

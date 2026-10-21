@@ -145,7 +145,8 @@ export async function syncConnection(
     await c.zeppConnections.updateOne({ _id: connection._id }, { $set: { status: "ok", lastError: null, lastSyncAt: new Date() } });
     return { imported, status: "ok" };
   } catch (error) {
-    const status = error instanceof ZeppError && error.code === "invalid-token" ? "invalid-token" : "error";
+    const status =
+      error instanceof ZeppError && (error.code === "invalid-token" || error.code === "misconfigured") ? error.code : "error";
     // Tell the owner once, when the token stops working, not on every failed sync.
     if (status === "invalid-token" && connection.status !== "invalid-token") {
       await notifyUser(c, push, connection.ownerUserId, "zepp", messages.zeppExpired);

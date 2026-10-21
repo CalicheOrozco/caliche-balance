@@ -70,7 +70,7 @@ export interface ZeppConnectionDoc {
   ownerUserId: ObjectId;
   zeppUserId: string;
   tokenEncrypted: string;
-  status: "ok" | "invalid-token" | "error";
+  status: "ok" | "invalid-token" | "misconfigured" | "error";
   lastError: string | null;
   lastSyncAt: Date | null;
   createdAt: Date;

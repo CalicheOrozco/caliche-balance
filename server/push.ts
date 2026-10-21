@@ -3,6 +3,7 @@ import webpush from "web-push";
 import { BADGE_NAMES, type BadgeId, TIER_NAMES, TIERS } from "../shared/achievements.ts";
 import type { GoalEvent } from "../shared/goals.ts";
 import type { Collections } from "./db.ts";
+import { envValue } from "./env.ts";
 
 /**
  * Web Push notifications. On iPhone they work for the installed app (iOS 16.4+) once the person
@@ -19,18 +20,6 @@ export interface PushSender {
   publicKey: string;
   /** "gone" means the browser dropped the subscription and it should be deleted. */
   send(target: PushTarget, payload: string): Promise<"sent" | "gone">;
-}
-
-/**
- * Reads a setting the way people paste it into a hosting dashboard: surrounding spaces, quotes,
- * or the whole "NAME=value" line from a .env file are removed.
- */
-export function envValue(name: string, env: Record<string, string | undefined> = process.env): string | undefined {
-  let value = env[name]?.trim();
-  if (!value) return undefined;
-  if (value.startsWith(`${name}=`)) value = value.slice(name.length + 1).trim();
-  const quoted = /^(["'])(.*)\1$/.exec(value);
-  return (quoted ? quoted[2]! : value).trim() || undefined;
 }
 
 export type PushSetup = { sender: PushSender; problem: null } | { sender: undefined; problem: "missing" | "invalid" };

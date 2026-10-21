@@ -1,6 +1,7 @@
 import webpush from "web-push";
 import { describe, expect, it } from "vitest";
-import { envValue, webPushSetup } from "../server/push.ts";
+import { envValue } from "../server/env.ts";
+import { webPushSetup } from "../server/push.ts";
 
 const keys = webpush.generateVAPIDKeys();
 const good = { VAPID_PUBLIC_KEY: keys.publicKey, VAPID_PRIVATE_KEY: keys.privateKey, VAPID_SUBJECT: "https://caliche-balance.vercel.app" };

@@ -222,7 +222,7 @@ export interface ZeppMemberDto {
 /** What a person sees about the household Zepp connection they own or belong to. */
 export interface ZeppStatusDto {
   role: "owner" | "member" | "none";
-  status: "ok" | "invalid-token" | "error" | null;
+  status: "ok" | "invalid-token" | "misconfigured" | "error" | null;
   lastError: string | null;
   lastSyncAt: string | null;
   /** Only the owner gets the member list. */

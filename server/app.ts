@@ -35,7 +35,7 @@ import { appleHealthRoutes, toAppleHealthStatus } from "./appleHealthRoutes.ts";
 import { checkGoals } from "./goalCheck.ts";
 import { messages, notifyUser, type PushSender } from "./push.ts";
 import { asyncRoute, clientIp, fieldProblems, hitRateLimit, isCronRequest, peekRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
-import { type ZeppClient, zeppClient } from "./zepp.ts";
+import { type ZeppClient, ZeppError, zeppClient } from "./zepp.ts";
 import { deleteZeppDataFor, zeppRoutes } from "./zeppRoutes.ts";
 
 export interface AppOptions {
@@ -455,6 +455,10 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
       return res.status(400).json({ error: "invalid", fields: fieldProblems(error) });
     }
     if (error instanceof SyntaxError) return res.status(400).json({ error: "invalid-json" });
+    if (error instanceof ZeppError && error.code === "misconfigured") {
+      console.error(error.message);
+      return res.status(503).json({ error: "zepp-misconfigured" });
+    }
     console.error(error);
     res.status(500).json({ error: "server-error" });
   });
