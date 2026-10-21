@@ -12,28 +12,43 @@ export interface HealthMetricSpec {
   type: string;
   /** Unit the value is kept in. Health sends the person's preferred unit, converted with UNIT_CONVERSIONS. */
   unit: HealthUnit;
+  /** "sum": a day's total; "mean": readings averaged per day. */
+  kind: "sum" | "mean";
+  /**
+   * The Shortcut fills days without data with 0 ("Fill Missing"). For things you log by hand, 0
+   * means nothing was logged, so it is not saved.
+   */
+  zeroIsMissing?: boolean;
   min: number;
   max: number;
   group: "activity" | "energy" | "heart" | "body";
 }
 
-/** Type names checked against the Shortcuts menu on iOS 26. */
+/**
+ * Type names and units checked against the Shortcuts menu on iOS 26. "sum" metrics are a day's
+ * total (Find grouped by day, as Health counts it); "mean" metrics are separate readings averaged
+ * per day, read without grouping, which is how they show in Shortcuts.
+ */
 export const HEALTH_METRIC_SPECS = {
-  steps: { type: "Steps", unit: "count", min: 0, max: 200_000, group: "activity" },
-  distanceKm: { type: "Walking + Running Distance", unit: "km", min: 0, max: 500, group: "activity" },
-  flightsClimbed: { type: "Flights Climbed", unit: "count", min: 0, max: 2_000, group: "activity" },
-  exerciseMin: { type: "Exercise Minutes", unit: "min", min: 0, max: 1_440, group: "activity" },
-  standMin: { type: "Stand Minutes", unit: "min", min: 0, max: 1_440, group: "activity" },
-  moveMin: { type: "Move Minutes", unit: "min", min: 0, max: 1_440, group: "activity" },
-  mindfulMin: { type: "Mindful Minutes", unit: "min", min: 0, max: 1_440, group: "activity" },
-  activeKcal: { type: "Active Energy", unit: "kcal", min: 0, max: 20_000, group: "energy" },
-  restingKcal: { type: "Resting Energy", unit: "kcal", min: 0, max: 10_000, group: "energy" },
-  restingHr: { type: "Resting Heart Rate", unit: "count/min", min: 20, max: 250, group: "heart" },
-  hrvMs: { type: "Heart Rate Variability", unit: "ms", min: 1, max: 500, group: "heart" },
-  walkingHr: { type: "Walking Heart Rate Average", unit: "count/min", min: 30, max: 250, group: "heart" },
-  respiratoryRate: { type: "Respiratory Rate", unit: "count/min", min: 4, max: 60, group: "heart" },
-  wristTempC: { type: "Wrist Temperature", unit: "degC", min: 20, max: 45, group: "body" },
-  waterMl: { type: "Water", unit: "mL", min: 0, max: 20_000, group: "body" },
+  steps: { type: "Steps", unit: "count", kind: "sum", min: 0, max: 200_000, group: "activity" },
+  distanceKm: { type: "Walking + Running Distance", unit: "km", kind: "sum", min: 0, max: 500, group: "activity" },
+  flightsClimbed: { type: "Flights Climbed", unit: "count", kind: "sum", min: 0, max: 2_000, group: "activity" },
+  exerciseMin: { type: "Exercise Minutes", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity" },
+  standMin: { type: "Stand Minutes", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity" },
+  moveMin: { type: "Move Minutes", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity", zeroIsMissing: true },
+  mindfulMin: { type: "Mindful Minutes", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity", zeroIsMissing: true },
+  walkingSpeedKmh: { type: "Walking Speed", unit: "km/h", kind: "mean", min: 0.5, max: 15, group: "activity" },
+  stepLengthCm: { type: "Walking Step Length", unit: "cm", kind: "mean", min: 20, max: 200, group: "activity" },
+  walkingAsymmetryPct: { type: "Walking Asymmetry", unit: "%", kind: "mean", min: 0, max: 100, group: "activity" },
+  activeKcal: { type: "Active Energy", unit: "kcal", kind: "sum", min: 0, max: 20_000, group: "energy" },
+  restingKcal: { type: "Resting Energy", unit: "kcal", kind: "sum", min: 0, max: 10_000, group: "energy" },
+  restingHr: { type: "Resting Heart Rate", unit: "count/min", kind: "mean", min: 20, max: 250, group: "heart" },
+  hrvMs: { type: "Heart Rate Variability", unit: "ms", kind: "mean", min: 1, max: 500, group: "heart" },
+  walkingHr: { type: "Walking Heart Rate Average", unit: "count/min", kind: "mean", min: 30, max: 250, group: "heart" },
+  respiratoryRate: { type: "Respiratory Rate", unit: "count/min", kind: "mean", min: 4, max: 60, group: "heart" },
+  bloodOxygenPct: { type: "Blood Oxygen", unit: "%", kind: "mean", min: 50, max: 100, group: "heart" },
+  wristTempC: { type: "Wrist Temperature", unit: "degC", kind: "mean", min: 20, max: 45, group: "body" },
+  waterMl: { type: "Water", unit: "mL", kind: "sum", min: 0, max: 20_000, group: "body", zeroIsMissing: true },
 } as const satisfies Record<string, HealthMetricSpec>;
 
 export type HealthMetric = keyof typeof HEALTH_METRIC_SPECS;
@@ -82,7 +97,7 @@ export function parseHealthNumber(value: unknown, range: { min: number; max: num
 
 export const KM_PER_MI = 1.609344;
 
-export type HealthUnit = "count" | "km" | "min" | "kcal" | "count/min" | "ms" | "degC" | "mL";
+export type HealthUnit = "count" | "km" | "min" | "kcal" | "count/min" | "ms" | "degC" | "mL" | "%" | "km/h" | "cm";
 
 /**
  * How to bring each unit Health may report into the metric's own unit. Shortcuts gives values in the
@@ -98,6 +113,9 @@ const UNIT_CONVERSIONS: Record<HealthUnit, Record<string, (n: number) => number>
   ms: { ms: (n) => n, s: (n) => n * 1000 },
   degC: { degc: (n) => n, "°c": (n) => n, degf: (n) => ((n - 32) * 5) / 9, "°f": (n) => ((n - 32) * 5) / 9 },
   mL: { ml: (n) => n, l: (n) => n * 1000, fl_oz_us: (n) => n * 29.5735, floz: (n) => n * 29.5735, oz: (n) => n * 29.5735, cup_us: (n) => n * 236.588 },
+  "%": { "%": (n) => n },
+  "km/h": { "km/hr": (n) => n, "km/h": (n) => n, "mi/hr": (n) => n * KM_PER_MI, "mi/h": (n) => n * KM_PER_MI, "m/s": (n) => n * 3.6 },
+  cm: { cm: (n) => n, m: (n) => n * 100, in: (n) => n * 2.54 },
 };
 
 /**
@@ -267,6 +285,34 @@ const isEmpty = (value: unknown) => value === null || (typeof value === "string"
  */
 const DATA_FIELDS = new Set<string>([...HEALTH_METRICS, ...HEALTH_SYMPTOM_KEYS.map(symptomField), "sleep"]);
 
+/**
+ * One value per day from a metric's "day|value|unit" lines: the day's total for "sum" metrics, the
+ * average of its readings for "mean" ones. A line that cannot be read is passed on as text so the
+ * day reports it. Skipped: groups for a day that has not started ("tomorrow|0"), and the 0 that
+ * "Fill Missing" puts on days without data when 0 cannot be a real value.
+ */
+function metricByDay(spec: HealthMetricSpec, rows: string[][], now: number): Map<string, number | string> {
+  const byDay = new Map<string, number[]>();
+  const out = new Map<string, number | string>();
+  for (const [when = "", amount = "", unit = ""] of rows) {
+    const day = shortcutDay(when);
+    if (!day || isEmpty(amount) || Date.parse(when) > now) continue;
+    const value = parseHealthValue(`${amount} ${unit}`.trim(), spec);
+    if (typeof value !== "number") {
+      out.set(day, `${amount} ${unit}`.trim());
+      continue;
+    }
+    if (value === 0 && (spec.zeroIsMissing || spec.min > 0)) continue;
+    byDay.set(day, [...(byDay.get(day) ?? []), value]);
+  }
+  for (const [day, values] of byDay) {
+    if (out.has(day)) continue;
+    const total = values.reduce((a, b) => a + b, 0);
+    out.set(day, spec.kind === "sum" ? total : Math.round((total / values.length) * 100) / 100);
+  }
+  return out;
+}
+
 function splitByDate(body: Record<string, unknown>, now: number): Record<string, unknown>[] {
   const days = new Map<string, Record<string, unknown>>();
   const put = (date: unknown, key: string, value: unknown) => {
@@ -291,10 +337,7 @@ function splitByDate(body: Record<string, unknown>, now: number): Record<string,
         if (shortcutDay(when) && !isEmpty(rest.join("|"))) put(shortcutDay(when), key, rest.join("|"));
       }
     } else {
-      for (const [when = "", amount = "", unit = ""] of rows) {
-        // Grouping by day can add an empty group for a day that has not started yet ("tomorrow|0").
-        if (shortcutDay(when) && !isEmpty(amount) && !(Date.parse(when) > now)) put(shortcutDay(when), key, `${amount} ${unit}`.trim());
-      }
+      for (const [day, value] of metricByDay(HEALTH_METRIC_SPECS[key as HealthMetric], rows, now)) put(day, key, value);
     }
   }
   return days.size ? [...days.values()] : [body.date === undefined ? {} : { date: body.date }];
@@ -366,7 +409,7 @@ export type HealthDayDto = { date: string; sleep: SleepSummary | null; symptoms:
  * from the current one. Bump it whenever scripts/build-health-shortcut.ts changes what it sends.
  * Copies from before versions existed send none.
  */
-export const HEALTH_SHORTCUT_VERSION = 5;
+export const HEALTH_SHORTCUT_VERSION = 6;
 
 /** A problem with one field of a run, with what the Shortcut sent for it. */
 export interface HealthProblem {

@@ -252,6 +252,13 @@ function useMetricFormat() {
         return `${f.number(v)} °C`;
       case "waterMl":
         return `${f.number(v / 1000)} L`;
+      case "walkingSpeedKmh":
+        return `${f.number(v)} km/h`;
+      case "stepLengthCm":
+        return `${f.number(v, 0)} cm`;
+      case "walkingAsymmetryPct":
+      case "bloodOxygenPct":
+        return `${f.number(v)} %`;
       default:
         return f.number(v, 0);
     }
@@ -267,9 +274,9 @@ export function hoursText(minutes: number): string {
 }
 
 const GROUPS: { key: "activity" | "energy" | "heart" | "body"; metrics: HealthMetric[] }[] = [
-  { key: "activity", metrics: ["steps", "distanceKm", "flightsClimbed", "exerciseMin", "standMin", "moveMin"] },
+  { key: "activity", metrics: ["steps", "distanceKm", "flightsClimbed", "exerciseMin", "standMin", "moveMin", "walkingSpeedKmh", "stepLengthCm", "walkingAsymmetryPct"] },
   { key: "energy", metrics: ["activeKcal", "restingKcal"] },
-  { key: "heart", metrics: ["restingHr", "hrvMs", "walkingHr", "respiratoryRate"] },
+  { key: "heart", metrics: ["restingHr", "hrvMs", "walkingHr", "respiratoryRate", "bloodOxygenPct"] },
   { key: "body", metrics: ["wristTempC", "waterMl", "mindfulMin"] },
 ];
 

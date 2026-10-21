@@ -8,11 +8,10 @@
  *
  * Actions come from the metric table in shared/health.ts, so the app and the Shortcut never
  * disagree on names or units. Their formats were read from real Shortcuts, including one built on
- * the owner's iPhone (iOS 26). Every query sends one line per item ("day|value|unit" for metrics
- * grouped by day, "start|end|stage" for sleep) through Repeat with Each, the pattern published
- * Health-to-API Shortcuts use; the server owns parsing, units and dates. Sorting and limiting are
- * left out: with grouping they most likely cut the samples before adding them up (a first run sent
- * 9 steps for a whole day).
+ * the owner's iPhone (iOS 26), and the query settings copy the ones that work there (see
+ * findHealth). Every query sends one line per item ("day|value|unit" for metrics, "start|end|stage"
+ * for sleep) through Repeat with Each, the pattern published Health-to-API Shortcuts use; the
+ * server owns parsing, units, dates and daily averages.
  */
 
 import { execFileSync } from "node:child_process";
@@ -79,7 +78,12 @@ function tokens(parts: (string | Record<string, Plist>)[]): Plist {
 const attachment = (ref: Record<string, Plist>): Plist => ({ Value: ref, WFSerializationType: "WFTextTokenAttachment" });
 const action = (identifier: string, params: Record<string, Plist>): Plist => ({ WFWorkflowActionIdentifier: identifier, WFWorkflowActionParameters: params });
 
-/** No sort or limit: with "Group By" they most likely cut the samples before adding them up. */
+/**
+ * Set up as on the owner's iPhone, where these queries return every day of the week: sorted by
+ * start date, latest first, no limit (with "Group By" a limit cut the samples before adding them
+ * up). Daily totals are grouped by day with "Fill Missing", so a day without data is a 0 and not a
+ * "No Samples Found" alert; separate readings are not grouped, as Shortcuts shows them.
+ */
 function findHealth(type: string, opts: { window: [number, number]; groupByDay: boolean }) {
   const id = uuid();
   const params: Record<string, Plist> = {
@@ -95,8 +99,14 @@ function findHealth(type: string, opts: { window: [number, number]; groupByDay: 
         ],
       },
     },
+    WFContentItemSortProperty: "Start Date",
+    WFContentItemSortOrder: "Latest First",
+    WFContentItemLimitEnabled: false,
   };
-  if (opts.groupByDay) params.WFHKSampleFilteringGroupBy = "Day";
+  if (opts.groupByDay) {
+    params.WFHKSampleFilteringGroupBy = "Day";
+    params.WFHKSampleFilteringFillMissing = true;
+  }
   return { id, action: action("is.workflow.actions.filter.health.quantity", params) };
 }
 
@@ -142,10 +152,12 @@ function build(baseUrl: string): Record<string, Plist> {
     return tokens([output(combinedId, "Combined Text")]);
   };
 
-  // Metrics: each day of the last week, added up by Health ("Group By: Day"), as "day|value|unit".
+  // Metrics: the last week as "day|value|unit" lines: one per day for totals (grouped by Health),
+  // one per reading for the rest (averaged per day on the server).
   // Health gives the person's preferred unit; the server converts it and files each value on its day.
   for (const metric of HEALTH_METRICS) {
-    const found = findHealth(HEALTH_METRIC_SPECS[metric].type, { window: [METRIC_DAYS, DAY], groupByDay: true });
+    const spec = HEALTH_METRIC_SPECS[metric];
+    const found = findHealth(spec.type, { window: [METRIC_DAYS, DAY], groupByDay: spec.kind === "sum" });
     actions.push(found.action);
     field(metric, lines(found.id, ["Start Date", "Value", "Unit"]));
   }

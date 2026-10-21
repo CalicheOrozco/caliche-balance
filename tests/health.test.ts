@@ -90,6 +90,10 @@ describe("healthDaySchema", () => {
       // for tomorrow comes last.
       steps: [`${d("18")}|10,240|count`, `${d("19")}|9,312|count`, `${d("20", "00:12:49")}|412|count`, `${d("21")}|0|count`].join("\n"),
       restingHr: `${d("19")}|58|count/min`,
+      // Separate readings, averaged per day; "Fill Missing" zeros are not readings.
+      hrvMs: [`${d("19", "11:53:00")}|55.5|ms`, `${d("19", "09:43:00")}|50.3|ms`, `${d("19", "08:49:00")}|30.4|ms`, `${d("18")}|0|ms`].join("\n"),
+      activeKcal: `${d("19", "00:10:00")}|1,935.5|Cal`,
+      mindfulMin: [`${d("19")}|0|min`, `${d("18")}|0|min`].join("\n"),
       waterMl: "",
       symptom_fatigue: [`${d("19", "21:00:00")}|Severe`, `${d("19", "08:00:00")}|Mild`].join("\n"),
       sleep: [`${d("19", "23:40:00")}|${d("20", "03:00:00")}|Core`, `${d("20", "03:00:00")}|${d("20", "06:30:00")}|Deep`].join("\n"),
@@ -98,7 +102,7 @@ describe("healthDaySchema", () => {
     expect(problems).toEqual([]);
     expect(days.map((x) => [x.date, x.values, x.symptoms, x.sleep?.asleepMin ?? null])).toEqual([
       ["2026-10-18", { steps: 10240 }, {}, null],
-      ["2026-10-19", { steps: 9312, restingHr: 58 }, { fatigue: "Severe" }, null],
+      ["2026-10-19", { steps: 9312, restingHr: 58, hrvMs: 45.4, activeKcal: 1935.5 }, { fatigue: "Severe" }, null],
       ["2026-10-20", { steps: 412 }, {}, 410],
     ]);
   });
