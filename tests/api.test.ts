@@ -132,6 +132,11 @@ describe("Caliche Balance API", () => {
     expect(days[1]).toMatchObject({ distanceKm: 4.2, steps: null });
     expect((await agent.get("/api/me")).body.appleHealth.lastSyncAt).toEqual(expect.any(String));
 
+    // A week of readings is well over the 32 KB other requests may send.
+    const week = Array.from({ length: 2000 }, (_, i) => `2026-10-0${1 + (i % 7)}T0${i % 10}:00:00-04:00|${40 + (i % 20)}|ms`).join("\n");
+    expect(week.length).toBeGreaterThan(32 * 1024);
+    expect((await shortcut(made.body.key, { hrvMs: week })).status).toBe(200);
+
     // Wrong or missing keys, empty days and other people's data are refused.
     expect((await shortcut("cbh_inventada", { steps: 1 })).status).toBe(401);
     expect((await request(app).post("/api/apple-health/ingest").send({ steps: 1 })).status).toBe(401);
@@ -157,7 +162,7 @@ describe("Caliche Balance API", () => {
     expect((await shortcut(again.body.key, { steps: 9500 })).status).toBe(200);
     expect((await agent.delete("/api/me/apple-health/key")).status).toBe(204);
     expect((await shortcut(again.body.key, { steps: 1 })).status).toBe(401);
-    expect((await agent.get("/api/me/apple-health/days")).body).toHaveLength(4);
+    expect((await agent.get("/api/me/apple-health/days")).body).toHaveLength(8);
   });
 
   it("saves goals with the starting point from the latest reading", async () => {

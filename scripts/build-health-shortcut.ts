@@ -95,7 +95,18 @@ function findHealth(type: string, opts: { window: [number, number]; groupByDay: 
         WFContentPredicateBoundedDate: false,
         WFActionParameterFilterTemplates: [
           { Property: "Type", Operator: 4, Removable: false, Bounded: true, Values: { Enumeration: { WFSerializationType: "WFStringSubstitutableState", Value: type } } },
-          { Property: "Start Date", Operator: IN_THE_LAST, Removable: false, Bounded: true, Values: { Unit: opts.window[1], Number: String(opts.window[0]) } },
+          // Written as substitutable states, as in published Shortcuts: with plain values an iPhone
+          // on iOS 26 ignored the number and searched today only.
+          {
+            Property: "Start Date",
+            Operator: IN_THE_LAST,
+            Removable: false,
+            Bounded: true,
+            Values: {
+              Unit: { Value: opts.window[1], WFSerializationType: "WFCalendarUnitSubstitutableState" },
+              Number: { Value: String(opts.window[0]), WFSerializationType: "WFNumberStringSubstitutableState" },
+            },
+          },
         ],
       },
     },

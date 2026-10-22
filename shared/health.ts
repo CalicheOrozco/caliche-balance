@@ -40,6 +40,8 @@ export const HEALTH_METRIC_SPECS = {
   walkingSpeedKmh: { type: "Walking Speed", unit: "km/h", kind: "mean", min: 0.5, max: 15, group: "activity" },
   stepLengthCm: { type: "Walking Step Length", unit: "cm", kind: "mean", min: 20, max: 200, group: "activity" },
   walkingAsymmetryPct: { type: "Walking Asymmetry", unit: "%", kind: "mean", min: 0, max: 100, group: "activity" },
+  stairSpeedUpMs: { type: "Stair Speed: Up", unit: "m/s", kind: "mean", min: 0.05, max: 3, group: "activity" },
+  stairSpeedDownMs: { type: "Stair Speed: Down", unit: "m/s", kind: "mean", min: 0.05, max: 3, group: "activity" },
   activeKcal: { type: "Active Energy", unit: "kcal", kind: "sum", min: 0, max: 20_000, group: "energy" },
   restingKcal: { type: "Resting Energy", unit: "kcal", kind: "sum", min: 0, max: 10_000, group: "energy" },
   restingHr: { type: "Resting Heart Rate", unit: "count/min", kind: "mean", min: 20, max: 250, group: "heart" },
@@ -49,13 +51,18 @@ export const HEALTH_METRIC_SPECS = {
   bloodOxygenPct: { type: "Blood Oxygen", unit: "%", kind: "mean", min: 50, max: 100, group: "heart" },
   wristTempC: { type: "Wrist Temperature", unit: "degC", kind: "mean", min: 20, max: 45, group: "body" },
   waterMl: { type: "Water", unit: "mL", kind: "sum", min: 0, max: 20_000, group: "body", zeroIsMissing: true },
+  bodyFatPct: { type: "Body Fat Percentage", unit: "%", kind: "mean", min: 2, max: 75, group: "body" },
+  bmi: { type: "Body Mass Index", unit: "count", kind: "mean", min: 10, max: 80, group: "body" },
+  waistCm: { type: "Waist Circumference", unit: "cm", kind: "mean", min: 40, max: 250, group: "body" },
+  environmentalSoundDb: { type: "Environmental Sound Levels", unit: "dBASPL", kind: "mean", min: 0, max: 140, group: "body" },
+  headphoneAudioDb: { type: "Headphone Audio Levels", unit: "dBASPL", kind: "mean", min: 0, max: 140, group: "body" },
 } as const satisfies Record<string, HealthMetricSpec>;
 
 export type HealthMetric = keyof typeof HEALTH_METRIC_SPECS;
 export const HEALTH_METRICS = Object.keys(HEALTH_METRIC_SPECS) as HealthMetric[];
 
 /** Symptoms logged by hand in the Health app; the Shortcut sends the latest one. */
-export const HEALTH_SYMPTOMS = { fatigue: "Fatigue", fever: "Fever", nausea: "Nausea", soreThroat: "Sore Throat" } as const;
+export const HEALTH_SYMPTOMS = { fatigue: "Fatigue", fever: "Fever", nausea: "Nausea", soreThroat: "Sore Throat", lowerBackPain: "Lower Back Pain" } as const;
 export type HealthSymptom = keyof typeof HEALTH_SYMPTOMS;
 export const HEALTH_SYMPTOM_KEYS = Object.keys(HEALTH_SYMPTOMS) as HealthSymptom[];
 /** The JSON field a symptom arrives in, kept apart from the numeric metrics. */
@@ -97,7 +104,7 @@ export function parseHealthNumber(value: unknown, range: { min: number; max: num
 
 export const KM_PER_MI = 1.609344;
 
-export type HealthUnit = "count" | "km" | "min" | "kcal" | "count/min" | "ms" | "degC" | "mL" | "%" | "km/h" | "cm";
+export type HealthUnit = "count" | "km" | "min" | "kcal" | "count/min" | "ms" | "degC" | "mL" | "%" | "km/h" | "cm" | "m/s" | "dBASPL";
 
 /**
  * How to bring each unit Health may report into the metric's own unit. Shortcuts gives values in the
@@ -116,6 +123,8 @@ const UNIT_CONVERSIONS: Record<HealthUnit, Record<string, (n: number) => number>
   "%": { "%": (n) => n },
   "km/h": { "km/hr": (n) => n, "km/h": (n) => n, "mi/hr": (n) => n * KM_PER_MI, "mi/h": (n) => n * KM_PER_MI, "m/s": (n) => n * 3.6 },
   cm: { cm: (n) => n, m: (n) => n * 100, in: (n) => n * 2.54 },
+  "m/s": { "m/s": (n) => n, "km/hr": (n) => n / 3.6, "km/h": (n) => n / 3.6, "ft/s": (n) => n * 0.3048 },
+  dBASPL: { dbaspl: (n) => n, db: (n) => n },
 };
 
 /**
@@ -409,7 +418,7 @@ export type HealthDayDto = { date: string; sleep: SleepSummary | null; symptoms:
  * from the current one. Bump it whenever scripts/build-health-shortcut.ts changes what it sends.
  * Copies from before versions existed send none.
  */
-export const HEALTH_SHORTCUT_VERSION = 6;
+export const HEALTH_SHORTCUT_VERSION = 7;
 
 /** A problem with one field of a run, with what the Shortcut sent for it. */
 export interface HealthProblem {

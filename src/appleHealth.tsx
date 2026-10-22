@@ -258,7 +258,18 @@ function useMetricFormat() {
         return `${f.number(v, 0)} cm`;
       case "walkingAsymmetryPct":
       case "bloodOxygenPct":
+      case "bodyFatPct":
         return `${f.number(v)} %`;
+      case "stairSpeedUpMs":
+      case "stairSpeedDownMs":
+        return `${f.number(v, 2)} m/s`;
+      case "bmi":
+        return f.number(v);
+      case "waistCm":
+        return `${f.number(v)} cm`;
+      case "environmentalSoundDb":
+      case "headphoneAudioDb":
+        return `${f.number(v, 0)} dB`;
       default:
         return f.number(v, 0);
     }
@@ -274,10 +285,10 @@ export function hoursText(minutes: number): string {
 }
 
 const GROUPS: { key: "activity" | "energy" | "heart" | "body"; metrics: HealthMetric[] }[] = [
-  { key: "activity", metrics: ["steps", "distanceKm", "flightsClimbed", "exerciseMin", "standMin", "moveMin", "walkingSpeedKmh", "stepLengthCm", "walkingAsymmetryPct"] },
+  { key: "activity", metrics: ["steps", "distanceKm", "flightsClimbed", "exerciseMin", "standMin", "moveMin", "walkingSpeedKmh", "stepLengthCm", "walkingAsymmetryPct", "stairSpeedUpMs", "stairSpeedDownMs"] },
   { key: "energy", metrics: ["activeKcal", "restingKcal"] },
   { key: "heart", metrics: ["restingHr", "hrvMs", "walkingHr", "respiratoryRate", "bloodOxygenPct"] },
-  { key: "body", metrics: ["wristTempC", "waterMl", "mindfulMin"] },
+  { key: "body", metrics: ["wristTempC", "bodyFatPct", "bmi", "waistCm", "waterMl", "mindfulMin", "environmentalSoundDb", "headphoneAudioDb"] },
 ];
 
 /** Home: the latest day from Apple Health next to the 7-day average, by group, with total calories burned. */

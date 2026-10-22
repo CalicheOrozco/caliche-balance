@@ -87,6 +87,8 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
   const app = express();
   app.set("trust proxy", true);
   app.disable("x-powered-by");
+  // The Shortcut sends a week of Health readings (one line each); everything else is small.
+  app.use("/api/apple-health/ingest", express.json({ limit: "2mb" }));
   app.use(express.json({ limit: "32kb" }));
   app.use(cookieParser());
 
