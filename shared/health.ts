@@ -418,7 +418,7 @@ export type HealthDayDto = { date: string; sleep: SleepSummary | null; symptoms:
  * from the current one. Bump it whenever scripts/build-health-shortcut.ts changes what it sends.
  * Copies from before versions existed send none.
  */
-export const HEALTH_SHORTCUT_VERSION = 7;
+export const HEALTH_SHORTCUT_VERSION = 8;
 
 /** A problem with one field of a run, with what the Shortcut sent for it. */
 export interface HealthProblem {

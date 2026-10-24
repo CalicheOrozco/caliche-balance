@@ -27,8 +27,12 @@ const OUTPUT = join(ROOT, "public", "shortcuts", "caliche-salud.shortcut");
 /** NSCalendarUnit values the date filter uses. */
 const DAY = 16;
 const HOUR = 32;
-/** "Start Date is in the last N <unit>". */
-const IN_THE_LAST = 1002;
+/**
+ * "Start Date is in the last N <unit>". 1002 is "is today" (it was used here by mistake and made
+ * every query return today only); dates compared with an amount of time are 1000 for "in the next"
+ * and 1001 for "in the last", as the Cherri Shortcuts compiler writes them.
+ */
+const IN_THE_LAST = 1001;
 /**
  * How far back to look. Every day found is sent with its date, so today with no data yet does not
  * fail, and days missed by earlier runs fill in.
@@ -95,8 +99,7 @@ function findHealth(type: string, opts: { window: [number, number]; groupByDay: 
         WFContentPredicateBoundedDate: false,
         WFActionParameterFilterTemplates: [
           { Property: "Type", Operator: 4, Removable: false, Bounded: true, Values: { Enumeration: { WFSerializationType: "WFStringSubstitutableState", Value: type } } },
-          // Written as substitutable states, as in published Shortcuts: with plain values an iPhone
-          // on iOS 26 ignored the number and searched today only.
+          // Written as substitutable states, as in published Shortcuts.
           {
             Property: "Start Date",
             Operator: IN_THE_LAST,
