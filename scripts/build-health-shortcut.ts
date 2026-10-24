@@ -171,7 +171,7 @@ function build(baseUrl: string): Record<string, Plist> {
   // Health gives the person's preferred unit; the server converts it and files each value on its day.
   for (const metric of HEALTH_METRICS) {
     const spec = HEALTH_METRIC_SPECS[metric];
-    const found = findHealth(spec.type, { window: [METRIC_DAYS, DAY], groupByDay: spec.kind === "sum" });
+    const found = findHealth(spec.type, { window: [spec.days ?? METRIC_DAYS, DAY], groupByDay: spec.groupByDay ?? spec.kind === "sum" });
     actions.push(found.action);
     field(metric, lines(found.id, ["Start Date", "Value", "Unit"]));
   }

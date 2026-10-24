@@ -15,6 +15,14 @@ export interface HealthMetricSpec {
   /** "sum": a day's total; "mean": readings averaged per day. */
   kind: "sum" | "mean";
   /**
+   * Ask Health for one value per day ("Group By: Day"). Defaults to yes for "sum" metrics. For a
+   * "mean" one it gives the day's average for some types (resting heart rate, blood oxygen) but adds
+   * up others (sound levels), so it is set only where it was checked on an iPhone.
+   */
+  groupByDay?: boolean;
+  /** Days back the Shortcut looks; fewer for types with hundreds of readings a day. Defaults to 7. */
+  days?: number;
+  /**
    * The Shortcut fills days without data with 0 ("Fill Missing"). For things you log by hand, 0
    * means nothing was logged, so it is not saved.
    */
@@ -44,18 +52,18 @@ export const HEALTH_METRIC_SPECS = {
   stairSpeedDownMs: { type: "Stair Speed: Down", unit: "m/s", kind: "mean", min: 0.05, max: 3, group: "activity" },
   activeKcal: { type: "Active Energy", unit: "kcal", kind: "sum", min: 0, max: 20_000, group: "energy" },
   restingKcal: { type: "Resting Energy", unit: "kcal", kind: "sum", min: 0, max: 10_000, group: "energy" },
-  restingHr: { type: "Resting Heart Rate", unit: "count/min", kind: "mean", min: 20, max: 250, group: "heart" },
+  restingHr: { type: "Resting Heart Rate", unit: "count/min", kind: "mean", groupByDay: true, min: 20, max: 250, group: "heart" },
   hrvMs: { type: "Heart Rate Variability", unit: "ms", kind: "mean", min: 1, max: 500, group: "heart" },
-  walkingHr: { type: "Walking Heart Rate Average", unit: "count/min", kind: "mean", min: 30, max: 250, group: "heart" },
-  respiratoryRate: { type: "Respiratory Rate", unit: "count/min", kind: "mean", min: 4, max: 60, group: "heart" },
-  bloodOxygenPct: { type: "Blood Oxygen", unit: "%", kind: "mean", min: 50, max: 100, group: "heart" },
+  walkingHr: { type: "Walking Heart Rate Average", unit: "count/min", kind: "mean", groupByDay: true, min: 30, max: 250, group: "heart" },
+  respiratoryRate: { type: "Respiratory Rate", unit: "count/min", kind: "mean", groupByDay: true, min: 4, max: 60, group: "heart" },
+  bloodOxygenPct: { type: "Blood Oxygen", unit: "%", kind: "mean", groupByDay: true, min: 50, max: 100, group: "heart" },
   wristTempC: { type: "Wrist Temperature", unit: "degC", kind: "mean", min: 20, max: 45, group: "body" },
   waterMl: { type: "Water", unit: "mL", kind: "sum", min: 0, max: 20_000, group: "body", zeroIsMissing: true },
-  bodyFatPct: { type: "Body Fat Percentage", unit: "%", kind: "mean", min: 2, max: 75, group: "body" },
-  bmi: { type: "Body Mass Index", unit: "count", kind: "mean", min: 10, max: 80, group: "body" },
-  waistCm: { type: "Waist Circumference", unit: "cm", kind: "mean", min: 40, max: 250, group: "body" },
-  environmentalSoundDb: { type: "Environmental Sound Levels", unit: "dBASPL", kind: "mean", min: 0, max: 140, group: "body" },
-  headphoneAudioDb: { type: "Headphone Audio Levels", unit: "dBASPL", kind: "mean", min: 0, max: 140, group: "body" },
+  bodyFatPct: { type: "Body Fat Percentage", unit: "%", kind: "mean", groupByDay: true, min: 2, max: 75, group: "body" },
+  bmi: { type: "Body Mass Index", unit: "count", kind: "mean", groupByDay: true, min: 10, max: 80, group: "body" },
+  waistCm: { type: "Waist Circumference", unit: "cm", kind: "mean", groupByDay: true, min: 40, max: 250, group: "body" },
+  environmentalSoundDb: { type: "Environmental Sound Levels", unit: "dBASPL", kind: "mean", days: 2, min: 0, max: 140, group: "body" },
+  headphoneAudioDb: { type: "Headphone Audio Levels", unit: "dBASPL", kind: "mean", days: 2, min: 0, max: 140, group: "body" },
 } as const satisfies Record<string, HealthMetricSpec>;
 
 export type HealthMetric = keyof typeof HEALTH_METRIC_SPECS;
@@ -418,7 +426,7 @@ export type HealthDayDto = { date: string; sleep: SleepSummary | null; symptoms:
  * from the current one. Bump it whenever scripts/build-health-shortcut.ts changes what it sends.
  * Copies from before versions existed send none.
  */
-export const HEALTH_SHORTCUT_VERSION = 8;
+export const HEALTH_SHORTCUT_VERSION = 9;
 
 /** A problem with one field of a run, with what the Shortcut sent for it. */
 export interface HealthProblem {

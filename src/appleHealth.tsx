@@ -179,7 +179,7 @@ export function AppleHealthCard({ user }: { user: UserDto }) {
       </div>
 
       <p className="mt-4 text-sm font-semibold">{t("ahQuickTitle")}</p>
-      {steps(["ahQuick1", "ahQuick2", "ahQuick3", "ahQuick4"])}
+      {steps(["ahQuick1", "ahQuick2", "ahQuick3", "ahQuickLarge", "ahQuick4"])}
 
       <details className="group mt-4">
         <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-medium text-brand [&::-webkit-details-marker]:hidden">
