@@ -28,7 +28,10 @@ export interface HealthMetricSpec {
 }
 
 /**
- * Type names and units checked against the Shortcuts menu on iOS 26. "sum" metrics are a day's
+ * Type names and units checked against the Shortcuts menu on iOS 26. Where the menu's name is not
+ * one the Find action recognizes ("Active Energy", "Blood Oxygen" and others came back empty while
+ * the same query built on the iPhone worked), the HealthKit name is used instead, as listed by the
+ * Cherri Shortcuts compiler: "Active Energy Burned", "Oxygen Saturation" and so on. "sum" metrics are a day's
  * total (Find grouped by day, as Health counts it); "mean" metrics are separate readings averaged
  * per day, read without grouping, which is how they show in Shortcuts.
  */
@@ -36,25 +39,25 @@ export const HEALTH_METRIC_SPECS = {
   steps: { type: "Steps", unit: "count", kind: "sum", min: 0, max: 200_000, group: "activity" },
   distanceKm: { type: "Walking + Running Distance", unit: "km", kind: "sum", min: 0, max: 500, group: "activity" },
   flightsClimbed: { type: "Flights Climbed", unit: "count", kind: "sum", min: 0, max: 2_000, group: "activity" },
-  exerciseMin: { type: "Exercise Minutes", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity" },
-  standMin: { type: "Stand Minutes", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity" },
+  exerciseMin: { type: "Apple Exercise Time", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity" },
+  standMin: { type: "Apple Stand Time", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity" },
   walkingSpeedKmh: { type: "Walking Speed", unit: "km/h", kind: "mean", min: 0.5, max: 15, group: "activity" },
   stepLengthCm: { type: "Walking Step Length", unit: "cm", kind: "mean", min: 20, max: 200, group: "activity" },
   walkingAsymmetryPct: { type: "Walking Asymmetry", unit: "%", kind: "mean", min: 0, max: 100, group: "activity" },
   stairSpeedUpMs: { type: "Stair Speed: Up", unit: "m/s", kind: "mean", min: 0.05, max: 3, group: "activity" },
   stairSpeedDownMs: { type: "Stair Speed: Down", unit: "m/s", kind: "mean", min: 0.05, max: 3, group: "activity" },
-  activeKcal: { type: "Active Energy", unit: "kcal", kind: "sum", min: 0, max: 20_000, group: "energy" },
-  restingKcal: { type: "Resting Energy", unit: "kcal", kind: "sum", min: 0, max: 10_000, group: "energy" },
+  activeKcal: { type: "Active Energy Burned", unit: "kcal", kind: "sum", min: 0, max: 20_000, group: "energy" },
+  restingKcal: { type: "Basal Energy Burned", unit: "kcal", kind: "sum", min: 0, max: 10_000, group: "energy" },
   restingHr: { type: "Resting Heart Rate", unit: "count/min", kind: "mean", min: 20, max: 250, group: "heart" },
   hrvMs: { type: "Heart Rate Variability", unit: "ms", kind: "mean", min: 1, max: 500, group: "heart" },
   walkingHr: { type: "Walking Heart Rate Average", unit: "count/min", kind: "mean", min: 30, max: 250, group: "heart" },
   respiratoryRate: { type: "Respiratory Rate", unit: "count/min", kind: "mean", min: 4, max: 60, group: "heart" },
-  bloodOxygenPct: { type: "Blood Oxygen", unit: "%", kind: "mean", min: 50, max: 100, group: "heart" },
-  wristTempC: { type: "Wrist Temperature", unit: "degC", kind: "mean", min: 20, max: 45, group: "body" },
+  bloodOxygenPct: { type: "Oxygen Saturation", unit: "%", kind: "mean", min: 50, max: 100, group: "heart" },
+  wristTempC: { type: "Apple Sleeping Wrist Temperature", unit: "degC", kind: "mean", min: 20, max: 45, group: "body" },
   bodyFatPct: { type: "Body Fat Percentage", unit: "%", kind: "mean", min: 2, max: 75, group: "body" },
   bmi: { type: "Body Mass Index", unit: "count", kind: "mean", min: 10, max: 80, group: "body" },
-  environmentalSoundDb: { type: "Environmental Sound Levels", unit: "dBASPL", kind: "mean", groupByDay: false, days: 2, min: 0, max: 140, group: "body" },
-  headphoneAudioDb: { type: "Headphone Audio Levels", unit: "dBASPL", kind: "mean", groupByDay: false, days: 2, min: 0, max: 140, group: "body" },
+  environmentalSoundDb: { type: "Environmental Audio Exposure", unit: "dBASPL", kind: "mean", groupByDay: false, days: 2, min: 0, max: 140, group: "body" },
+  headphoneAudioDb: { type: "Headphone Audio Exposure", unit: "dBASPL", kind: "mean", groupByDay: false, days: 2, min: 0, max: 140, group: "body" },
 } as const satisfies Record<string, HealthMetricSpec>;
 
 export type HealthMetric = keyof typeof HEALTH_METRIC_SPECS;
@@ -416,7 +419,7 @@ export type HealthDayDto = { date: string; sleep: SleepSummary | null; symptoms:
  * from the current one. Bump it whenever scripts/build-health-shortcut.ts changes what it sends.
  * Copies from before versions existed send none.
  */
-export const HEALTH_SHORTCUT_VERSION = 10;
+export const HEALTH_SHORTCUT_VERSION = 11;
 
 /** A problem with one field of a run, with what the Shortcut sent for it. */
 export interface HealthProblem {
