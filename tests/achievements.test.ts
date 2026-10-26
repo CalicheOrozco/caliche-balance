@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { achievements, levelOf, localDay } from "../shared/achievements.ts";
+import { achievements, type HealthDayFacts, levelOf, localDay } from "../shared/achievements.ts";
 import type { GoalHistoryEntry, MeasurementDto } from "../shared/schemas.ts";
 
 const profile = { sex: "male" as const, heightCm: 185, birthDate: "1998-01-01" };
@@ -32,7 +32,8 @@ function reading(at: string | number, weightKg: number, extra: Partial<Measureme
   };
 }
 
-const run = (measurements: MeasurementDto[], goalHistory: GoalHistoryEntry[] = []) => achievements({ profile, measurements, goalHistory, timeZone, now });
+const run = (measurements: MeasurementDto[], goalHistory: GoalHistoryEntry[] = [], healthDays: HealthDayFacts[] = []) =>
+  achievements({ profile, measurements, goalHistory, healthDays, timeZone, now });
 const badge = (a: ReturnType<typeof run>, id: string) => a.badges.find((b) => b.id === id)!;
 /** One reading a day at 7:00 Toronto time, ending `daysAgo` days before today. */
 const daily = (count: number, daysAgo = 0, weight = (_i: number) => 99, extra: Partial<MeasurementDto> = {}) =>
@@ -133,5 +134,105 @@ describe("achievements", () => {
     }));
     expect(badge(run([], history), "goal")).toMatchObject({ level: 2, nextAt: 5, dates: history.map((h) => h.reachedAt) });
     expect(badge(run([]), "goal")).toMatchObject({ level: 0, nextAt: 1, dates: [] });
+  });
+
+  it("earns Apple Health badges from each day, run, week and month, against published targets", () => {
+    const at = (date: string, h: Partial<Omit<HealthDayFacts, "date">> = {}): HealthDayFacts => ({
+      date,
+      steps: null,
+      distanceKm: null,
+      flightsClimbed: null,
+      standMin: null,
+      exerciseMin: null,
+      activeKcal: null,
+      restingHr: null,
+      hrvMs: null,
+      bloodOxygenPct: null,
+      sleep: null,
+      ...h,
+    });
+    // 23:30 Toronto time the night before the given day.
+    const night = (date: string, asleepMin: number, extra: Partial<NonNullable<HealthDayFacts["sleep"]>> = {}) => ({
+      asleepMin,
+      deepMin: 60,
+      awakenings: 1,
+      start: new Date(Date.parse(`${date}T23:30:00-04:00`) - DAY).toISOString(),
+      ...extra,
+    });
+    // Monday 12 to Sunday 18 October: a full week.
+    const week = ["12", "13", "14", "15", "16", "17", "18"].map((d, i) =>
+      at(`2026-10-${d}`, {
+        steps: [12_000, 7_500, 8_000, 16_000, 7_100, 21_000, 3_000][i]!,
+        distanceKm: 7,
+        flightsClimbed: i === 3 ? 12 : 4,
+        standMin: 200,
+        exerciseMin: [40, 30, 35, 70, 30, 30, 10][i]!,
+        activeKcal: [600, 450, 500, 1_100, 400, 480, 200][i]!,
+        restingHr: 58,
+        bloodOxygenPct: 96,
+        sleep: night(`2026-10-${d}`, [430, 425, 450, 425, 300, 480, 420][i]!, { awakenings: i === 2 ? 0 : 1, deepMin: i === 5 ? 50 : 60 }),
+      }),
+    );
+    const a = run([], [], week);
+    const dates = (id: string) => badge(a, id).dates.map((d) => d.slice(0, 10));
+    expect(dates("steps-10k")).toEqual(["2026-10-12", "2026-10-15", "2026-10-17"]);
+    expect(dates("steps-15k")).toEqual(["2026-10-15", "2026-10-17"]);
+    expect(dates("steps-20k")).toEqual(["2026-10-17"]);
+    // The 5th day of 7,000+ is the 16th; 6 days in a row of 7,000+ is not a 7-day run yet.
+    expect(dates("steps-week")).toEqual(["2026-10-16"]);
+    expect(dates("steps-streak-7")).toEqual([]);
+    // 7 km a day: 42.2 km on the 7th day.
+    expect(dates("distance-week")).toEqual(["2026-10-18"]);
+    expect(dates("flights-10")).toEqual(["2026-10-15"]);
+    expect(dates("stand-3h")).toHaveLength(7);
+    expect(dates("exercise-60")).toEqual(["2026-10-15"]);
+    // 40 + 30 + 35 + 70 = 175: the 150 minutes on the 15th; 245 by Sunday, short of 300.
+    expect(dates("exercise-150")).toEqual(["2026-10-15"]);
+    expect(dates("exercise-300")).toEqual([]);
+    expect(dates("active-1000")).toEqual(["2026-10-15"]);
+    // 600 + 450 + 500 + 1,100 + 400 + 480 = 3,530 on the 17th.
+    expect(dates("active-week")).toEqual(["2026-10-17"]);
+    // 430, 425, 450, 425 and 480 minutes: the 5th night of 7 hours is the 17th.
+    expect(dates("sleep-week")).toEqual(["2026-10-17"]);
+    // Deep sleep 60 of 480 minutes is 12.5 %: not that night.
+    expect(dates("sleep-deep")).not.toContain("2026-10-17");
+    expect(dates("sleep-unbroken")).toEqual(["2026-10-14"]);
+    // Every night at 23:30: the 5th one is the 16th.
+    expect(dates("sleep-regular")).toEqual(["2026-10-16"]);
+    expect(dates("resting-hr-60")).toHaveLength(7);
+    expect(dates("oxygen-week")).toEqual(["2026-10-18"]);
+    // 7,000 steps, 30 minutes and 7 hours: the 12th, 13th, 14th, 15th and 17th.
+    expect(dates("full-day")).toEqual(["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-17"]);
+    expect(dates("full-week")).toEqual(["2026-10-17"]);
+    expect(badge(a, "full-day")).toMatchObject({ group: "balance", level: 1, nextAt: 30 });
+  });
+
+  it("counts Apple Health streaks every 7 and 30 days in a row, and compares finished months", () => {
+    const day = (i: number, h: Partial<HealthDayFacts>): HealthDayFacts => ({
+      date: new Date(Date.parse("2026-08-01T00:00:00Z") + i * DAY).toISOString().slice(0, 10),
+      steps: null,
+      distanceKm: null,
+      flightsClimbed: null,
+      standMin: null,
+      exerciseMin: null,
+      activeKcal: null,
+      restingHr: null,
+      hrvMs: null,
+      bloodOxygenPct: null,
+      sleep: null,
+      ...h,
+    });
+    // August and September, 61 days of 30 minutes; one day without exercise on Sept 20 (day 50).
+    const days = Array.from({ length: 61 }, (_, i) =>
+      day(i, { exerciseMin: i === 50 ? 5 : 30, restingHr: i < 31 ? 70 : 67, hrvMs: i < 31 ? 40 : 43 }),
+    );
+    const a = run([], [], days);
+    const dates = (id: string) => badge(a, id).dates.map((d) => d.slice(0, 10));
+    // Days 7, 14, ... 49 of the first run, then 7 days into the second (Sept 27).
+    expect(dates("exercise-streak-7")).toEqual(["2026-08-07", "2026-08-14", "2026-08-21", "2026-08-28", "2026-09-04", "2026-09-11", "2026-09-18", "2026-09-27"]);
+    expect(dates("exercise-streak-30")).toEqual(["2026-08-30"]);
+    // September against August: 3 beats lower and 7.5 % more HRV.
+    expect(dates("resting-hr-down")).toEqual(["2026-09-30"]);
+    expect(dates("hrv-up")).toEqual(["2026-09-30"]);
   });
 });

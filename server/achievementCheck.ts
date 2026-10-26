@@ -1,5 +1,8 @@
 import type { ObjectId } from "mongodb";
-import { type Achievements, achievements, type BadgeId, levelsOf, localDay } from "../shared/achievements.ts";
+import { type Achievements, achievements, type BadgeId, type HealthDayFacts, levelsOf, localDay } from "../shared/achievements.ts";
+
+/** The Apple Health values the badges read. */
+const HEALTH_FACT_KEYS = ["steps", "distanceKm", "flightsClimbed", "standMin", "exerciseMin", "activeKcal", "restingHr", "hrvMs", "bloodOxygenPct"] as const;
 import type { Collections, UserDoc } from "./db.ts";
 import { toMeasurementDto } from "./http.ts";
 import { messages, notifyUser, type PushSender } from "./push.ts";
@@ -7,14 +10,34 @@ import { messages, notifyUser, type PushSender } from "./push.ts";
 /** Until the app reports the person's time zone, days are counted in UTC. */
 export const DEFAULT_TIME_ZONE = "UTC";
 
-/** Badges and challenges from the whole history, which can be longer than what the app loads. */
+/** Badges and challenges from the whole history (weigh-ins and Apple Health days), which can be longer than what the app loads. */
 export async function achievementsFor(c: Collections, user: UserDoc, now = Date.now()): Promise<Achievements | null> {
   if (!user.profile) return null;
   const measurements = await c.measurements.find({ userId: user._id }).sort({ measuredAt: 1 }).toArray();
+  const healthDays = await c.healthDays
+    .find(
+      { userId: user._id },
+      {
+        projection: {
+          date: 1,
+          ...Object.fromEntries(HEALTH_FACT_KEYS.map((k) => [k, 1])),
+          "sleep.asleepMin": 1,
+          "sleep.deepMin": 1,
+          "sleep.awakenings": 1,
+          "sleep.start": 1,
+        },
+      },
+    )
+    .toArray();
   return achievements({
     profile: user.profile,
     measurements: measurements.map(toMeasurementDto),
     goalHistory: (user.goalHistory ?? []).map((h) => ({ ...h, setAt: h.setAt.toISOString(), reachedAt: h.reachedAt.toISOString() })),
+    healthDays: healthDays.map((d) => ({
+      date: d.date,
+      ...(Object.fromEntries(HEALTH_FACT_KEYS.map((k) => [k, d[k] ?? null])) as Pick<HealthDayFacts, (typeof HEALTH_FACT_KEYS)[number]>),
+      sleep: d.sleep ? { asleepMin: d.sleep.asleepMin, deepMin: d.sleep.deepMin ?? null, awakenings: d.sleep.awakenings ?? 0, start: d.sleep.start } : null,
+    })),
     timeZone: user.timeZone ?? DEFAULT_TIME_ZONE,
     now,
   });
@@ -32,7 +55,7 @@ export function streakNudge(current: number, bestBefore: number): StreakNudge | 
 }
 
 /**
- * After new weigh-ins: badges that went up a level, the personal streak reward, and how the streak
+ * After new weigh-ins or Apple Health days: badges that went up a level, the personal streak reward, and how the streak
  * compares with the record. Badge levels are only recorded the first time, so a long history does
  * not arrive as a burst of alerts. Each write only succeeds if the stored state is still the one
  * read, so two syncs at once cannot both notify. Never throws: it must not break a sync.
@@ -51,7 +74,8 @@ export async function checkAchievements(c: Collections, push: PushSender | undef
     const ups =
       before === undefined || written.modifiedCount !== 1
         ? []
-        : a.badges.filter((b) => b.level > (before[b.id] ?? 0)).map((b) => ({ id: b.id, level: b.level, count: b.dates.length }));
+        : // A badge new to the app is recorded silently the first time, like a first check.
+          a.badges.filter((b) => b.id in before && b.level > before[b.id]!).map((b) => ({ id: b.id, level: b.level, count: b.dates.length }));
     // A reached goal already has its own notification; the goal badge is not announced twice.
     const announce = ups.filter((u) => u.id !== "goal");
     if (announce.length > 0) await notifyUser(c, push, userId, "goals", (lang) => messages.badges(lang, announce));

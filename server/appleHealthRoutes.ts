@@ -11,7 +11,8 @@ import {
   readHealthSend,
   shortcutVersionOf,
 } from "../shared/health.ts";
-import { DEFAULT_TIME_ZONE } from "./achievementCheck.ts";
+import { checkAchievements, DEFAULT_TIME_ZONE } from "./achievementCheck.ts";
+import type { PushSender } from "./push.ts";
 import { hashSecret, newSecret } from "./auth.ts";
 import type { Collections, HealthDayDoc, UserDoc } from "./db.ts";
 import { asyncRoute, clientIp, hitRateLimit, peekRateLimit, sendRateLimited } from "./http.ts";
@@ -19,6 +20,7 @@ import { asyncRoute, clientIp, hitRateLimit, peekRateLimit, sendRateLimited } fr
 interface Context {
   collections: () => Collections;
   withUser: () => RequestHandler;
+  push?: PushSender;
 }
 
 /** Keys start with a recognizable prefix so a pasted key is easy to tell from other secrets. */
@@ -48,7 +50,7 @@ function bearer(req: Request): string | null {
   return match ? match[1]! : null;
 }
 
-export function appleHealthRoutes({ collections, withUser }: Context) {
+export function appleHealthRoutes({ collections, withUser, push }: Context) {
   const router = express.Router();
 
   // A new key replaces the old one; it is shown once and only its hash is kept.
@@ -137,6 +139,8 @@ export function appleHealthRoutes({ collections, withUser }: Context) {
         counts.push({ date, count });
       }
       await record({ ok: true, saved: counts, problems });
+      // New days can move activity badges up; never throws.
+      await checkAchievements(c, push, user._id);
       res.json({ ok: true, saved, problems });
     }),
   );

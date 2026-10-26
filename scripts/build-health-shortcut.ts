@@ -39,6 +39,8 @@ const IN_THE_LAST = 1001;
  */
 const METRIC_DAYS = 7;
 const SYMPTOM_DAYS = 30;
+/** Enough for the last two full nights; the server drops the one the window starts in. */
+const SLEEP_HOURS = 72;
 
 type Plist = string | number | boolean | Plist[] | { [key: string]: Plist };
 
@@ -183,8 +185,8 @@ function build(baseUrl: string): Record<string, Plist> {
     field(symptomField(symptom), lines(found.id, ["Start Date", "Value"]));
   }
 
-  // Sleep: every sample of the last 36 hours (last night, even when it started early) as "start|end|stage".
-  const sleep = findHealth("Sleep", { window: [36, HOUR], groupByDay: false });
+  // Sleep: every sample of the last 3 days as "start|end|stage"; the server splits them into nights.
+  const sleep = findHealth("Sleep", { window: [SLEEP_HOURS, HOUR], groupByDay: false });
   actions.push(sleep.action);
   field("sleep", lines(sleep.id, ["Start Date", "End Date", "Value"]));
   // Lets Settings tell this copy from an older one.

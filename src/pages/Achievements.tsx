@@ -1,14 +1,14 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { FiChevronDown, FiGift, FiLock, FiUnlock } from "react-icons/fi";
-import { type BadgeGroup, type BadgeStatus, STREAK_UNLOCKS, type StreakUnlock, TARGETS } from "../../shared/achievements.ts";
+import { type BadgeGroup, type BadgeStatus, HEALTH_BADGE_GROUPS, STREAK_UNLOCKS, type StreakUnlock, TARGETS } from "../../shared/achievements.ts";
 import type { ProfileDto, StreakReward, UserDto } from "../../shared/schemas.ts";
 import { BadgeMedal, ChallengeRow, StreakCard, useBadgeNames, useNewLevels } from "../achievements.tsx";
 import { api, useAchievementsQuery } from "../api.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
 import { Button, Card, Field, useFormat } from "../ui.tsx";
 
-const GROUPS: BadgeGroup[] = ["habit", "health", "goals"];
+const GROUPS: BadgeGroup[] = ["habit", "health", "goals", ...HEALTH_BADGE_GROUPS];
 
 /**
  * Every date a badge was earned, one year at a time (the newest first) and one line per month,
@@ -259,7 +259,8 @@ export function AchievementsPage({ user, profile }: { user: UserDto; profile: Pr
         </ul>
       </Card>
 
-      {GROUPS.map((g) => (
+      {/* Apple Health badges need the connection; without it a group shows only once one was earned. */}
+      {GROUPS.filter((g) => !HEALTH_BADGE_GROUPS.includes(g) || user.appleHealth != null || a.badges.some((b) => b.group === g && b.level > 0)).map((g) => (
         <Card key={g}>
           <h2 className="text-lg font-semibold">{t(`badgeGroup.${g}` as MessageKey)}</h2>
           <ul className="mt-3 space-y-3">

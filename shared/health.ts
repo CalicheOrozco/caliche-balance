@@ -237,6 +237,44 @@ export function summarizeSleep(text: string): SleepSummary | null {
   };
 }
 
+/** Readings more than this apart belong to different sleeps (a night and a nap, or two nights). */
+const SLEEP_GAP_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Splits the Shortcut's sleep lines into sleeps and keeps one per day: the longest sleep that
+ * ended that day (the night, not a nap), as its own lines. The day is the wake-up date in the
+ * iPhone's time zone. The oldest day is dropped when there are several, because the search window
+ * usually starts in the middle of that night.
+ */
+export function sleepNights(text: string): Map<string, string> {
+  const rows = text
+    .split(/\r?\n/)
+    .map((line) => {
+      const [startText = "", endText = ""] = line.split("|");
+      return { line, start: Date.parse(startText.trim()), end: Date.parse(endText.trim()), day: shortcutDay(endText) };
+    })
+    .filter((r) => Number.isFinite(r.start) && Number.isFinite(r.end) && r.end > r.start && r.day)
+    .sort((a, b) => a.start - b.start);
+  const sleeps: (typeof rows)[] = [];
+  let lastEnd = -Infinity;
+  for (const r of rows) {
+    if (r.start - lastEnd > SLEEP_GAP_MS) sleeps.push([]);
+    sleeps[sleeps.length - 1]!.push(r);
+    lastEnd = Math.max(lastEnd, r.end);
+  }
+  const byDay = new Map<string, { text: string; asleep: number }>();
+  for (const sleep of sleeps) {
+    const last = sleep.reduce((a, b) => (b.end > a.end ? b : a));
+    const text = sleep.map((r) => r.line).join("\n");
+    const asleep = summarizeSleep(text)?.asleepMin ?? 0;
+    const kept = byDay.get(last.day!);
+    if (!kept || asleep > kept.asleep) byDay.set(last.day!, { text, asleep });
+  }
+  const days = [...byDay.keys()].sort();
+  if (days.length > 1) byDay.delete(days[0]!);
+  return new Map([...byDay].map(([day, v]) => [day, v.text]));
+}
+
 // ---- Input --------------------------------------------------------------------------------
 
 const metricShape = Object.fromEntries(HEALTH_METRICS.map((m) => [m, metric(HEALTH_METRIC_SPECS[m])])) as {
@@ -298,8 +336,9 @@ const DATA_FIELDS = new Set<string>([...HEALTH_METRICS, ...HEALTH_SYMPTOM_KEYS.m
 /**
  * One value per day from a metric's "day|value|unit" lines: the day's total for "sum" metrics, the
  * average of its readings for "mean" ones. A line that cannot be read is passed on as text so the
- * day reports it. Skipped: groups for a day that has not started ("tomorrow|0"), and the 0 that
- * "Fill Missing" puts on days without data when 0 cannot be a real value (a pulse, a temperature).
+ * day reports it. Skipped: groups for a day that has not started ("tomorrow|0"), the 0 that "Fill
+ * Missing" puts on days without data (its group starts exactly at midnight, a real one at the day's
+ * first sample), and any 0 where 0 cannot be a real value (a pulse).
  */
 function metricByDay(spec: HealthMetricSpec, rows: string[][], now: number): Map<string, number | string> {
   const byDay = new Map<string, number[]>();
@@ -312,7 +351,9 @@ function metricByDay(spec: HealthMetricSpec, rows: string[][], now: number): Map
       out.set(day, `${amount} ${unit}`.trim());
       continue;
     }
-    if (value === 0 && spec.min > 0) continue;
+    // "Fill Missing" groups start exactly at midnight; a real day's group starts at its first sample.
+    const filled = value === 0 && /T00:00:00(?:\.0+)?(?:Z|[+-]\d\d:?\d\d)?$/.test(when.trim());
+    if (filled || (value === 0 && spec.min > 0)) continue;
     byDay.set(day, [...(byDay.get(day) ?? []), value]);
   }
   for (const [day, values] of byDay) {
@@ -338,9 +379,8 @@ function splitByDate(body: Record<string, unknown>, now: number): Record<string,
     if (!rows) {
       put(shortcutDay(body[dateField(key)]) ?? body.date, key, value);
     } else if (key === "sleep") {
-      // The night belongs to the day it ended.
-      const ends = rows.map((r) => r[1] ?? "").filter((e) => shortcutDay(e)).sort();
-      put(shortcutDay(ends[ends.length - 1]) ?? body.date, key, value);
+      // Each night on the day you woke up; several nights fill in missed days.
+      for (const [day, night] of sleepNights(value as string)) put(day, key, night);
     } else if (symptomKeys.has(key)) {
       // The latest one logged each day.
       for (const [when = "", ...rest] of [...rows].sort((a, b) => (a[0] ?? "").localeCompare(b[0] ?? ""))) {
@@ -419,7 +459,7 @@ export type HealthDayDto = { date: string; sleep: SleepSummary | null; symptoms:
  * from the current one. Bump it whenever scripts/build-health-shortcut.ts changes what it sends.
  * Copies from before versions existed send none.
  */
-export const HEALTH_SHORTCUT_VERSION = 13;
+export const HEALTH_SHORTCUT_VERSION = 14;
 
 /** A problem with one field of a run, with what the Shortcut sent for it. */
 export interface HealthProblem {

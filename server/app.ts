@@ -444,7 +444,7 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
   );
 
   router.use(zeppRoutes({ collections: () => collections, withUser, zepp, cronSecret, push }));
-  router.use(appleHealthRoutes({ collections: () => collections, withUser }));
+  router.use(appleHealthRoutes({ collections: () => collections, withUser, push }));
 
   app.use("/api", router);
 

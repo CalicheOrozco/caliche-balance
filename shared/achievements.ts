@@ -6,12 +6,16 @@ import { scoreOf } from "./score.ts";
 /**
  * Badges and challenges, computed from the whole weigh-in history so they never disagree with the
  * data. Every badge can be earned again: each time counts, and the count moves it up five levels
- * (bronze to diamond). Two kinds: habit (weighing in regularly, the strongest predictor of keeping
- * weight off) and health (body fat, waist, muscle and score, not just weight). Days, weeks (Monday
+ * (bronze to diamond). Habit (weighing in regularly, the strongest predictor of keeping weight
+ * off), health (body fat, waist, muscle and score, not just weight), goals, and activity (steps,
+ * exercise and sleep from Apple Health, against published recommendations). Days, weeks (Monday
  * to Sunday) and months follow the person's time zone.
  */
 
-export type BadgeGroup = "habit" | "health" | "goals";
+export type BadgeGroup = "habit" | "health" | "goals" | "move" | "exercise" | "sleep" | "heart" | "balance";
+
+/** The groups that come from Apple Health. */
+export const HEALTH_BADGE_GROUPS: readonly BadgeGroup[] = ["move", "exercise", "sleep", "heart", "balance"];
 
 export const TIERS = ["bronze", "silver", "gold", "platinum", "diamond"] as const;
 export type Tier = (typeof TIERS)[number];
@@ -21,6 +25,11 @@ const DAILY = [1, 30, 100, 250, 500];
 const WEEKLY = [1, 4, 12, 26, 52];
 const MONTHLY = [1, 3, 6, 12, 24];
 const RARE = [1, 2, 3, 5, 8];
+/** For days that take a lot (15,000 steps, 1,000 active calories). */
+const HARD_DAILY = [1, 10, 30, 75, 150];
+const HARDER_DAILY = [1, 5, 15, 40, 100];
+const STREAK_7 = [1, 3, 6, 12, 26];
+const STREAK_30 = [1, 2, 4, 6, 12];
 
 export const BADGES = [
   { id: "weigh-days", group: "habit", levels: DAILY },
@@ -40,6 +49,36 @@ export const BADGES = [
   { id: "score-60", group: "health", levels: WEEKLY },
   { id: "score-80", group: "health", levels: WEEKLY },
   { id: "goal", group: "goals", levels: [1, 3, 5, 10, 20] },
+  { id: "steps-10k", group: "move", levels: DAILY },
+  { id: "steps-15k", group: "move", levels: HARD_DAILY },
+  { id: "steps-20k", group: "move", levels: HARDER_DAILY },
+  { id: "steps-week", group: "move", levels: WEEKLY },
+  { id: "steps-streak-7", group: "move", levels: STREAK_7 },
+  { id: "distance-5k", group: "move", levels: DAILY },
+  { id: "distance-week", group: "move", levels: WEEKLY },
+  { id: "flights-10", group: "move", levels: DAILY },
+  { id: "stand-3h", group: "move", levels: DAILY },
+  { id: "exercise-30", group: "exercise", levels: DAILY },
+  { id: "exercise-60", group: "exercise", levels: DAILY },
+  { id: "exercise-150", group: "exercise", levels: WEEKLY },
+  { id: "exercise-300", group: "exercise", levels: WEEKLY },
+  { id: "exercise-streak-7", group: "exercise", levels: STREAK_7 },
+  { id: "exercise-streak-30", group: "exercise", levels: STREAK_30 },
+  { id: "active-500", group: "exercise", levels: DAILY },
+  { id: "active-1000", group: "exercise", levels: HARD_DAILY },
+  { id: "active-week", group: "exercise", levels: WEEKLY },
+  { id: "sleep-7", group: "sleep", levels: DAILY },
+  { id: "sleep-week", group: "sleep", levels: WEEKLY },
+  { id: "sleep-streak-7", group: "sleep", levels: STREAK_7 },
+  { id: "sleep-deep", group: "sleep", levels: DAILY },
+  { id: "sleep-unbroken", group: "sleep", levels: DAILY },
+  { id: "sleep-regular", group: "sleep", levels: WEEKLY },
+  { id: "resting-hr-60", group: "heart", levels: DAILY },
+  { id: "resting-hr-down", group: "heart", levels: MONTHLY },
+  { id: "hrv-up", group: "heart", levels: MONTHLY },
+  { id: "oxygen-week", group: "heart", levels: WEEKLY },
+  { id: "full-day", group: "balance", levels: DAILY },
+  { id: "full-week", group: "balance", levels: WEEKLY },
 ] as const satisfies readonly { id: string; group: BadgeGroup; levels: readonly number[] }[];
 
 export type BadgeId = (typeof BADGES)[number]["id"];
@@ -168,7 +207,53 @@ export const TARGETS = {
   recompWindowDays: 56,
   scoreGood: 60,
   scoreGreat: 80,
+  steps: [10_000, 15_000, 20_000],
+  // Mortality falls up to about 7,000 to 9,000 steps a day (Paluch et al., Lancet Public Health 2022).
+  stepsDaily: 7_000,
+  stepsWeekDays: 5,
+  distanceDayKm: 5,
+  // A marathon's distance in a week.
+  distanceWeekKm: 42.195,
+  flightsDay: 10,
+  standDayMin: 180,
+  exerciseDay: [30, 60],
+  // 150 to 300 minutes of moderate activity a week (US and Canadian physical activity guidelines).
+  exerciseWeek: [150, 300],
+  activeDayKcal: [500, 1_000],
+  // About half a kilo of body fat.
+  activeWeekKcal: 3_500,
+  // Adults need 7 hours or more (American Academy of Sleep Medicine).
+  sleepMin: 7 * 60,
+  sleepWeekNights: 5,
+  // Deep sleep is usually 13 to 23 % of the night in adults.
+  deepSleepShare: 0.15,
+  unbrokenMin: 6 * 60,
+  // Going to sleep at a regular time is linked to better health (Windred et al., Sleep 2024).
+  regularNights: 5,
+  regularWindowMin: 60,
+  restingHr: 60,
+  restingHrDrop: 2,
+  hrvRise: 0.05,
+  monthMinDays: 10,
+  oxygenPct: 95,
+  oxygenMinDays: 3,
 } as const;
+
+/** What the Apple Health badges read from each day (its local date); null where it has no data. */
+export interface HealthDayFacts {
+  date: string;
+  steps: number | null;
+  distanceKm: number | null;
+  flightsClimbed: number | null;
+  standMin: number | null;
+  exerciseMin: number | null;
+  activeKcal: number | null;
+  restingHr: number | null;
+  hrvMs: number | null;
+  bloodOxygenPct: number | null;
+  /** The night that ended this day. */
+  sleep: { asleepMin: number; deepMin: number | null; awakenings: number; start: string } | null;
+}
 
 export function levelOf(count: number, levels: readonly number[]): number {
   return levels.filter((n) => count >= n).length;
@@ -230,6 +315,7 @@ export function achievements(input: {
   profile: ProfileFacts;
   measurements: MeasurementDto[];
   goalHistory: GoalHistoryEntry[];
+  healthDays?: HealthDayFacts[];
   timeZone: string;
   now: number;
 }): Achievements {
@@ -342,6 +428,8 @@ export function achievements(input: {
 
   for (const g of input.goalHistory) add("goal", Date.parse(g.reachedAt));
 
+  healthBadges(input.healthDays ?? [], timeZone, today, add);
+
   // Challenges for the current week and month.
   const thisWeek = weekOf(today);
   const thisMonth = monthOf(today);
@@ -389,6 +477,125 @@ export function achievements(input: {
   };
 }
 
+/**
+ * The Apple Health badges. Days are already local dates; a day is dated at its noon UTC, which
+ * shows as that same date across the Americas. Months are compared only once they are over.
+ */
+function healthBadges(input: HealthDayFacts[], timeZone: string, today: number, add: (id: BadgeId, t: number) => void) {
+  const days = [...input]
+    .map((h) => ({ ...h, day: Date.parse(`${h.date}T00:00:00Z`) / DAY, t: Date.parse(`${h.date}T12:00:00Z`) }))
+    .sort((a, b) => a.day - b.day);
+  type Day = (typeof days)[number];
+  const at = (v: number | null | undefined, min: number) => (v ?? 0) >= min;
+  const walked = (h: Day) => at(h.steps, TARGETS.stepsDaily);
+  const exercised = (h: Day) => at(h.exerciseMin, TARGETS.exerciseDay[0]);
+  const rested = (h: Day) => at(h.sleep?.asleepMin, TARGETS.sleepMin);
+  const fullDay = (h: Day) => walked(h) && exercised(h) && rested(h);
+
+  // One day at a time.
+  const daily: [BadgeId, (h: Day) => boolean][] = [
+    ["steps-10k", (h) => at(h.steps, TARGETS.steps[0])],
+    ["steps-15k", (h) => at(h.steps, TARGETS.steps[1])],
+    ["steps-20k", (h) => at(h.steps, TARGETS.steps[2])],
+    ["distance-5k", (h) => at(h.distanceKm, TARGETS.distanceDayKm)],
+    ["flights-10", (h) => at(h.flightsClimbed, TARGETS.flightsDay)],
+    ["stand-3h", (h) => at(h.standMin, TARGETS.standDayMin)],
+    ["exercise-30", exercised],
+    ["exercise-60", (h) => at(h.exerciseMin, TARGETS.exerciseDay[1])],
+    ["active-500", (h) => at(h.activeKcal, TARGETS.activeDayKcal[0])],
+    ["active-1000", (h) => at(h.activeKcal, TARGETS.activeDayKcal[1])],
+    ["sleep-7", rested],
+    [
+      "sleep-deep",
+      (h) => !!h.sleep && h.sleep.deepMin !== null && h.sleep.asleepMin > 0 && h.sleep.deepMin / h.sleep.asleepMin >= TARGETS.deepSleepShare,
+    ],
+    ["sleep-unbroken", (h) => !!h.sleep && h.sleep.asleepMin >= TARGETS.unbrokenMin && h.sleep.awakenings === 0],
+    ["resting-hr-60", (h) => h.restingHr !== null && h.restingHr < TARGETS.restingHr],
+    ["full-day", fullDay],
+  ];
+  for (const h of days) for (const [id, test] of daily) if (test(h)) add(id, h.t);
+
+  // Every 7 (or 30) days in a row, like the weigh-in streak; a day without data breaks the run.
+  const runs = (test: (h: Day) => boolean, every: [BadgeId, number][]) => {
+    let run = 0;
+    let last = -Infinity;
+    for (const h of days) {
+      if (!test(h)) {
+        run = 0;
+        continue;
+      }
+      run = h.day === last + 1 ? run + 1 : 1;
+      last = h.day;
+      for (const [id, n] of every) if (run % n === 0) add(id, h.t);
+    }
+  };
+  runs(walked, [["steps-streak-7", 7]]);
+  runs(exercised, [
+    ["exercise-streak-7", 7],
+    ["exercise-streak-30", 30],
+  ]);
+  runs(rested, [["sleep-streak-7", 7]]);
+
+  // Weeks (Monday to Sunday), counted on the day the target is reached.
+  const nth = (list: Day[], test: (h: Day) => boolean, n: number) => list.filter(test)[n - 1];
+  const reachSum = (list: Day[], value: (h: Day) => number | null, target: number) => {
+    let sum = 0;
+    return list.find((h) => (sum += value(h) ?? 0) >= target);
+  };
+  for (const week of groupBy(days, (h) => weekOf(h.day))) {
+    const hits: [BadgeId, Day | undefined][] = [
+      ["steps-week", nth(week, walked, TARGETS.stepsWeekDays)],
+      ["distance-week", reachSum(week, (h) => h.distanceKm, TARGETS.distanceWeekKm)],
+      ["exercise-150", reachSum(week, (h) => h.exerciseMin, TARGETS.exerciseWeek[0])],
+      ["exercise-300", reachSum(week, (h) => h.exerciseMin, TARGETS.exerciseWeek[1])],
+      ["active-week", reachSum(week, (h) => h.activeKcal, TARGETS.activeWeekKcal)],
+      ["sleep-week", nth(week, rested, TARGETS.sleepWeekNights)],
+      ["full-week", nth(week, fullDay, TARGETS.stepsWeekDays)],
+    ];
+    for (const [id, hit] of hits) if (hit) add(id, hit.t);
+    // Blood oxygen: the week's average, with enough readings.
+    const oxygen = week.filter((h) => h.bloodOxygenPct !== null);
+    if (oxygen.length >= TARGETS.oxygenMinDays && avg(oxygen.map((h) => h.bloodOxygenPct!)) >= TARGETS.oxygenPct) add("oxygen-week", oxygen.at(-1)!.t);
+    // A regular bedtime: enough nights that fell asleep within the same hour.
+    const nights = week.filter((h) => h.sleep).map((h) => ({ h, at: bedtimeMinutes(h.sleep!.start, timeZone) }));
+    nights.sort((a, b) => a.at - b.at);
+    for (let i = 0; i + TARGETS.regularNights - 1 < nights.length; i++) {
+      const group = nights.slice(i, i + TARGETS.regularNights);
+      if (group.at(-1)!.at - group[0]!.at <= TARGETS.regularWindowMin) {
+        add("sleep-regular", Math.max(...group.map((n) => n.h.t)));
+        break;
+      }
+    }
+  }
+
+  // Months, each against the one before, once both are over and have enough days.
+  const thisMonth = monthOf(today);
+  const months = groupBy(days, (h) => monthOf(h.day)).filter((m) => monthOf(m[0]!.day) < thisMonth);
+  const monthly = (id: BadgeId, value: (h: Day) => number | null, better: (now: number, before: number) => boolean) => {
+    for (let i = 1; i < months.length; i++) {
+      if (monthOf(months[i]![0]!.day) !== monthOf(months[i - 1]![0]!.day) + 1) continue;
+      const now = months[i]!.map(value).filter((v): v is number => v !== null);
+      const before = months[i - 1]!.map(value).filter((v): v is number => v !== null);
+      if (now.length >= TARGETS.monthMinDays && before.length >= TARGETS.monthMinDays && better(avg(now), avg(before))) add(id, months[i]!.at(-1)!.t);
+    }
+  };
+  monthly("resting-hr-down", (h) => h.restingHr, (now, before) => before - now >= TARGETS.restingHrDrop);
+  monthly("hrv-up", (h) => h.hrvMs, (now, before) => now >= before * (1 + TARGETS.hrvRise));
+}
+
+const avg = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length;
+
+/**
+ * When a night started, in minutes from local noon, so bedtimes on both sides of midnight (23:30
+ * and 00:20) come out close together.
+ */
+function bedtimeMinutes(iso: string, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(new Date(iso));
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  return (hour * 60 + minute + 12 * 60) % (24 * 60);
+}
+
 /** Levels per badge, as stored to notice when one goes up. */
 export function levelsOf(a: Achievements): Record<string, number> {
   return Object.fromEntries(a.badges.map((b) => [b.id, b.level]));
@@ -414,6 +621,36 @@ export const BADGE_NAMES: Record<"es" | "en", Record<BadgeId, string>> = {
     "score-60": "Puntuación 60",
     "score-80": "Puntuación 80",
     goal: "Meta cumplida",
+    "steps-10k": "10 mil pasos",
+    "steps-15k": "15 mil pasos",
+    "steps-20k": "20 mil pasos",
+    "steps-week": "Semana caminando",
+    "steps-streak-7": "Racha caminando",
+    "distance-5k": "5 km en un día",
+    "distance-week": "Maratón semanal",
+    "flights-10": "10 pisos",
+    "stand-3h": "3 horas de pie",
+    "exercise-30": "30 de ejercicio",
+    "exercise-60": "Hora de ejercicio",
+    "exercise-150": "150 a la semana",
+    "exercise-300": "300 a la semana",
+    "exercise-streak-7": "Racha de ejercicio",
+    "exercise-streak-30": "Mes de ejercicio",
+    "active-500": "500 activas",
+    "active-1000": "1,000 activas",
+    "active-week": "Medio kilo quemado",
+    "sleep-7": "Buen descanso",
+    "sleep-week": "Semana descansada",
+    "sleep-streak-7": "Racha de descanso",
+    "sleep-deep": "Sueño profundo",
+    "sleep-unbroken": "Noche de corrido",
+    "sleep-regular": "Horario regular",
+    "resting-hr-60": "Pulso bajo 60",
+    "resting-hr-down": "Corazón más fuerte",
+    "hrv-up": "Mejor recuperación",
+    "oxygen-week": "Oxígeno en orden",
+    "full-day": "Día completo",
+    "full-week": "Semana completa de hábitos",
   },
   en: {
     "weigh-days": "Weigh-ins",
@@ -433,6 +670,36 @@ export const BADGE_NAMES: Record<"es" | "en", Record<BadgeId, string>> = {
     "score-60": "Score 60",
     "score-80": "Score 80",
     goal: "Goal reached",
+    "steps-10k": "10k steps",
+    "steps-15k": "15k steps",
+    "steps-20k": "20k steps",
+    "steps-week": "Walking week",
+    "steps-streak-7": "Walking streak",
+    "distance-5k": "5 km in a day",
+    "distance-week": "Weekly marathon",
+    "flights-10": "10 floors",
+    "stand-3h": "3 hours standing",
+    "exercise-30": "30 of exercise",
+    "exercise-60": "Hour of exercise",
+    "exercise-150": "150 a week",
+    "exercise-300": "300 a week",
+    "exercise-streak-7": "Exercise streak",
+    "exercise-streak-30": "Exercise month",
+    "active-500": "500 active",
+    "active-1000": "1,000 active",
+    "active-week": "Half a kilo burned",
+    "sleep-7": "Good rest",
+    "sleep-week": "Rested week",
+    "sleep-streak-7": "Rest streak",
+    "sleep-deep": "Deep sleep",
+    "sleep-unbroken": "Unbroken night",
+    "sleep-regular": "Regular bedtime",
+    "resting-hr-60": "Resting pulse under 60",
+    "resting-hr-down": "Stronger heart",
+    "hrv-up": "Better recovery",
+    "oxygen-week": "Oxygen on track",
+    "full-day": "Full day",
+    "full-week": "Full habits week",
   },
 };
 

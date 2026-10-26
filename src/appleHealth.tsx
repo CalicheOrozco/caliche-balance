@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { FiCheck, FiChevronDown, FiCopy, FiDownload, FiHeart, FiMoon } from "react-icons/fi";
-import { type AppleHealthStatus, HEALTH_METRICS, HEALTH_SHORTCUT_VERSION, type HealthMetric, healthAverages } from "../shared/health.ts";
+import { FiCheck, FiChevronDown, FiChevronRight, FiCopy, FiDownload, FiHeart, FiMoon } from "react-icons/fi";
+import { Link } from "react-router";
+import { type AppleHealthStatus, type HealthDayDto, HEALTH_METRICS, HEALTH_SHORTCUT_VERSION, type HealthMetric, healthAverages } from "../shared/health.ts";
 import type { UserDto } from "../shared/schemas.ts";
 import { api } from "./api.ts";
 import { type MessageKey, useI18n } from "./i18n.tsx";
@@ -276,6 +277,14 @@ export function hoursText(minutes: number): string {
   return h === 0 ? `${m} min` : `${h} h ${String(m).padStart(2, "0")} min`;
 }
 
+/** The last day with any activity; Health's "Fill Missing" makes a day that just started all zeros. */
+export function lastActiveIndex(days: HealthDayDto[]): number {
+  return days.findLastIndex((d) => (d.steps ?? 0) > 0 || (d.activeKcal ?? 0) > 0 || (d.exerciseMin ?? 0) > 0);
+}
+
+/** Shown first; everything else is one tap away under "See all". */
+const KEY_METRICS: HealthMetric[] = ["steps", "exerciseMin", "standMin", "distanceKm", "restingHr", "hrvMs"];
+
 const GROUPS: { key: "activity" | "energy" | "heart" | "body"; metrics: HealthMetric[] }[] = [
   { key: "activity", metrics: ["steps", "distanceKm", "flightsClimbed", "exerciseMin", "standMin", "walkingSpeedKmh", "stepLengthCm", "walkingAsymmetryPct", "stairSpeedUpMs", "stairSpeedDownMs"] },
   { key: "energy", metrics: ["activeKcal", "restingKcal"] },
@@ -283,18 +292,42 @@ const GROUPS: { key: "activity" | "energy" | "heart" | "body"; metrics: HealthMe
   { key: "body", metrics: ["bodyFatPct", "bmi", "environmentalSoundDb", "headphoneAudioDb"] },
 ];
 
-/** Home: the latest day from Apple Health next to the 7-day average, by group, with total calories burned. */
-export function HealthTodayCard({ connected }: { connected: boolean }) {
+/** The latest day from Apple Health next to the 7-day average: total calories burned and the key numbers, then the rest (folded unless expanded). */
+export function HealthTodayCard({ connected, expanded = false, date }: { connected: boolean; expanded?: boolean; date?: string }) {
   const { t, tf } = useI18n();
   const f = useFormat();
   const format = useMetricFormat();
-  const days = useHealthDays(connected).data ?? [];
+  const all = useHealthDays(connected).data ?? [];
+  // A chosen day, or else the last day that has activity (right after midnight today is all zeros).
+  const shown = date === undefined ? lastActiveIndex(all) : all.findIndex((d) => d.date === date);
+  const days = shown === -1 ? (date === undefined ? all : []) : all.slice(0, shown + 1);
   const latest = days[days.length - 1];
   if (!latest) return null;
   const week = healthAverages(days.slice(-7));
   const total = latest.activeKcal !== null && latest.restingKcal !== null ? latest.activeKcal + latest.restingKcal : null;
   const weekTotal = week.activeKcal !== null && week.restingKcal !== null ? week.activeKcal + week.restingKcal : null;
   const symptoms = Object.entries(latest.symptoms) as [keyof typeof latest.symptoms, string][];
+  const has = (m: HealthMetric) => latest[m] !== null || week[m] !== null;
+  const tile = (m: HealthMetric) => (
+    <div key={m} className="rounded-2xl bg-surface-2 p-3">
+      <dt className="text-xs text-ink-2">{t(`ahMetric.${m}` as MessageKey)}</dt>
+      <dd className="text-lg font-semibold">{format(m, latest[m])}</dd>
+      <dd className="text-xs text-muted">
+        {t("ahWeekAvg")}: {format(m, week[m])}
+      </dd>
+    </div>
+  );
+  // Everything past the key numbers, by group: folded on Home, open on the Activity page.
+  const rest = GROUPS.map((g) => {
+    const shown = g.metrics.filter((m) => !KEY_METRICS.includes(m) && has(m));
+    if (shown.length === 0) return null;
+    return (
+      <div key={g.key} className="mt-4">
+        <p className="text-sm font-semibold text-ink-2">{t(`ahGroup.${g.key}` as MessageKey)}</p>
+        <dl className="mt-2 grid grid-cols-2 gap-2">{shown.map(tile)}</dl>
+      </div>
+    );
+  });
   return (
     <Card>
       <h2 className="flex items-center gap-2 text-lg font-semibold">
@@ -313,26 +346,17 @@ export function HealthTodayCard({ connected }: { connected: boolean }) {
           <p className="mt-1 text-xs text-ink-2">{t("ahTotalKcalHint")}</p>
         </div>
       )}
-      {GROUPS.map((g) => {
-        const shown = g.metrics.filter((m) => latest[m] !== null || week[m] !== null);
-        if (shown.length === 0) return null;
-        return (
-          <div key={g.key} className="mt-4">
-            <p className="text-sm font-semibold text-ink-2">{t(`ahGroup.${g.key}` as MessageKey)}</p>
-            <dl className="mt-2 grid grid-cols-2 gap-2">
-              {shown.map((m) => (
-                <div key={m} className="rounded-2xl bg-surface-2 p-3">
-                  <dt className="text-xs text-ink-2">{t(`ahMetric.${m}` as MessageKey)}</dt>
-                  <dd className="text-lg font-semibold">{format(m, latest[m])}</dd>
-                  <dd className="text-xs text-muted">
-                    {t("ahWeekAvg")}: {format(m, week[m])}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        );
-      })}
+      <dl className="mt-3 grid grid-cols-2 gap-2">{KEY_METRICS.filter(has).map(tile)}</dl>
+      {expanded
+        ? rest
+        : GROUPS.some((g) => g.metrics.some((m) => !KEY_METRICS.includes(m) && has(m))) && (
+            <details className="group mt-3">
+              <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-medium text-brand [&::-webkit-details-marker]:hidden">
+                {t("ahSeeAll")} <FiChevronDown className="transition group-open:rotate-180" aria-hidden />
+              </summary>
+              {rest}
+            </details>
+          )}
       {symptoms.length > 0 && (
         <div className="mt-4">
           <p className="text-sm font-semibold text-ink-2">{t("ahSymptomsTitle")}</p>
@@ -352,12 +376,43 @@ export function HealthTodayCard({ connected }: { connected: boolean }) {
 const STAGE_COLOR = { deep: "bg-[#3b5bdb]", core: "bg-[#4dabf7]", rem: "bg-[#22b8cf]", awake: "bg-[#f59f00]" } as const;
 
 /** Home: last night's sleep with its stages, against the 7-day average. */
-export function SleepCard({ connected }: { connected: boolean }) {
+/** "Noche del 24 al 25 oct": a night is filed on the day you woke up. */
+function useNightLabel() {
+  const { tf, locale } = useI18n();
+  return (wakeDay: string) => {
+    const wake = new Date(`${wakeDay}T12:00:00`);
+    const before = new Date(wake.getTime() - 86_400_000);
+    return tf("sleepNightOf", {
+      from: before.toLocaleDateString(locale, before.getMonth() === wake.getMonth() ? { day: "numeric" } : { day: "numeric", month: "short" }),
+      to: wake.toLocaleDateString(locale, { day: "numeric", month: "short" }),
+    });
+  };
+}
+
+/**
+ * Last night, or the night that ended on `date` (the Activity page's day picker), with the average
+ * of the 7 days up to it.
+ */
+export function SleepCard({ connected, date }: { connected: boolean; date?: string }) {
   const { t, tf, locale } = useI18n();
-  const days = useHealthDays(connected).data ?? [];
-  const night = [...days].reverse().find((d) => d.sleep)?.sleep;
-  if (!night) return null;
-  const week = healthAverages(days.slice(-7)).sleepMin;
+  const nightLabel = useNightLabel();
+  const all = useHealthDays(connected).data ?? [];
+  const index = date === undefined ? all.findLastIndex((d) => d.sleep) : all.findIndex((d) => d.date === date);
+  const day = all[index];
+  if (date === undefined && !day) return null;
+  const night = day?.sleep;
+  if (!night) {
+    return (
+      <Card>
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <FiMoon className="text-brand" aria-hidden /> {t("sleepTitle")}
+        </h2>
+        {date && <p className="text-sm text-muted">{nightLabel(date)}</p>}
+        <p className="mt-2 text-sm text-ink-2">{t("sleepNone")}</p>
+      </Card>
+    );
+  }
+  const week = healthAverages(all.slice(Math.max(0, index - 6), index + 1)).sleepMin;
   const time = (iso: string) => new Date(iso).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
   const stages = (["deep", "core", "rem", "awake"] as const).map((k) => ({ k, min: night[`${k}Min`] })).filter((s) => s.min !== null && s.min > 0);
   const total = stages.reduce((sum, s) => sum + (s.min ?? 0), 0);
@@ -366,6 +421,7 @@ export function SleepCard({ connected }: { connected: boolean }) {
       <h2 className="flex items-center gap-2 text-lg font-semibold">
         <FiMoon className="text-brand" aria-hidden /> {t("sleepTitle")}
       </h2>
+      <p className="text-sm text-muted">{nightLabel(day.date)}</p>
       <p className="mt-2 text-2xl font-bold">{tf("sleepAsleep", { hours: hoursText(night.asleepMin) })}</p>
       <p className="text-sm text-ink-2">{tf("sleepSpan", { start: time(night.start), end: time(night.end) })}</p>
       {night.inBedMin !== null && <p className="text-sm text-muted">{tf("sleepInBed", { hours: hoursText(night.inBedMin) })}</p>}
@@ -392,6 +448,42 @@ export function SleepCard({ connected }: { connected: boolean }) {
       )}
       {week !== null && <p className="mt-2 text-sm text-muted">{tf("sleepWeekAvg", { hours: hoursText(week) })}</p>}
       {night.asleepMin > 0 && night.asleepMin < 7 * 60 && <p className="mt-2 text-sm text-warn">{t("sleepShort")}</p>}
+    </Card>
+  );
+}
+
+/** Home: last night and the latest active day in four numbers, with the way to everything else. */
+export function ActivityGlanceCard({ connected }: { connected: boolean }) {
+  const { t } = useI18n();
+  const f = useFormat();
+  const days = useHealthDays(connected).data ?? [];
+  const night = [...days].reverse().find((d) => d.sleep)?.sleep;
+  const day = days[lastActiveIndex(days)];
+  if (!night && !day) return null;
+  const total = day && day.activeKcal !== null && day.restingKcal !== null ? day.activeKcal + day.restingKcal : null;
+  const tiles = [
+    { label: t("ahGlanceSleep"), value: night ? hoursText(night.asleepMin) : "-" },
+    { label: t("ahMetric.steps"), value: day?.steps != null ? f.number(day.steps, 0) : "-" },
+    { label: t("ahTotalKcal"), value: total !== null ? `${f.number(total, 0)} kcal` : "-" },
+    { label: t("ahMetric.exerciseMin"), value: day?.exerciseMin != null ? `${f.number(day.exerciseMin, 0)} min` : "-" },
+  ];
+  return (
+    <Card>
+      <dl className="grid grid-cols-2 gap-2">
+        {tiles.map((x) => (
+          <div key={x.label} className="rounded-2xl bg-surface-2 p-3">
+            <dt className="text-xs text-ink-2">{x.label}</dt>
+            <dd className="text-lg font-semibold">{x.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {day && <p className="mt-2 text-xs text-muted">{t("ahFrom").replace("{date}", f.date(`${day.date}T12:00:00`))}</p>}
+      <Link
+        to="/actividad"
+        className="mt-3 flex min-h-11 items-center justify-center gap-1 rounded-2xl bg-surface-2 px-4 py-2.5 font-medium text-ink"
+      >
+        {t("ahGlanceMore")} <FiChevronRight size={18} aria-hidden />
+      </Link>
     </Card>
   );
 }

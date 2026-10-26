@@ -1,6 +1,6 @@
 import { lazy, type ReactNode, Suspense, useEffect } from "react";
 import type { IconType } from "react-icons";
-import { FiAward, FiHome, FiPlusCircle, FiSettings, FiTrendingUp } from "react-icons/fi";
+import { FiActivity, FiAward, FiHome, FiPlusCircle, FiSettings, FiTrendingUp, FiUser } from "react-icons/fi";
 import { NavLink, Navigate, Route, Routes } from "react-router";
 import type { UserDto } from "../shared/schemas.ts";
 import { useMe, useMeasurements } from "./api.ts";
@@ -10,21 +10,25 @@ import { type MessageKey, useI18n } from "./i18n.tsx";
 import { AddPage } from "./pages/Add.tsx";
 import { AuthPage } from "./pages/Auth.tsx";
 import { HomePage } from "./pages/Home.tsx";
+import { MePage } from "./pages/Me.tsx";
 import { ReadingPage } from "./pages/Reading.tsx";
 import { AchievementsPage } from "./pages/Achievements.tsx";
 import { ProfileForm, SettingsPage } from "./pages/Settings.tsx";
 import { useAutoSync } from "./pages/Zepp.tsx";
 import { Card, Logo } from "./ui.tsx";
 
-// The chart library is large, so History loads only when it is opened.
+// The chart library is large, so the pages with charts load only when they are opened.
 const HistoryPage = lazy(() => import("./pages/History.tsx").then((m) => ({ default: m.HistoryPage })));
+const ActivityPage = lazy(() => import("./pages/Activity.tsx").then((m) => ({ default: m.ActivityPage })));
 
+// Six tabs fit a phone; Settings is the gear in the header.
 const NAV: { to: string; key: MessageKey; Icon: IconType }[] = [
   { to: "/", key: "nav.home", Icon: FiHome },
-  { to: "/historial", key: "nav.history", Icon: FiTrendingUp },
+  { to: "/actividad", key: "nav.activity", Icon: FiActivity },
   { to: "/agregar", key: "nav.add", Icon: FiPlusCircle },
+  { to: "/yo", key: "nav.me", Icon: FiUser },
   { to: "/logros", key: "nav.achievements", Icon: FiAward },
-  { to: "/ajustes", key: "nav.settings", Icon: FiSettings },
+  { to: "/historial", key: "nav.history", Icon: FiTrendingUp },
 ];
 
 function Shell({ children }: { children: ReactNode }) {
@@ -38,6 +42,15 @@ function Shell({ children }: { children: ReactNode }) {
           <span className="text-brand">Caliche</span> Balance
         </span>
         <Controls />
+        <NavLink
+          to="/ajustes"
+          aria-label={t("nav.settings")}
+          className={({ isActive }) =>
+            `flex h-9 w-9 items-center justify-center rounded-full bg-surface-2 transition active:scale-95 ${isActive ? "text-brand" : "text-ink-2 hover:text-ink"}`
+          }
+        >
+          <FiSettings size={18} aria-hidden />
+        </NavLink>
       </header>
       <main className="px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+6rem)]">
         {!online && <p className="mb-4 rounded-2xl bg-warn/15 px-4 py-3 text-sm text-ink">{t("offlineBanner")}</p>}
@@ -116,10 +129,19 @@ function SignedIn({ user }: { user: UserDto }) {
             path="/historial"
             element={
               <Suspense fallback={<p className="py-10 text-center text-muted">…</p>}>
-                <HistoryPage profile={profile} measurements={list} goals={user.goals} appleHealthConnected={user.appleHealth != null} />
+                <HistoryPage profile={profile} measurements={list} goals={user.goals} />
               </Suspense>
             }
           />
+          <Route
+            path="/actividad"
+            element={
+              <Suspense fallback={<p className="py-10 text-center text-muted">…</p>}>
+                <ActivityPage user={user} />
+              </Suspense>
+            }
+          />
+          <Route path="/yo" element={<MePage profile={profile} measurements={list} goals={user.goals} />} />
           <Route path="/medicion/:id" element={<ReadingPage profile={profile} measurements={list} />} />
           <Route path="/agregar" element={<AddPage profile={profile} />} />
           <Route path="/ajustes" element={<SettingsPage user={user} />} />

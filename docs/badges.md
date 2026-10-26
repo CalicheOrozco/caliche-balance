@@ -40,6 +40,36 @@ A single bold, simple icon symbol for a fitness app achievement badge: {SYMBOL}.
 | `score-60.png` | Puntuación 60 | pasas una semana con puntuación de 60 o más | `a semicircular gauge with the needle a little past the middle` |
 | `score-80.png` | Puntuación 80 | pasas una semana con puntuación de 80 o más | `a semicircular gauge with the needle near the top and a small star` |
 | `goal.png` | Meta cumplida | cumples una meta | `a flag planted on a mountain peak` |
+| `steps-10k.png` | 10 mil pasos | das 10,000 pasos en un día | `a pair of footprints with a small "10K" banner above them` |
+| `steps-15k.png` | 15 mil pasos | das 15,000 pasos en un día | `a pair of footprints with a small "15K" banner above them` |
+| `steps-20k.png` | 20 mil pasos | das 20,000 pasos en un día | `a pair of footprints with a small "20K" banner and tiny sparkles` |
+| `steps-week.png` | Semana caminando | das 7,000 pasos 5 días de una semana | `a winding path of footprints across a calendar week` |
+| `steps-streak-7.png` | Racha caminando | llevas 7 días seguidos con 7,000 pasos | `footprints in a row with a lightning bolt and seven small dots` |
+| `distance-5k.png` | 5 km en un día | caminas o corres 5 km en un día | `a road sign showing 5 km` |
+| `distance-week.png` | Maratón semanal | sumas 42.2 km en una semana | `a finish line ribbon with a small medal` |
+| `flights-10.png` | 10 pisos | subes 10 pisos en un día | `a staircase with an upward arrow` |
+| `stand-3h.png` | 3 horas de pie | pasas 3 horas de pie en un día | `a standing human silhouette next to a small clock` |
+| `exercise-30.png` | 30 de ejercicio | haces 30 minutos de ejercicio en un día | `a running shoe in motion with a small stopwatch` |
+| `exercise-60.png` | Hora de ejercicio | haces 60 minutos de ejercicio en un día | `a stopwatch showing a full hour` |
+| `exercise-150.png` | 150 a la semana | sumas 150 minutos de ejercicio en una semana | `a stopwatch with a ring filled halfway and a check mark` |
+| `exercise-300.png` | 300 a la semana | sumas 300 minutos de ejercicio en una semana | `a stopwatch with a ring filled all the way and a star` |
+| `exercise-streak-7.png` | Racha de ejercicio | llevas 7 días seguidos con 30 minutos de ejercicio | `a dumbbell with a lightning bolt and seven small dots` |
+| `exercise-streak-30.png` | Mes de ejercicio | llevas 30 días seguidos con 30 minutos de ejercicio | `a dumbbell inside a ring of many small dots` |
+| `active-500.png` | 500 activas | quemas 500 calorías activas en un día | `a small flame` |
+| `active-1000.png` | 1,000 activas | quemas 1,000 calorías activas en un día | `a large bright flame` |
+| `active-week.png` | Medio kilo quemado | quemas 3,500 calorías activas en una semana | `a flame over a small downward arrow` |
+| `sleep-7.png` | Buen descanso | duermes 7 horas o más | `a crescent moon over a pillow with small stars` |
+| `sleep-week.png` | Semana descansada | duermes 7 horas 5 noches de una semana | `a crescent moon with five stars in an arc` |
+| `sleep-streak-7.png` | Racha de descanso | duermes 7 horas 7 noches seguidas | `a crescent moon with a lightning bolt and seven small dots` |
+| `sleep-deep.png` | Sueño profundo | tienes 15 % o más de sueño profundo | `a crescent moon sinking into soft waves` |
+| `sleep-unbroken.png` | Noche de corrido | duermes 6 horas sin despertarte | `a crescent moon inside an unbroken circle` |
+| `sleep-regular.png` | Horario regular | te duermes 5 noches dentro de la misma hora | `a crescent moon next to a small clock` |
+| `resting-hr-60.png` | Pulso bajo 60 | tu pulso en reposo queda debajo de 60 | `a calm heart with a gentle flat pulse line` |
+| `resting-hr-down.png` | Corazón más fuerte | tu pulso en reposo del mes baja 2 latidos | `a heart with a small downward arrow` |
+| `hrv-up.png` | Mejor recuperación | tu HRV del mes sube 5 % | `a heart with a varied pulse line and a small upward arrow` |
+| `oxygen-week.png` | Oxígeno en orden | tu oxígeno de la semana promedia 95 % o más | `a pair of lungs with a check mark` |
+| `full-day.png` | Día completo | cumples pasos, ejercicio y sueño en un día | `a sun, a footprint and a moon in one circle` |
+| `full-week.png` | Semana completa de hábitos | tienes 5 días completos en una semana | `a calendar week with a star on each of five days` |
 
 ### Ejemplo completo (Racha de 7)
 

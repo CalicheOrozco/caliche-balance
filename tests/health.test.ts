@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type HealthDayDto, type HealthMetric, HEALTH_METRIC_SPECS, HEALTH_METRICS, healthAverages, healthDaySchema, parseHealthNumber, parseHealthValue, readHealthSend, sleepStage, summarizeSleep } from "../shared/health.ts";
+import { type HealthDayDto, type HealthMetric, HEALTH_METRIC_SPECS, HEALTH_METRICS, healthAverages, healthDaySchema, parseHealthNumber, parseHealthValue, readHealthSend, sleepNights, sleepStage, summarizeSleep } from "../shared/health.ts";
 
 describe("parseHealthNumber", () => {
   const steps = { min: 0, max: 200_000 };
@@ -90,6 +90,8 @@ describe("healthDaySchema", () => {
       // Separate readings, averaged per day; "Fill Missing" zeros are not readings.
       hrvMs: [`${d("19", "11:53:00")}|55.5|ms`, `${d("19", "09:43:00")}|50.3|ms`, `${d("19", "08:49:00")}|30.4|ms`, `${d("18")}|0|ms`].join("\n"),
       activeKcal: `${d("19", "00:10:00")}|1,935.5|Cal`,
+      // "Fill Missing" zeros start at midnight; a real 0 % reading starts at its time.
+      walkingAsymmetryPct: [`${d("20")}|0|%`, `${d("19", "08:20:14")}|0|%`, `${d("18", "08:14:01")}|1.05|%`].join("\n"),
       // A day without data comes as 0 ("Fill Missing"); a pulse of 0 is not a reading.
       walkingHr: [`${d("19")}|0|count/min`, `${d("18")}|0|count/min`].join("\n"),
       flightsClimbed: "",
@@ -99,8 +101,8 @@ describe("healthDaySchema", () => {
     }, Date.parse("2026-10-20T08:00:00-04:00"));
     expect(problems).toEqual([]);
     expect(days.map((x) => [x.date, x.values, x.symptoms, x.sleep?.asleepMin ?? null])).toEqual([
-      ["2026-10-18", { steps: 10240 }, {}, null],
-      ["2026-10-19", { steps: 9312, restingHr: 58, hrvMs: 45.4, activeKcal: 1935.5 }, { fatigue: "Severe" }, null],
+      ["2026-10-18", { steps: 10240, walkingAsymmetryPct: 1.05 }, {}, null],
+      ["2026-10-19", { steps: 9312, restingHr: 58, hrvMs: 45.4, activeKcal: 1935.5, walkingAsymmetryPct: 0 }, { fatigue: "Severe" }, null],
       ["2026-10-20", { steps: 412 }, {}, 410],
     ]);
   });
@@ -174,6 +176,34 @@ describe("sleep", () => {
     expect(s.asleepMin).toBe(390);
     expect(s.start).toBe(new Date("2026-10-19T00:10:00-03:00").toISOString());
     expect(s.end).toBe(new Date("2026-10-19T07:00:00-03:00").toISOString());
+  });
+
+  it("splits several days of samples into nights, one per wake-up day, and leaves naps out", () => {
+    const at = (day: string, time: string) => `2026-10-${day}T${time}:00-03:00`;
+    const text = [
+      // The search window starts in the middle of this night: dropped.
+      `${at("23", "00:00")}|${at("23", "07:10")}|Core`,
+      // Night of the 23rd to the 24th.
+      `${at("23", "23:30")}|${at("24", "03:00")}|Core`,
+      `${at("24", "03:00")}|${at("24", "04:00")}|Deep`,
+      `${at("24", "04:00")}|${at("24", "07:00")}|REM`,
+      // A nap on the 24th.
+      `${at("24", "15:00")}|${at("24", "15:40")}|Core`,
+      // Night of the 24th to the 25th, still asleep at 11:32.
+      `${at("25", "00:20")}|${at("25", "06:00")}|Core`,
+      `${at("25", "06:00")}|${at("25", "06:10")}|Awake`,
+      `${at("25", "06:10")}|${at("25", "11:32")}|REM`,
+    ].join("\n");
+    const nights = sleepNights(text);
+    expect([...nights.keys()]).toEqual(["2026-10-24", "2026-10-25"]);
+    expect(summarizeSleep(nights.get("2026-10-24")!)).toMatchObject({ asleepMin: 450, awakenings: 0 });
+    expect(summarizeSleep(nights.get("2026-10-25")!)).toMatchObject({ asleepMin: 662, awakenings: 1 });
+    // What the Shortcut sends lands on those days.
+    const { days } = readHealthSend({ sleep: text });
+    expect(days.map((d) => [d.date, d.sleep?.asleepMin])).toEqual([
+      ["2026-10-24", 450],
+      ["2026-10-25", 662],
+    ]);
   });
 
   it("works without an Apple Watch (only in bed or asleep) and with nothing readable", () => {
