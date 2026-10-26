@@ -85,8 +85,8 @@ const action = (identifier: string, params: Record<string, Plist>): Plist => ({ 
 /**
  * Set up as on the owner's iPhone, where these queries return every day of the week: sorted by
  * start date, latest first, no limit (with "Group By" a limit cut the samples before adding them
- * up). Daily totals are grouped by day with "Fill Missing", so a day without data is a 0 and not a
- * "No Samples Found" alert; separate readings are not grouped, as Shortcuts shows them.
+ * up). Grouped by day with "Fill Missing", so a day without data is a 0 and not a "No Samples
+ * Found" alert.
  */
 function findHealth(type: string, opts: { window: [number, number]; groupByDay: boolean }) {
   const id = uuid();
@@ -166,12 +166,12 @@ function build(baseUrl: string): Record<string, Plist> {
     return tokens([output(combinedId, "Combined Text")]);
   };
 
-  // Metrics: the last week as "day|value|unit" lines: one per day for totals (grouped by Health),
-  // one per reading for the rest (averaged per day on the server).
+  // Metrics: the last week as "day|value|unit" lines, one per day (grouped by Health); readings
+  // that still come one by one are averaged per day on the server.
   // Health gives the person's preferred unit; the server converts it and files each value on its day.
   for (const metric of HEALTH_METRICS) {
     const spec = HEALTH_METRIC_SPECS[metric];
-    const found = findHealth(spec.type, { window: [spec.days ?? METRIC_DAYS, DAY], groupByDay: spec.groupByDay ?? spec.kind === "sum" });
+    const found = findHealth(spec.type, { window: [spec.days ?? METRIC_DAYS, DAY], groupByDay: spec.groupByDay ?? true });
     actions.push(found.action);
     field(metric, lines(found.id, ["Start Date", "Value", "Unit"]));
   }

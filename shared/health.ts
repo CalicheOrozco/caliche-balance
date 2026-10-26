@@ -15,18 +15,13 @@ export interface HealthMetricSpec {
   /** "sum": a day's total; "mean": readings averaged per day. */
   kind: "sum" | "mean";
   /**
-   * Ask Health for one value per day ("Group By: Day"). Defaults to yes for "sum" metrics. For a
-   * "mean" one it gives the day's average for some types (resting heart rate, blood oxygen) but adds
-   * up others (sound levels), so it is set only where it was checked on an iPhone.
+   * Ask Health for one value per day ("Group By: Day", with "Fill Missing"), as the owner's own
+   * queries on iOS 26 do for every type here. It is turned off only for sound levels, whose
+   * grouped value is a sum of decibels rather than an average.
    */
   groupByDay?: boolean;
   /** Days back the Shortcut looks; fewer for types with hundreds of readings a day. Defaults to 7. */
   days?: number;
-  /**
-   * The Shortcut fills days without data with 0 ("Fill Missing"). For things you log by hand, 0
-   * means nothing was logged, so it is not saved.
-   */
-  zeroIsMissing?: boolean;
   min: number;
   max: number;
   group: "activity" | "energy" | "heart" | "body";
@@ -43,8 +38,6 @@ export const HEALTH_METRIC_SPECS = {
   flightsClimbed: { type: "Flights Climbed", unit: "count", kind: "sum", min: 0, max: 2_000, group: "activity" },
   exerciseMin: { type: "Exercise Minutes", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity" },
   standMin: { type: "Stand Minutes", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity" },
-  moveMin: { type: "Move Minutes", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity", zeroIsMissing: true },
-  mindfulMin: { type: "Mindful Minutes", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity", zeroIsMissing: true },
   walkingSpeedKmh: { type: "Walking Speed", unit: "km/h", kind: "mean", min: 0.5, max: 15, group: "activity" },
   stepLengthCm: { type: "Walking Step Length", unit: "cm", kind: "mean", min: 20, max: 200, group: "activity" },
   walkingAsymmetryPct: { type: "Walking Asymmetry", unit: "%", kind: "mean", min: 0, max: 100, group: "activity" },
@@ -52,18 +45,16 @@ export const HEALTH_METRIC_SPECS = {
   stairSpeedDownMs: { type: "Stair Speed: Down", unit: "m/s", kind: "mean", min: 0.05, max: 3, group: "activity" },
   activeKcal: { type: "Active Energy", unit: "kcal", kind: "sum", min: 0, max: 20_000, group: "energy" },
   restingKcal: { type: "Resting Energy", unit: "kcal", kind: "sum", min: 0, max: 10_000, group: "energy" },
-  restingHr: { type: "Resting Heart Rate", unit: "count/min", kind: "mean", groupByDay: true, min: 20, max: 250, group: "heart" },
+  restingHr: { type: "Resting Heart Rate", unit: "count/min", kind: "mean", min: 20, max: 250, group: "heart" },
   hrvMs: { type: "Heart Rate Variability", unit: "ms", kind: "mean", min: 1, max: 500, group: "heart" },
-  walkingHr: { type: "Walking Heart Rate Average", unit: "count/min", kind: "mean", groupByDay: true, min: 30, max: 250, group: "heart" },
-  respiratoryRate: { type: "Respiratory Rate", unit: "count/min", kind: "mean", groupByDay: true, min: 4, max: 60, group: "heart" },
-  bloodOxygenPct: { type: "Blood Oxygen", unit: "%", kind: "mean", groupByDay: true, min: 50, max: 100, group: "heart" },
+  walkingHr: { type: "Walking Heart Rate Average", unit: "count/min", kind: "mean", min: 30, max: 250, group: "heart" },
+  respiratoryRate: { type: "Respiratory Rate", unit: "count/min", kind: "mean", min: 4, max: 60, group: "heart" },
+  bloodOxygenPct: { type: "Blood Oxygen", unit: "%", kind: "mean", min: 50, max: 100, group: "heart" },
   wristTempC: { type: "Wrist Temperature", unit: "degC", kind: "mean", min: 20, max: 45, group: "body" },
-  waterMl: { type: "Water", unit: "mL", kind: "sum", min: 0, max: 20_000, group: "body", zeroIsMissing: true },
-  bodyFatPct: { type: "Body Fat Percentage", unit: "%", kind: "mean", groupByDay: true, min: 2, max: 75, group: "body" },
-  bmi: { type: "Body Mass Index", unit: "count", kind: "mean", groupByDay: true, min: 10, max: 80, group: "body" },
-  waistCm: { type: "Waist Circumference", unit: "cm", kind: "mean", groupByDay: true, min: 40, max: 250, group: "body" },
-  environmentalSoundDb: { type: "Environmental Sound Levels", unit: "dBASPL", kind: "mean", days: 2, min: 0, max: 140, group: "body" },
-  headphoneAudioDb: { type: "Headphone Audio Levels", unit: "dBASPL", kind: "mean", days: 2, min: 0, max: 140, group: "body" },
+  bodyFatPct: { type: "Body Fat Percentage", unit: "%", kind: "mean", min: 2, max: 75, group: "body" },
+  bmi: { type: "Body Mass Index", unit: "count", kind: "mean", min: 10, max: 80, group: "body" },
+  environmentalSoundDb: { type: "Environmental Sound Levels", unit: "dBASPL", kind: "mean", groupByDay: false, days: 2, min: 0, max: 140, group: "body" },
+  headphoneAudioDb: { type: "Headphone Audio Levels", unit: "dBASPL", kind: "mean", groupByDay: false, days: 2, min: 0, max: 140, group: "body" },
 } as const satisfies Record<string, HealthMetricSpec>;
 
 export type HealthMetric = keyof typeof HEALTH_METRIC_SPECS;
@@ -112,7 +103,7 @@ export function parseHealthNumber(value: unknown, range: { min: number; max: num
 
 export const KM_PER_MI = 1.609344;
 
-export type HealthUnit = "count" | "km" | "min" | "kcal" | "count/min" | "ms" | "degC" | "mL" | "%" | "km/h" | "cm" | "m/s" | "dBASPL";
+export type HealthUnit = "count" | "km" | "min" | "kcal" | "count/min" | "ms" | "degC" | "%" | "km/h" | "cm" | "m/s" | "dBASPL";
 
 /**
  * How to bring each unit Health may report into the metric's own unit. Shortcuts gives values in the
@@ -127,7 +118,6 @@ const UNIT_CONVERSIONS: Record<HealthUnit, Record<string, (n: number) => number>
   "count/min": { "count/min": (n) => n, bpm: (n) => n, "count/s": (n) => n * 60 },
   ms: { ms: (n) => n, s: (n) => n * 1000 },
   degC: { degc: (n) => n, "°c": (n) => n, degf: (n) => ((n - 32) * 5) / 9, "°f": (n) => ((n - 32) * 5) / 9 },
-  mL: { ml: (n) => n, l: (n) => n * 1000, fl_oz_us: (n) => n * 29.5735, floz: (n) => n * 29.5735, oz: (n) => n * 29.5735, cup_us: (n) => n * 236.588 },
   "%": { "%": (n) => n },
   "km/h": { "km/hr": (n) => n, "km/h": (n) => n, "mi/hr": (n) => n * KM_PER_MI, "mi/h": (n) => n * KM_PER_MI, "m/s": (n) => n * 3.6 },
   cm: { cm: (n) => n, m: (n) => n * 100, in: (n) => n * 2.54 },
@@ -306,7 +296,7 @@ const DATA_FIELDS = new Set<string>([...HEALTH_METRICS, ...HEALTH_SYMPTOM_KEYS.m
  * One value per day from a metric's "day|value|unit" lines: the day's total for "sum" metrics, the
  * average of its readings for "mean" ones. A line that cannot be read is passed on as text so the
  * day reports it. Skipped: groups for a day that has not started ("tomorrow|0"), and the 0 that
- * "Fill Missing" puts on days without data when 0 cannot be a real value.
+ * "Fill Missing" puts on days without data when 0 cannot be a real value (a pulse, a temperature).
  */
 function metricByDay(spec: HealthMetricSpec, rows: string[][], now: number): Map<string, number | string> {
   const byDay = new Map<string, number[]>();
@@ -319,7 +309,7 @@ function metricByDay(spec: HealthMetricSpec, rows: string[][], now: number): Map
       out.set(day, `${amount} ${unit}`.trim());
       continue;
     }
-    if (value === 0 && (spec.zeroIsMissing || spec.min > 0)) continue;
+    if (value === 0 && spec.min > 0) continue;
     byDay.set(day, [...(byDay.get(day) ?? []), value]);
   }
   for (const [day, values] of byDay) {
@@ -426,7 +416,7 @@ export type HealthDayDto = { date: string; sleep: SleepSummary | null; symptoms:
  * from the current one. Bump it whenever scripts/build-health-shortcut.ts changes what it sends.
  * Copies from before versions existed send none.
  */
-export const HEALTH_SHORTCUT_VERSION = 9;
+export const HEALTH_SHORTCUT_VERSION = 10;
 
 /** A problem with one field of a run, with what the Shortcut sent for it. */
 export interface HealthProblem {

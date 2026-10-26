@@ -39,8 +39,6 @@ describe("parseHealthValue", () => {
     expect(v("activeKcal", "418.4 kJ")).toBeCloseTo(100, 6);
     expect(v("exerciseMin", "1.5 hr")).toBe(90);
     expect(v("wristTempC", "96.8 degF")).toBeCloseTo(36, 6);
-    expect(v("waterMl", "1.5 L")).toBe(1500);
-    expect(v("waterMl", "8 fl_oz_us")).toBeCloseTo(236.588, 3);
     expect(v("steps", "8,452 count")).toBe(8452);
     // No unit, or one this metric never uses, keeps the number.
     expect(v("steps", "8452")).toBe(8452);
@@ -68,8 +66,8 @@ describe("healthDaySchema", () => {
       steps_date: "2026-10-19T00:00:00-04:00",
       restingHr: "58 count/min",
       restingHr_date: "2026-10-20T00:00:00-04:00",
-      waterMl: " ",
-      waterMl_date: "",
+      flightsClimbed: " ",
+      flightsClimbed_date: "",
       symptom_fatigue: "Mild",
       symptom_fatigue_date: "2026-10-02T21:15:00-04:00",
     });
@@ -93,8 +91,9 @@ describe("healthDaySchema", () => {
       // Separate readings, averaged per day; "Fill Missing" zeros are not readings.
       hrvMs: [`${d("19", "11:53:00")}|55.5|ms`, `${d("19", "09:43:00")}|50.3|ms`, `${d("19", "08:49:00")}|30.4|ms`, `${d("18")}|0|ms`].join("\n"),
       activeKcal: `${d("19", "00:10:00")}|1,935.5|Cal`,
-      mindfulMin: [`${d("19")}|0|min`, `${d("18")}|0|min`].join("\n"),
-      waterMl: "",
+      // A day without data comes as 0 ("Fill Missing"); a pulse of 0 is not a reading.
+      walkingHr: [`${d("19")}|0|count/min`, `${d("18")}|0|count/min`].join("\n"),
+      flightsClimbed: "",
       symptom_fatigue: [`${d("19", "21:00:00")}|Severe`, `${d("19", "08:00:00")}|Mild`].join("\n"),
       sleep: [`${d("19", "23:40:00")}|${d("20", "03:00:00")}|Core`, `${d("20", "03:00:00")}|${d("20", "06:30:00")}|Deep`].join("\n"),
       shortcutVersion: "5",
