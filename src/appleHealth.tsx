@@ -246,8 +246,6 @@ function useMetricFormat() {
         return `${f.number(v, 0)} ms`;
       case "respiratoryRate":
         return `${f.number(v)} rpm`;
-      case "wristTempC":
-        return `${f.number(v)} °C`;
       case "walkingSpeedKmh":
         return `${f.number(v)} km/h`;
       case "stepLengthCm":
@@ -282,7 +280,7 @@ const GROUPS: { key: "activity" | "energy" | "heart" | "body"; metrics: HealthMe
   { key: "activity", metrics: ["steps", "distanceKm", "flightsClimbed", "exerciseMin", "standMin", "walkingSpeedKmh", "stepLengthCm", "walkingAsymmetryPct", "stairSpeedUpMs", "stairSpeedDownMs"] },
   { key: "energy", metrics: ["activeKcal", "restingKcal"] },
   { key: "heart", metrics: ["restingHr", "hrvMs", "walkingHr", "respiratoryRate", "bloodOxygenPct"] },
-  { key: "body", metrics: ["wristTempC", "bodyFatPct", "bmi", "environmentalSoundDb", "headphoneAudioDb"] },
+  { key: "body", metrics: ["bodyFatPct", "bmi", "environmentalSoundDb", "headphoneAudioDb"] },
 ];
 
 /** Home: the latest day from Apple Health next to the 7-day average, by group, with total calories burned. */

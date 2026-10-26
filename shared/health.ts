@@ -31,9 +31,9 @@ export interface HealthMetricSpec {
  * The type is the name Shortcuts stores in the file, which is not always the one its menu shows.
  * From queries built on an iPhone with iOS 26 and shared: the menu's "Active Energy", "Resting
  * Energy" and "Exercise Minutes" are stored as "Active Calories", "Resting Calories" and "Exercise
- * Time". "Stand Time", "Sleeping Wrist Temperature" and "Step Length" follow the same older naming
- * and are not checked yet. Where the menu name came back empty but a HealthKit name worked
- * ("Oxygen Saturation", the audio exposures), that one is used.
+ * Time", and "Stand Minutes" and "Walking Step Length" as "Stand Time" and "Step Length". Where
+ * the menu name came back empty but a HealthKit name worked ("Oxygen Saturation", the audio
+ * exposures), that one is used.
  *
  * "sum" metrics are a day's total; "mean" metrics are readings averaged per day.
  */
@@ -55,7 +55,6 @@ export const HEALTH_METRIC_SPECS = {
   walkingHr: { type: "Walking Heart Rate Average", unit: "count/min", kind: "mean", min: 30, max: 250, group: "heart" },
   respiratoryRate: { type: "Respiratory Rate", unit: "count/min", kind: "mean", min: 4, max: 60, group: "heart" },
   bloodOxygenPct: { type: "Oxygen Saturation", unit: "%", kind: "mean", min: 50, max: 100, group: "heart" },
-  wristTempC: { type: "Sleeping Wrist Temperature", unit: "degC", kind: "mean", min: 20, max: 45, group: "body" },
   bodyFatPct: { type: "Body Fat Percentage", unit: "%", kind: "mean", min: 2, max: 75, group: "body" },
   bmi: { type: "Body Mass Index", unit: "count", kind: "mean", min: 10, max: 80, group: "body" },
   environmentalSoundDb: { type: "Environmental Audio Exposure", unit: "dBASPL", kind: "mean", groupByDay: false, days: 2, min: 0, max: 140, group: "body" },
@@ -108,7 +107,7 @@ export function parseHealthNumber(value: unknown, range: { min: number; max: num
 
 export const KM_PER_MI = 1.609344;
 
-export type HealthUnit = "count" | "km" | "min" | "kcal" | "count/min" | "ms" | "degC" | "%" | "km/h" | "cm" | "m/s" | "dBASPL";
+export type HealthUnit = "count" | "km" | "min" | "kcal" | "count/min" | "ms" | "%" | "km/h" | "cm" | "m/s" | "dBASPL";
 
 /**
  * How to bring each unit Health may report into the metric's own unit. Shortcuts gives values in the
@@ -122,7 +121,6 @@ const UNIT_CONVERSIONS: Record<HealthUnit, Record<string, (n: number) => number>
   kcal: { kcal: (n) => n, cal: (n) => n, kj: (n) => n / 4.184 },
   "count/min": { "count/min": (n) => n, bpm: (n) => n, "count/s": (n) => n * 60 },
   ms: { ms: (n) => n, s: (n) => n * 1000 },
-  degC: { degc: (n) => n, "°c": (n) => n, degf: (n) => ((n - 32) * 5) / 9, "°f": (n) => ((n - 32) * 5) / 9 },
   "%": { "%": (n) => n },
   "km/h": { "km/hr": (n) => n, "km/h": (n) => n, "mi/hr": (n) => n * KM_PER_MI, "mi/h": (n) => n * KM_PER_MI, "m/s": (n) => n * 3.6 },
   cm: { cm: (n) => n, m: (n) => n * 100, in: (n) => n * 2.54 },
@@ -421,7 +419,7 @@ export type HealthDayDto = { date: string; sleep: SleepSummary | null; symptoms:
  * from the current one. Bump it whenever scripts/build-health-shortcut.ts changes what it sends.
  * Copies from before versions existed send none.
  */
-export const HEALTH_SHORTCUT_VERSION = 12;
+export const HEALTH_SHORTCUT_VERSION = 13;
 
 /** A problem with one field of a run, with what the Shortcut sent for it. */
 export interface HealthProblem {

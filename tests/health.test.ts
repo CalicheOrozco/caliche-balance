@@ -38,7 +38,6 @@ describe("parseHealthValue", () => {
     expect(v("activeKcal", "1,935 kcal")).toBe(1935);
     expect(v("activeKcal", "418.4 kJ")).toBeCloseTo(100, 6);
     expect(v("exerciseMin", "1.5 hr")).toBe(90);
-    expect(v("wristTempC", "96.8 degF")).toBeCloseTo(36, 6);
     expect(v("steps", "8,452 count")).toBe(8452);
     // No unit, or one this metric never uses, keeps the number.
     expect(v("steps", "8452")).toBe(8452);
