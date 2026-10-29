@@ -19,7 +19,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { HEALTH_METRIC_SPECS, HEALTH_SHORTCUT_VERSION, HEALTH_METRICS, HEALTH_SYMPTOM_KEYS, HEALTH_SYMPTOMS, symptomField } from "../shared/health.ts";
+import { HEALTH_METRIC_SPECS, HEALTH_SHORTCUT_VERSION, type HealthMetric, type HealthMetricSpec, HEALTH_METRICS, HEALTH_SYMPTOM_KEYS, HEALTH_SYMPTOMS, symptomField } from "../shared/health.ts";
 
 const OBJ = "￼"; // where a variable sits inside a Shortcuts text field
 const ROOT = resolve(import.meta.dirname, "..");
@@ -41,6 +41,26 @@ interface Windows {
   /** The year Shortcut, which honors each type's `yearDays`. */
   year?: boolean;
 }
+
+/** What one Shortcut reads; the daily one reads everything. */
+interface Part {
+  metrics: readonly HealthMetric[];
+  symptoms: boolean;
+  sleep: boolean;
+}
+
+const EVERYTHING: Part = { metrics: HEALTH_METRICS, symptoms: true, sleep: true };
+const byGroup = (...groups: HealthMetricSpec["group"][]) => HEALTH_METRICS.filter((m) => groups.includes(HEALTH_METRIC_SPECS[m].group));
+/**
+ * The year comes in 4 Shortcuts: one Shortcut with all of it ran out of memory near the end, since
+ * Shortcuts keeps every step's result until the run is over. Each part sends its own fields.
+ */
+const YEAR_PARTS: { file: string; part: Part }[] = [
+  { file: "caliche-salud-anio-1.shortcut", part: { metrics: byGroup("activity"), symptoms: false, sleep: false } },
+  { file: "caliche-salud-anio-2.shortcut", part: { metrics: byGroup("energy", "heart"), symptoms: false, sleep: false } },
+  { file: "caliche-salud-anio-3.shortcut", part: { metrics: byGroup("body"), symptoms: true, sleep: false } },
+  { file: "caliche-salud-anio-4.shortcut", part: { metrics: [], symptoms: false, sleep: true } },
+];
 
 /**
  * The daily Shortcut: a week back, so today with no data yet does not fail and days missed by
@@ -150,7 +170,7 @@ const ISO_DATE: Plist[] = [
 
 // ---- The Shortcut ---------------------------------------------------------------------------
 
-function build(baseUrl: string, windows: Windows): Record<string, Plist> {
+function build(baseUrl: string, windows: Windows, part: Part): Record<string, Plist> {
   const actions: Plist[] = [];
   const fields: Plist[] = [];
   const field = (key: string, value: Plist) => fields.push({ WFItemType: 0, WFKey: text(key), WFValue: value });
@@ -183,7 +203,7 @@ function build(baseUrl: string, windows: Windows): Record<string, Plist> {
   // Metrics: the last week as "day|value|unit" lines, one per day (grouped by Health); readings
   // that still come one by one are averaged per day on the server.
   // Health gives the person's preferred unit; the server converts it and files each value on its day.
-  for (const metric of HEALTH_METRICS) {
+  for (const metric of part.metrics) {
     const spec = HEALTH_METRIC_SPECS[metric];
     const found = findHealth(spec.type, { window: [Math.min(spec.days ?? windows.metricDays, windows.metricDays, windows.year ? (spec.yearDays ?? Infinity) : Infinity), DAY], groupByDay: spec.groupByDay ?? true });
     actions.push(found.action);
@@ -191,16 +211,18 @@ function build(baseUrl: string, windows: Windows): Record<string, Plist> {
   }
 
   // Symptoms logged in the last month, as "when|value" ("Mild", "Present"...).
-  for (const symptom of HEALTH_SYMPTOM_KEYS) {
+  for (const symptom of part.symptoms ? HEALTH_SYMPTOM_KEYS : []) {
     const found = findHealth(HEALTH_SYMPTOMS[symptom], { window: [windows.symptomDays, DAY], groupByDay: false });
     actions.push(found.action);
     field(symptomField(symptom), lines(found.id, ["Start Date", "Value"]));
   }
 
   // Sleep: every sample of the last 3 days as "start|end|stage"; the server splits them into nights.
-  const sleep = findHealth("Sleep", { window: [windows.sleepHours, HOUR], groupByDay: false });
-  actions.push(sleep.action);
-  field("sleep", lines(sleep.id, ["Start Date", "End Date", "Value"]));
+  if (part.sleep) {
+    const sleep = findHealth("Sleep", { window: [windows.sleepHours, HOUR], groupByDay: false });
+    actions.push(sleep.action);
+    field("sleep", lines(sleep.id, ["Start Date", "End Date", "Value"]));
+  }
   // Lets Settings tell this copy from an older one.
   field("shortcutVersion", text(String(HEALTH_SHORTCUT_VERSION)));
 
@@ -254,19 +276,21 @@ if (!baseUrl?.startsWith("https://")) {
   process.exit(1);
 }
 /** Writes, converts and signs one Shortcut; its file name is the name it gets on the iPhone. */
-function write(file: string, windows: Windows) {
+function write(file: string, windows: Windows, part: Part) {
   const dir = mkdtempSync(join(tmpdir(), "caliche-shortcut-"));
   const xml = join(dir, "Caliche Salud.xml");
   const unsigned = join(dir, "Caliche Salud.shortcut");
   writeFileSync(
     xml,
-    `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n${toXml(build(baseUrl, windows))}\n</plist>\n`,
+    `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n${toXml(build(baseUrl, windows, part))}\n</plist>\n`,
   );
   execFileSync("plutil", ["-convert", "binary1", "-o", unsigned, xml]);
   mkdirSync(SHORTCUTS, { recursive: true });
   execFileSync("shortcuts", ["sign", "--mode", "anyone", "--input", unsigned, "--output", join(SHORTCUTS, file)]);
-  console.log(`signed: public/shortcuts/${file} (version ${HEALTH_SHORTCUT_VERSION}, ${HEALTH_METRICS.length} metrics, ${HEALTH_SYMPTOM_KEYS.length} symptoms, sleep; ${windows.metricDays} days)`);
+  console.log(
+    `signed: public/shortcuts/${file} (version ${HEALTH_SHORTCUT_VERSION}, ${part.metrics.length} metrics${part.symptoms ? ", symptoms" : ""}${part.sleep ? ", sleep" : ""}; ${windows.metricDays} days)`,
+  );
 }
 
-write("caliche-salud.shortcut", DAILY);
-write("caliche-salud-anio.shortcut", YEAR);
+write("caliche-salud.shortcut", DAILY, EVERYTHING);
+for (const { file, part } of YEAR_PARTS) write(file, YEAR, part);

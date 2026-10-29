@@ -190,7 +190,7 @@ Entre esos puntos la puntuación baja en línea recta. Las referencias son publi
 Apple Salud no tiene una conexión web: solo una app en el iPhone puede leerlo. Por eso Caliche Balance usa un **Atajo de iOS** que cada noche lee los totales del día y los manda con una llave personal.
 
 1. En **Ajustes > Apple Salud** creas tu llave (se muestra una sola vez; solo se guarda su huella).
-2. **Agregar el Atajo** descarga `public/shortcuts/caliche-salud.shortcut`. Al agregarlo, el Atajo te pide la llave. **Traer todo el año** descarga `caliche-salud-anio.shortcut`, el mismo Atajo con búsquedas de 366 días (60 para la energía, que se registra casi cada minuto, y 120 noches de sueño: con un año de esos Atajos se quedaba sin memoria), para correr una sola vez y llenar el historial; el servidor acepta envíos de hasta 4 MB y guarda todos los días en una sola escritura.
+2. **Agregar el Atajo** descarga `public/shortcuts/caliche-salud.shortcut`. Al agregarlo, el Atajo te pide la llave. **Traer todo el año** descarga 4 Atajos (`caliche-salud-anio-1` a `-4`: movimiento, energía y corazón, cuerpo y síntomas, sueño), porque uno solo se quedaba sin memoria: el mismo Atajo por partes, con búsquedas de 366 días (60 para la energía, que se registra casi cada minuto, y 120 noches de sueño: con un año de esos Atajos se quedaba sin memoria), para correr una sola vez y llenar el historial; el servidor acepta envíos de hasta 4 MB y guarda todos los días en una sola escritura.
 3. La primera vez que corre pide permiso para leer Salud. Después, una automatización diaria (11:30 p.m.) lo corre sola.
 
 Cada noche manda a `POST /api/apple-health/ingest` (con `Authorization: Bearer <llave>`):
