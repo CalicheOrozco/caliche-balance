@@ -115,7 +115,6 @@ export function appleHealthRoutes({ collections, withUser, push }: Context) {
         return res.status(400).json({ error: "invalid", fields: problems });
       }
       const today = new Date(localDay(Date.now(), user.timeZone ?? DEFAULT_TIME_ZONE) * 86_400_000).toISOString().slice(0, 10);
-      const saved: HealthDayDto[] = [];
       const counts: HealthAttempt["saved"] = [];
       // Values without a date go to today, which may also have come with its date: one write per day.
       const byDate = new Map<string, { set: Record<string, unknown>; count: number }>();
@@ -129,15 +128,20 @@ export function appleHealthRoutes({ collections, withUser, push }: Context) {
         entry.count += Object.values(day.values).filter((v) => v !== null).length + (day.sleep ? 1 : 0) + Object.keys(day.symptoms).length;
         byDate.set(date, entry);
       }
-      for (const [date, { set, count }] of byDate) {
-        const doc = await c.healthDays.findOneAndUpdate(
-          { userId: user._id, date },
-          { $set: set, $setOnInsert: { _id: new ObjectId(), userId: user._id, date } },
-          { upsert: true, returnDocument: "after" },
-        );
-        saved.push(toHealthDayDto(doc!));
-        counts.push({ date, count });
-      }
+      // One write for every day (a year-long send has hundreds), then the days as they are now.
+      await c.healthDays.bulkWrite(
+        [...byDate].map(([date, { set }]) => ({
+          updateOne: {
+            filter: { userId: user._id, date },
+            update: { $set: set, $setOnInsert: { _id: new ObjectId(), userId: user._id, date } },
+            upsert: true,
+          },
+        })),
+        { ordered: false },
+      );
+      const docs = await c.healthDays.find({ userId: user._id, date: { $in: [...byDate.keys()] } }).sort({ date: 1 }).toArray();
+      const saved: HealthDayDto[] = docs.map(toHealthDayDto);
+      for (const [date, { count }] of byDate) counts.push({ date, count });
       await record({ ok: true, saved: counts, problems });
       // New days can move activity badges up; never throws.
       await checkAchievements(c, push, user._id);

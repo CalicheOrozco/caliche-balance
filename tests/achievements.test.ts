@@ -235,4 +235,17 @@ describe("achievements", () => {
     expect(dates("resting-hr-down")).toEqual(["2026-09-30"]);
     expect(dates("hrv-up")).toEqual(["2026-09-30"]);
   });
+
+  it("counts levels within the current year and keeps past years, except long-term progress", () => {
+    // 35 days weighed in December 2025 (from 105 kg down to 99.75 kg), then 3 days this year.
+    const lastYear = Array.from({ length: 35 }, (_, i) => reading(Date.parse("2025-11-27T07:00:00-05:00") + i * DAY, 105 - i * 0.15));
+    const thisYear = daily(3, 0, () => 99);
+    const a = run([...lastYear, ...thisYear]);
+    // 35 weigh-ins last year (silver: 30) and 3 this year (bronze); every date is kept.
+    expect(badge(a, "weigh-days")).toMatchObject({ scope: "year", count: 3, level: 1, nextAt: 30 });
+    expect(badge(a, "weigh-days").dates).toHaveLength(38);
+    expect(badge(a, "weigh-days").pastYears).toEqual([{ year: 2025, count: 35, level: 2 }]);
+    // Each 5 % lost still counts across years.
+    expect(badge(a, "loss-5")).toMatchObject({ scope: "all", count: 1, level: 1, pastYears: [] });
+  });
 });

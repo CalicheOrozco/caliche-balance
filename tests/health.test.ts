@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { sleepScoreOf } from "../shared/sleepScore.ts";
 import { type HealthDayDto, type HealthMetric, HEALTH_METRIC_SPECS, HEALTH_METRICS, healthAverages, healthDaySchema, parseHealthNumber, parseHealthValue, readHealthSend, sleepNights, sleepStage, summarizeSleep } from "../shared/health.ts";
 
 describe("parseHealthNumber", () => {
@@ -176,6 +177,17 @@ describe("sleep", () => {
     expect(s.asleepMin).toBe(390);
     expect(s.start).toBe(new Date("2026-10-19T00:10:00-03:00").toISOString());
     expect(s.end).toBe(new Date("2026-10-19T07:00:00-03:00").toISOString());
+    // The chart's stretches: one stage at a time, in order, the iPhone's "Asleep" left out.
+    const iso = (time: string) => new Date(`2026-10-19T${time}:00-03:00`).toISOString();
+    expect(s.segments!.map((x) => [x.stage, x.start, x.end])).toEqual([
+      ["core", iso("00:10"), iso("01:10")],
+      ["deep", iso("01:10"), iso("02:00")],
+      ["awake", iso("02:00"), iso("02:10")],
+      ["rem", iso("02:10"), iso("03:00")],
+      ["core", iso("03:00"), iso("06:30")],
+      ["awake", iso("06:30"), iso("06:40")],
+      ["core", iso("06:40"), iso("07:00")],
+    ]);
   });
 
   it("splits several days of samples into nights, one per wake-up day, and leaves naps out", () => {
@@ -210,5 +222,55 @@ describe("sleep", () => {
     expect(summarizeSleep(line("00:00", "07:30", "In Bed"))).toMatchObject({ asleepMin: 0, inBedMin: 450, deepMin: null, awakenings: 0 });
     expect(summarizeSleep([line("00:00", "07:30", "In Bed"), line("00:20", "07:00", "Asleep")].join("\n"))).toMatchObject({ asleepMin: 400, deepMin: null });
     expect(summarizeSleep("basura\n||")).toBeNull();
+  });
+});
+
+describe("sleepScoreOf", () => {
+  const tz = "America/Toronto";
+  const night = (over: Partial<import("../shared/health.ts").SleepSummary> = {}) => ({
+    asleepMin: 480,
+    inBedMin: 500,
+    deepMin: 75,
+    coreMin: 290,
+    remMin: 115,
+    awakeMin: 12,
+    awakenings: 1,
+    start: "2026-10-20T03:30:00Z",
+    end: "2026-10-20T11:30:00Z",
+    ...over,
+  });
+  it("scores a good night near 100 and shows every part", () => {
+    const before = [night(), night(), night()];
+    const s = sleepScoreOf(night(), before, tz)!;
+    expect(s.score).toBe(100);
+    expect(s.parts.map((p) => p.part)).toEqual(["duration", "stages", "continuity", "regularity"]);
+    expect(s.facts).toMatchObject({ deepPct: 15.625, efficiencyPct: 96, bedtimeOffMin: 0 });
+  });
+
+  it("takes points off short, broken, late nights, and leaves out what it cannot know", () => {
+    // 5.5 h, 40 min awake, 3 awakenings, 2 hours past the usual time, no stages (no Apple Watch).
+    const usual = [night(), night(), night()];
+    const s = sleepScoreOf(night({ asleepMin: 330, inBedMin: 420, deepMin: null, remMin: null, awakeMin: 40, awakenings: 3, start: "2026-10-20T05:30:00Z" }), usual, tz)!;
+    expect(s.parts.map((p) => p.part)).toEqual(["duration", "continuity", "regularity"]);
+    expect(s.parts.find((p) => p.part === "duration")!.score).toBe(50);
+    expect(s.parts.find((p) => p.part === "regularity")!.score).toBe(0);
+    // Duration 50, continuity about 37, regularity 0, re-weighted without stages.
+    expect(s.score).toBe(40);
+    // Without nights before, regularity does not count.
+    expect(sleepScoreOf(night(), [], tz)!.parts.map((p) => p.part)).not.toContain("regularity");
+  });
+});
+
+describe("healthTargets", () => {
+  it("works out the recommendations for the person", async () => {
+    const { healthTargets } = await import("../shared/healthReference.ts");
+    const t = healthTargets({ sex: "male", age: 42, heightCm: 178, weightKg: 98 });
+    expect(t.steps).toEqual([8_000, 10_000]);
+    expect(t.stepLengthCm).toBeCloseTo(73.9, 1);
+    expect(t.distanceKm[1]).toBeCloseTo(7.39, 2);
+    expect(t.exerciseForLoss).toBe(250);
+    // Mifflin-St Jeor: 10 × 98 + 6.25 × 178 − 5 × 42 + 5.
+    expect(t.bmrKcal).toBe(1_887.5);
+    expect(healthTargets({ sex: "female", age: 65, heightCm: 160, weightKg: 55 })).toMatchObject({ steps: [6_000, 8_000], exerciseForLoss: null });
   });
 });

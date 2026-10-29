@@ -381,9 +381,9 @@ describe("Zepp connection", () => {
     it("announces a new record once, and the personal reward when the streak reaches it", async () => {
       // A 5-day streak last month, then 5 days up to yesterday: today's weigh-in makes 6.
       const { agent } = await streaker("nico", [40, 39, 38, 37, 36, 5, 4, 3, 2, 1]);
-      expect((await agent.put("/api/me/streak-reward").send({ text: "unos tenis", days: 5 })).body.fields).toEqual([{ path: "days", code: "reward-too-short" }]);
-      const set = await agent.put("/api/me/streak-reward").send({ text: " unos tenis ", days: 6 });
-      expect(set.body.streakReward).toMatchObject({ text: "unos tenis", days: 6, earnedAt: null });
+      expect((await agent.put("/api/me/streak-reward").send({ text: "unos tenis", kind: "streak", amount: 5 })).body.fields).toEqual([{ path: "amount", code: "reward-too-short" }]);
+      const set = await agent.put("/api/me/streak-reward").send({ text: " unos tenis ", kind: "streak", amount: 6 });
+      expect(set.body.streakReward).toMatchObject({ text: "unos tenis", kind: "streak", target: 6, start: null, earnedAt: null });
 
       await agent.post("/api/measurements").send({ weight: 89.8 });
       const bodies = push.sent.map((m) => m.body);
@@ -394,6 +394,22 @@ describe("Zepp connection", () => {
       const count = push.sent.length;
       await agent.post("/api/measurements").send({ weight: 89.7 });
       expect(push.sent).toHaveLength(count);
+    });
+
+    it("gives a reward for kilos lost from the weight when it was set, and reads one saved before kinds existed", async () => {
+      const { agent, db } = await streaker("ivo", [3, 2, 1]);
+      // 2 lb is 0.91 kg: from 90 kg, earned at 89.09 kg or less.
+      const set = await agent.put("/api/me/streak-reward").send({ text: "una cena", kind: "weight", amount: "2", unit: "lb" });
+      expect(set.body.streakReward).toMatchObject({ kind: "weight", target: 0.91, start: 90, earnedAt: null });
+      expect((await agent.put("/api/me/streak-reward").send({ text: "x", kind: "fat", amount: 3 })).body.fields).toEqual([{ path: "amount", code: "reward-no-fat" }]);
+      await agent.post("/api/measurements").send({ weight: 89.5 });
+      expect((await agent.get("/api/me")).body.streakReward.earnedAt).toBeNull();
+      await agent.post("/api/measurements").send({ weight: 89 });
+      expect(push.sent.map((m) => m.body)).toContain("🎁 ¡Bajaste 0.9 kg! Te ganaste tu premio: una cena.");
+      expect((await agent.get("/api/me")).body.streakReward.earnedAt).toEqual(expect.any(String));
+      // A streak reward stored with only `days`, from before.
+      await db.collection("users").updateOne({ username: "ivo" }, { $set: { streakReward: { text: "tenis", days: 30, setAt: new Date(), earnedAt: null } } });
+      expect((await agent.get("/api/me")).body.streakReward).toMatchObject({ text: "tenis", kind: "streak", target: 30, start: null });
     });
 
     it("reminds once per evening, only when the streak is alive and today's weigh-in is missing", async () => {

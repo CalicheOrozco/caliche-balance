@@ -24,7 +24,7 @@ import {
 } from "date-fns";
 import { enUS, es } from "date-fns/locale";
 import { FiCalendar, FiChevronLeft, FiChevronRight, FiX } from "react-icons/fi";
-import { type RefObject, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "./i18n.tsx";
 
 type View = "days" | "months" | "years";
@@ -73,9 +73,14 @@ export interface DatePickerProps {
   minDate?: Date;
   /** Hides the clear controls for required dates. */
   required?: boolean;
+  /**
+   * What to show instead of the field (for example "Today"); tapping it opens the calendar. The
+   * label is then only read by screen readers.
+   */
+  trigger?: ReactNode;
 }
 
-export function DatePicker({ label, value, onChange, disabled, placeholder, maxDate, minDate, required }: DatePickerProps) {
+export function DatePicker({ label, value, onChange, disabled, placeholder, maxDate, minDate, required, trigger }: DatePickerProps) {
   const { t, lang } = useI18n();
   const locale: Locale = lang === "es" ? es : enUS;
   const id = useId();
@@ -97,6 +102,14 @@ export function DatePicker({ label, value, onChange, disabled, placeholder, maxD
     setOpen(false);
     setView("days");
   };
+  // The calendar opens under the field, moved left when the field sits too far right for it to fit.
+  const [shift, setShift] = useState(0);
+  useLayoutEffect(() => {
+    if (!open || !containerRef.current) return;
+    const left = containerRef.current.getBoundingClientRect().left;
+    const width = Math.min(320, window.innerWidth - 32);
+    setShift(Math.min(0, window.innerWidth - 16 - (left + width)));
+  }, [open]);
   useOutsidePointer(containerRef, close, open);
 
   const selected: Date | null = value && isValid(parseISO(value)) ? parseISO(value) : null;
@@ -190,48 +203,63 @@ export function DatePicker({ label, value, onChange, disabled, placeholder, maxD
 
   return (
     <div ref={containerRef} className="relative">
-      <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-ink-2">
+      <label htmlFor={id} className={trigger ? "sr-only" : "mb-1.5 block text-sm font-medium text-ink-2"}>
         {label}
       </label>
-      <button
-        id={id}
-        type="button"
-        onClick={toggle}
-        disabled={disabled}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        className={`flex w-full items-center justify-between gap-2 rounded-2xl border bg-surface-2 px-4 py-3 text-left transition ${
-          disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"
-        } ${open ? "border-brand ring-2 ring-brand/20" : "border-line"}`}
-      >
-        <span className={`truncate ${selected ? "text-ink" : "text-muted"}`}>
-          {selected ? format(selected, "PP", { locale }) : (placeholder ?? t("selectDate"))}
-        </span>
-        <span className="flex shrink-0 items-center gap-1 text-muted">
-          {selected && !disabled && !required && (
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label={t("clear")}
-              onClick={(e) => {
-                e.stopPropagation();
-                onChange("");
-              }}
-              onKeyDown={(e) => e.key === "Enter" && onChange("")}
-              className="rounded-lg p-1 transition hover:text-ink"
-            >
-              <FiX size={14} aria-hidden />
-            </span>
-          )}
-          <FiCalendar size={18} aria-hidden />
-        </span>
-      </button>
+      {trigger ? (
+        <button
+          id={id}
+          type="button"
+          onClick={toggle}
+          disabled={disabled}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className={`w-full rounded-xl px-2 py-2 text-center font-semibold transition hover:bg-surface-2 ${open ? "bg-surface-2" : ""}`}
+        >
+          {trigger}
+        </button>
+      ) : (
+        <button
+          id={id}
+          type="button"
+          onClick={toggle}
+          disabled={disabled}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className={`flex w-full items-center justify-between gap-2 rounded-2xl border bg-surface-2 px-4 py-3 text-left transition ${
+            disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+          } ${open ? "border-brand ring-2 ring-brand/20" : "border-line"}`}
+        >
+          <span className={`truncate ${selected ? "text-ink" : "text-muted"}`}>
+            {selected ? format(selected, "PP", { locale }) : (placeholder ?? t("selectDate"))}
+          </span>
+          <span className="flex shrink-0 items-center gap-1 text-muted">
+            {selected && !disabled && !required && (
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={t("clear")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChange("");
+                }}
+                onKeyDown={(e) => e.key === "Enter" && onChange("")}
+                className="rounded-lg p-1 transition hover:text-ink"
+              >
+                <FiX size={14} aria-hidden />
+              </span>
+            )}
+            <FiCalendar size={18} aria-hidden />
+          </span>
+        </button>
+      )}
 
       {open && (
         <div
           role="dialog"
           aria-label={label}
-          className="absolute left-0 z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-line bg-surface shadow-2xl"
+          style={{ left: shift }}
+          className="absolute z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-line bg-surface shadow-2xl"
         >
           <div className="flex items-center justify-between px-3 pt-3 pb-2">
             <button

@@ -2,11 +2,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { FiChevronDown, FiGift, FiLock, FiUnlock } from "react-icons/fi";
 import { type BadgeGroup, type BadgeStatus, HEALTH_BADGE_GROUPS, STREAK_UNLOCKS, type StreakUnlock, TARGETS } from "../../shared/achievements.ts";
-import type { ProfileDto, StreakReward, UserDto } from "../../shared/schemas.ts";
-import { BadgeMedal, ChallengeRow, StreakCard, useBadgeNames, useNewLevels } from "../achievements.tsx";
-import { api, useAchievementsQuery } from "../api.ts";
+import { type ProfileDto, REWARD_KINDS, type RewardKind, type StreakReward, type UserDto } from "../../shared/schemas.ts";
+import { BadgeMedal, ChallengeRow, RewardProgress, StreakCard, useBadgeNames, useBodyNow, useNewLevels } from "../achievements.tsx";
+import { api, useAchievementsQuery, useMe } from "../api.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
-import { Button, Card, Field, useFormat } from "../ui.tsx";
+import { Button, Card, Field, Segmented, useFormat } from "../ui.tsx";
 
 const GROUPS: BadgeGroup[] = ["habit", "health", "goals", ...HEALTH_BADGE_GROUPS];
 
@@ -64,7 +64,9 @@ function BadgeRow({ b, unit, isNew }: { b: BadgeStatus; unit: ProfileDto["unit"]
   const { t, tf } = useI18n();
   const f = useFormat();
   const names = useBadgeNames();
-  const count = b.dates.length;
+  // count and pastYears are missing on achievements cached offline by an older version.
+  const count = b.count ?? b.dates.length;
+  const pastYears = b.pastYears ?? [];
   const description = tf(`badgeDesc.${b.id}` as MessageKey, { fat: f.weight(TARGETS.recompFatKg, unit), lean: f.weight(TARGETS.recompLeanKg, unit) });
   return (
     <li className={`rounded-2xl p-3 ${isNew ? "bg-brand/15 ring-2 ring-brand" : "bg-surface-2"}`}>
@@ -77,7 +79,7 @@ function BadgeRow({ b, unit, isNew }: { b: BadgeStatus; unit: ProfileDto["unit"]
           </div>
           <p className="text-xs text-muted">{description}</p>
           <p className="mt-1 text-sm text-ink-2">
-            {count === 1 ? t("badgeTimesOne") : count > 1 ? tf("badgeTimes", { n: count }) : null}
+            {count === 1 ? t(b.scope === "year" ? "badgeTimesOneYear" : "badgeTimesOne") : count > 1 ? tf(b.scope === "year" ? "badgeTimesYear" : "badgeTimes", { n: count }) : null}
             {count > 0 && " · "}
             {b.nextAt === null ? t("badgeMax") : tf("badgeNext", { count, next: b.nextAt, tier: names.tier(b.level + 1) })}
           </p>
@@ -88,7 +90,12 @@ function BadgeRow({ b, unit, isNew }: { b: BadgeStatus; unit: ProfileDto["unit"]
           )}
         </div>
       </div>
-      {count > 0 && (
+      {pastYears.length > 0 && (
+        <p className="mt-2 text-xs text-muted">
+          {pastYears.map((y) => tf("badgePastYear", { year: y.year, tier: y.level > 0 ? names.tier(y.level) : t("badgeLocked"), n: y.count })).join(" · ")}
+        </p>
+      )}
+      {b.dates.length > 0 && (
         <details className="group mt-2">
           <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-medium text-brand [&::-webkit-details-marker]:hidden">
             {t("badgeDates")} <FiChevronDown className="transition group-open:rotate-180" aria-hidden />
@@ -137,20 +144,38 @@ function UnlocksCard({ best }: { best: number }) {
   );
 }
 
-/** The person's own reward for reaching a streak length. */
+/** The person's own reward: for a streak, for kilos lost, or for points of body fat lost. */
 function RewardCard({ reward, current }: { reward: StreakReward | null; current: number }) {
   const { t, tf, te } = useI18n();
   const f = useFormat();
   const queryClient = useQueryClient();
-  const [editing, setEditing] = useState(reward === null);
+  const body = useBodyNow();
+  const unit = useMe().data?.profile?.unit ?? "kg";
+  // The form shows with no reward, or when picking another; derived so that a reward arriving after
+  // the offline copy still shows instead of the form.
+  const [picking, setEditing] = useState(false);
+  const editing = reward === null || picking;
   const [text, setText] = useState("");
-  const [days, setDays] = useState(String(Math.max(30, current + 7)));
+  const [kind, setKind] = useState<RewardKind>("streak");
+  const [amounts, setAmounts] = useState<Record<RewardKind, string>>({ streak: String(Math.max(30, current + 7)), weight: unit === "lb" ? "10" : "5", fat: "3" });
   const done = (saved: UserDto) => {
     queryClient.setQueryData(["me"], saved);
-    setEditing(saved.streakReward === null);
+    setEditing(false);
   };
-  const save = useMutation({ mutationFn: () => api.saveStreakReward({ text, days: Number(days) }), onSuccess: done });
+  const save = useMutation({ mutationFn: () => api.saveStreakReward({ text, kind, amount: amounts[kind], unit }), onSuccess: done });
   const remove = useMutation({ mutationFn: api.removeStreakReward, onSuccess: done });
+  const hint =
+    kind === "streak"
+      ? current > 0
+        ? tf("rewardDaysHint", { n: current })
+        : undefined
+      : kind === "weight"
+        ? body.weightKg !== null
+          ? tf("rewardWeightHint", { now: f.weight(body.weightKg, unit) })
+          : t("error.reward-no-weight")
+        : body.fatPct !== null
+          ? tf("rewardFatHint", { now: f.number(body.fatPct) })
+          : t("error.reward-no-fat");
   return (
     <Card>
       <h2 className="flex items-center gap-2 text-lg font-semibold">
@@ -158,14 +183,9 @@ function RewardCard({ reward, current }: { reward: StreakReward | null; current:
       </h2>
       {reward && !editing ? (
         <>
-          <p className="mt-2 font-semibold">
-            {reward.earnedAt ? tf("rewardWon", { text: reward.text }) : tf("rewardProgress", { text: reward.text, current: Math.min(current, reward.days), days: reward.days })}
-          </p>
-          {!reward.earnedAt && (
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2" aria-hidden>
-              <div className="h-full rounded-full bg-brand" style={{ width: `${Math.max(Math.min(current / reward.days, 1) * 100, 2)}%` }} />
-            </div>
-          )}
+          <div className="mt-2">
+            <RewardProgress reward={reward} streak={current} />
+          </div>
           <p className="mt-2 text-sm text-muted">{tf("rewardSince", { date: f.date(reward.setAt) })}</p>
           <div className="mt-3 flex flex-col gap-2">
             {reward.earnedAt && (
@@ -194,12 +214,18 @@ function RewardCard({ reward, current }: { reward: StreakReward | null; current:
         >
           <p className="text-sm text-ink-2">{t("rewardIntro")}</p>
           <Field label={t("rewardText")} value={text} onChange={(e) => setText(e.target.value)} placeholder={t("rewardTextPlaceholder")} maxLength={60} required />
+          <Segmented
+            label={t("rewardKind")}
+            value={kind}
+            onChange={setKind}
+            options={REWARD_KINDS.map((k) => ({ value: k, label: t(`rewardKind.${k}` as MessageKey) }))}
+          />
           <Field
-            label={t("rewardDays")}
-            inputMode="numeric"
-            value={days}
-            onChange={(e) => setDays(e.target.value)}
-            help={current > 0 ? tf("rewardDaysHint", { n: current }) : undefined}
+            label={kind === "streak" ? t("rewardDays") : kind === "weight" ? tf("rewardWeight", { unit }) : t("rewardFat")}
+            inputMode={kind === "streak" ? "numeric" : "decimal"}
+            value={amounts[kind]}
+            onChange={(e) => setAmounts((a) => ({ ...a, [kind]: e.target.value }))}
+            help={hint}
             required
           />
           {save.error && <p className="text-sm text-bad">{te(save.error)}</p>}
@@ -267,7 +293,7 @@ export function AchievementsPage({ user, profile }: { user: UserDto; profile: Pr
             {a.badges
               .filter((b) => b.group === g)
               // Highest level first; within a level, the closest to the next one.
-              .sort((x, y) => y.level - x.level || y.dates.length / (y.nextAt ?? 1) - x.dates.length / (x.nextAt ?? 1))
+              .sort((x, y) => y.level - x.level || (y.count ?? 0) / (y.nextAt ?? 1) - (x.count ?? 0) / (x.nextAt ?? 1))
               .map((b) => (
                 <BadgeRow key={b.id} b={b} unit={profile.unit} isNew={b.level > 0 && highlight.has(b.id)} />
               ))}

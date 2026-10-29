@@ -2,11 +2,14 @@ import { bodyFatOf, compositionOf, type ProfileFacts } from "./composition.ts";
 import { ageAt, bmi, bodyFatBands } from "./reference.ts";
 import type { GoalHistoryEntry, MeasurementDto } from "./schemas.ts";
 import { scoreOf } from "./score.ts";
+import { bedtimeMinutes } from "./sleepScore.ts";
 
 /**
  * Badges and challenges, computed from the whole weigh-in history so they never disagree with the
  * data. Every badge can be earned again: each time counts, and the count moves it up five levels
- * (bronze to diamond). Habit (weighing in regularly, the strongest predictor of keeping weight
+ * (bronze to diamond). Levels count the current calendar year and start over each January, except
+ * long-term progress (each 5 % lost, body fat down, recomposition, goals), which counts all of it;
+ * every date is kept and past years keep the level they reached. Habit (weighing in regularly, the strongest predictor of keeping weight
  * off), health (body fat, waist, muscle and score, not just weight), goals, and activity (steps,
  * exercise and sleep from Apple Health, against published recommendations). Days, weeks (Monday
  * to Sunday) and months follow the person's time zone.
@@ -39,16 +42,16 @@ export const BADGES = [
   { id: "challenge-week", group: "habit", levels: WEEKLY },
   { id: "challenge-full", group: "habit", levels: WEEKLY },
   { id: "challenge-month", group: "habit", levels: MONTHLY },
-  { id: "loss-5", group: "health", levels: RARE },
-  { id: "fat-down-2", group: "health", levels: RARE },
-  { id: "recomposition", group: "health", levels: RARE },
+  { id: "loss-5", group: "health", levels: RARE, scope: "all" },
+  { id: "fat-down-2", group: "health", levels: RARE, scope: "all" },
+  { id: "recomposition", group: "health", levels: RARE, scope: "all" },
   { id: "healthy-bmi", group: "health", levels: WEEKLY },
   { id: "healthy-fat", group: "health", levels: WEEKLY },
   { id: "waist-month", group: "health", levels: MONTHLY },
   { id: "waist-healthy", group: "health", levels: WEEKLY },
   { id: "score-60", group: "health", levels: WEEKLY },
   { id: "score-80", group: "health", levels: WEEKLY },
-  { id: "goal", group: "goals", levels: [1, 3, 5, 10, 20] },
+  { id: "goal", group: "goals", levels: [1, 3, 5, 10, 20], scope: "all" },
   { id: "steps-10k", group: "move", levels: DAILY },
   { id: "steps-15k", group: "move", levels: HARD_DAILY },
   { id: "steps-20k", group: "move", levels: HARDER_DAILY },
@@ -79,19 +82,25 @@ export const BADGES = [
   { id: "oxygen-week", group: "heart", levels: WEEKLY },
   { id: "full-day", group: "balance", levels: DAILY },
   { id: "full-week", group: "balance", levels: WEEKLY },
-] as const satisfies readonly { id: string; group: BadgeGroup; levels: readonly number[] }[];
+] as const satisfies readonly { id: string; group: BadgeGroup; levels: readonly number[]; scope?: "all" }[];
 
 export type BadgeId = (typeof BADGES)[number]["id"];
 
 export interface BadgeStatus {
   id: BadgeId;
   group: BadgeGroup;
+  /** "year": the level counts this calendar year; "all": the whole history. */
+  scope: "year" | "all";
   /** Every time it was earned, oldest first (ISO dates). */
   dates: string[];
+  /** Times that count for the level: this year's, or all of them. */
+  count: number;
   /** 0 while never earned, then 1 (bronze) to 5 (diamond). */
   level: number;
   /** Times needed for the next level; null at diamond. */
   nextAt: number | null;
+  /** Earlier years with their level, newest first (only for "year" badges that were earned then). */
+  pastYears: { year: number; count: number; level: number }[];
 }
 
 export type ChallengeId = "week-weigh-5" | "week-full-3" | "month-weigh-20" | "month-waist" | "month-fat";
@@ -457,13 +466,22 @@ export function achievements(input: {
   return {
     badges: BADGES.map((b) => {
       const list = times.get(b.id)!.sort((x, y) => x - y);
-      const level = levelOf(list.length, b.levels);
+      const scope = "scope" in b ? b.scope : "year";
+      const yearOf = (t: number) => new Date(localDay(t, timeZone) * DAY).getUTCFullYear();
+      const thisYear = new Date(today * DAY).getUTCFullYear();
+      const count = scope === "all" ? list.length : list.filter((t) => yearOf(t) === thisYear).length;
+      const level = levelOf(count, b.levels);
+      const byYear = new Map<number, number>();
+      if (scope === "year") for (const t of list) if (yearOf(t) !== thisYear) byYear.set(yearOf(t), (byYear.get(yearOf(t)) ?? 0) + 1);
       return {
         id: b.id,
         group: b.group,
+        scope,
         dates: list.map((t) => new Date(t).toISOString()),
+        count,
         level,
         nextAt: level < b.levels.length ? b.levels[level]! : null,
+        pastYears: [...byYear].sort((x, y) => y[0] - x[0]).map(([year, n]) => ({ year, count: n, level: levelOf(n, b.levels) })),
       };
     }),
     streak,
@@ -584,17 +602,6 @@ function healthBadges(input: HealthDayFacts[], timeZone: string, today: number, 
 }
 
 const avg = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length;
-
-/**
- * When a night started, in minutes from local noon, so bedtimes on both sides of midnight (23:30
- * and 00:20) come out close together.
- */
-function bedtimeMinutes(iso: string, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(new Date(iso));
-  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
-  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
-  return (hour * 60 + minute + 12 * 60) % (24 * 60);
-}
 
 /** Levels per badge, as stored to notice when one goes up. */
 export function levelsOf(a: Achievements): Record<string, number> {

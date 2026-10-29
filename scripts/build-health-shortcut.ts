@@ -23,7 +23,7 @@ import { HEALTH_METRIC_SPECS, HEALTH_SHORTCUT_VERSION, HEALTH_METRICS, HEALTH_SY
 
 const OBJ = "￼"; // where a variable sits inside a Shortcuts text field
 const ROOT = resolve(import.meta.dirname, "..");
-const OUTPUT = join(ROOT, "public", "shortcuts", "caliche-salud.shortcut");
+const SHORTCUTS = join(ROOT, "public", "shortcuts");
 /** NSCalendarUnit values the date filter uses. */
 const DAY = 16;
 const HOUR = 32;
@@ -33,14 +33,20 @@ const HOUR = 32;
  * and 1001 for "in the last", as the Cherri Shortcuts compiler writes them.
  */
 const IN_THE_LAST = 1001;
+/** How far each query looks back. */
+interface Windows {
+  metricDays: number;
+  symptomDays: number;
+  sleepHours: number;
+}
+
 /**
- * How far back to look. Every day found is sent with its date, so today with no data yet does not
- * fail, and days missed by earlier runs fill in.
+ * The daily Shortcut: a week back, so today with no data yet does not fail and days missed by
+ * earlier runs fill in; 3 days of sleep, the last two full nights.
  */
-const METRIC_DAYS = 7;
-const SYMPTOM_DAYS = 30;
-/** Enough for the last two full nights; the server drops the one the window starts in. */
-const SLEEP_HOURS = 72;
+const DAILY: Windows = { metricDays: 7, symptomDays: 30, sleepHours: 72 };
+/** The one-time Shortcut that brings in a whole year (sound levels stay at 2 days: hundreds of readings a day). */
+const YEAR: Windows = { metricDays: 366, symptomDays: 366, sleepHours: 366 * 24 };
 
 type Plist = string | number | boolean | Plist[] | { [key: string]: Plist };
 
@@ -138,7 +144,7 @@ const ISO_DATE: Plist[] = [
 
 // ---- The Shortcut ---------------------------------------------------------------------------
 
-function build(baseUrl: string): Record<string, Plist> {
+function build(baseUrl: string, windows: Windows): Record<string, Plist> {
   const actions: Plist[] = [];
   const fields: Plist[] = [];
   const field = (key: string, value: Plist) => fields.push({ WFItemType: 0, WFKey: text(key), WFValue: value });
@@ -173,20 +179,20 @@ function build(baseUrl: string): Record<string, Plist> {
   // Health gives the person's preferred unit; the server converts it and files each value on its day.
   for (const metric of HEALTH_METRICS) {
     const spec = HEALTH_METRIC_SPECS[metric];
-    const found = findHealth(spec.type, { window: [spec.days ?? METRIC_DAYS, DAY], groupByDay: spec.groupByDay ?? true });
+    const found = findHealth(spec.type, { window: [Math.min(spec.days ?? windows.metricDays, windows.metricDays), DAY], groupByDay: spec.groupByDay ?? true });
     actions.push(found.action);
     field(metric, lines(found.id, ["Start Date", "Value", "Unit"]));
   }
 
   // Symptoms logged in the last month, as "when|value" ("Mild", "Present"...).
   for (const symptom of HEALTH_SYMPTOM_KEYS) {
-    const found = findHealth(HEALTH_SYMPTOMS[symptom], { window: [SYMPTOM_DAYS, DAY], groupByDay: false });
+    const found = findHealth(HEALTH_SYMPTOMS[symptom], { window: [windows.symptomDays, DAY], groupByDay: false });
     actions.push(found.action);
     field(symptomField(symptom), lines(found.id, ["Start Date", "Value"]));
   }
 
   // Sleep: every sample of the last 3 days as "start|end|stage"; the server splits them into nights.
-  const sleep = findHealth("Sleep", { window: [SLEEP_HOURS, HOUR], groupByDay: false });
+  const sleep = findHealth("Sleep", { window: [windows.sleepHours, HOUR], groupByDay: false });
   actions.push(sleep.action);
   field("sleep", lines(sleep.id, ["Start Date", "End Date", "Value"]));
   // Lets Settings tell this copy from an older one.
@@ -241,14 +247,20 @@ if (!baseUrl?.startsWith("https://")) {
   console.error("usage: npx tsx scripts/build-health-shortcut.ts https://your-app.vercel.app");
   process.exit(1);
 }
-const dir = mkdtempSync(join(tmpdir(), "caliche-shortcut-"));
-const xml = join(dir, "Caliche Salud.xml");
-const unsigned = join(dir, "Caliche Salud.shortcut");
-writeFileSync(
-  xml,
-  `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n${toXml(build(baseUrl))}\n</plist>\n`,
-);
-execFileSync("plutil", ["-convert", "binary1", "-o", unsigned, xml]);
-mkdirSync(join(ROOT, "public", "shortcuts"), { recursive: true });
-execFileSync("shortcuts", ["sign", "--mode", "anyone", "--input", unsigned, "--output", OUTPUT]);
-console.log(`signed: public/shortcuts/caliche-salud.shortcut (version ${HEALTH_SHORTCUT_VERSION}, ${HEALTH_METRICS.length} metrics, ${HEALTH_SYMPTOM_KEYS.length} symptoms, sleep)`);
+/** Writes, converts and signs one Shortcut; its file name is the name it gets on the iPhone. */
+function write(file: string, windows: Windows) {
+  const dir = mkdtempSync(join(tmpdir(), "caliche-shortcut-"));
+  const xml = join(dir, "Caliche Salud.xml");
+  const unsigned = join(dir, "Caliche Salud.shortcut");
+  writeFileSync(
+    xml,
+    `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n${toXml(build(baseUrl, windows))}\n</plist>\n`,
+  );
+  execFileSync("plutil", ["-convert", "binary1", "-o", unsigned, xml]);
+  mkdirSync(SHORTCUTS, { recursive: true });
+  execFileSync("shortcuts", ["sign", "--mode", "anyone", "--input", unsigned, "--output", join(SHORTCUTS, file)]);
+  console.log(`signed: public/shortcuts/${file} (version ${HEALTH_SHORTCUT_VERSION}, ${HEALTH_METRICS.length} metrics, ${HEALTH_SYMPTOM_KEYS.length} symptoms, sleep; ${windows.metricDays} days)`);
+}
+
+write("caliche-salud.shortcut", DAILY);
+write("caliche-salud-anio.shortcut", YEAR);

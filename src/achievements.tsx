@@ -41,7 +41,9 @@ import {
   TIER_NAMES,
   TIERS,
 } from "../shared/achievements.ts";
-import type { StreakReward } from "../shared/schemas.ts";
+import { bodyFatOf } from "../shared/composition.ts";
+import { rewardProgress, type StreakReward } from "../shared/schemas.ts";
+import { useMe, useMeasurements } from "./api.ts";
 import { type MessageKey, useI18n } from "./i18n.tsx";
 import { Card, useFormat } from "./ui.tsx";
 
@@ -285,6 +287,42 @@ function recordText(s: Streak, t: (k: MessageKey) => string, tf: (k: MessageKey,
   return tf("recordAhead", { n: s.bestBefore - s.current + 1, best: s.bestBefore });
 }
 
+/** The latest weight and body fat (North American recalculation), for weight and body fat rewards. */
+export function useBodyNow(): { weightKg: number | null; fatPct: number | null } {
+  const measurements = useMeasurements().data ?? [];
+  const profile = useMe().data?.profile;
+  const full = measurements.find((m) => m.bodyFatPct !== null || m.impedance !== null);
+  return { weightKg: measurements[0]?.weightKg ?? null, fatPct: full && profile ? (bodyFatOf(profile, full)?.value ?? null) : null };
+}
+
+/** A reward and how far along it is: days in a row, kilos lost or points of body fat lost. */
+export function RewardProgress({ reward, streak, small = false }: { reward: StreakReward; streak: number; small?: boolean }) {
+  const { tf } = useI18n();
+  const f = useFormat();
+  const body = useBodyNow();
+  const unit = useMe().data?.profile?.unit ?? "kg";
+  // kind and target are missing on a reward cached offline by an older version (a streak in `days`).
+  const kind = reward.kind ?? "streak";
+  const target = reward.target ?? (reward as unknown as { days: number }).days;
+  const { current } = rewardProgress({ kind, target, start: reward.start ?? null }, { streak, ...body });
+  const text =
+    kind === "streak"
+      ? tf("rewardProgress", { text: reward.text, current, days: target })
+      : kind === "weight"
+        ? tf("rewardProgressWeight", { text: reward.text, current: f.weight(current, unit), target: f.weight(target, unit) })
+        : tf("rewardProgressFat", { text: reward.text, current: f.number(current), target: f.number(target) });
+  return (
+    <>
+      <p className={small ? "text-sm font-medium" : "font-semibold"}>{reward.earnedAt ? tf("rewardWon", { text: reward.text }) : text}</p>
+      {!reward.earnedAt && (
+        <div className={`${small ? "mt-1 h-1.5" : "mt-2 h-2"} overflow-hidden rounded-full bg-surface-2`} aria-hidden>
+          <div className="h-full rounded-full bg-brand" style={{ width: `${Math.max(Math.min(current / target, 1) * 100, 2)}%` }} />
+        </div>
+      )}
+    </>
+  );
+}
+
 /** The first streak reward still locked. */
 export function nextUnlock(best: number): { key: StreakUnlock; days: number } | null {
   const pending = (Object.entries(STREAK_UNLOCKS) as [StreakUnlock, number][]).filter(([, days]) => best < days).sort((x, y) => x[1] - y[1]);
@@ -330,14 +368,7 @@ export function StreakCard({
         <div className="mt-3 flex items-center gap-3">
           <FiGift size={20} className="shrink-0 text-brand" aria-hidden />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">
-              {reward.earnedAt ? tf("rewardWon", { text: reward.text }) : tf("rewardProgress", { text: reward.text, current: Math.min(s.current, reward.days), days: reward.days })}
-            </p>
-            {!reward.earnedAt && (
-              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2" aria-hidden>
-                <div className="h-full rounded-full bg-brand" style={{ width: `${Math.max(Math.min(s.current / reward.days, 1) * 100, 2)}%` }} />
-              </div>
-            )}
+            <RewardProgress reward={reward} streak={s.current} small />
           </div>
         </div>
       )}

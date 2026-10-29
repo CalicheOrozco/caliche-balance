@@ -73,10 +73,7 @@ function GoalRow({
           : null;
   return (
     <div>
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="font-semibold">{label}</p>
-        <p className="text-sm text-ink-2">{tf("goalOf", { target: format(target) })}</p>
-      </div>
+      <p className="font-semibold">{label}</p>
       <div
         role="progressbar"
         aria-label={label}
@@ -86,6 +83,13 @@ function GoalRow({
         className="mt-2 h-3 overflow-hidden rounded-full bg-surface-2"
       >
         <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${Math.max(progress.fraction * 100, 2)}%` }} />
+      </div>
+      {/* Where you are now and where you are going, at both ends of the bar. */}
+      <div className="mt-1.5 flex items-baseline justify-between gap-3 text-sm">
+        <p className="text-ink">
+          {t("goalNow")}: <strong>{format(current)}</strong>
+        </p>
+        <p className="text-ink-2">{tf("goalOf", { target: format(target) })}</p>
       </div>
       {reached && reachedAt ? (
         <p className="mt-2 flex items-center gap-2 text-lg font-bold text-good">

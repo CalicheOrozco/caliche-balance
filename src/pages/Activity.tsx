@@ -1,13 +1,22 @@
 import { useMemo, useState } from "react";
 import { FiChevronLeft, FiChevronRight, FiSettings } from "react-icons/fi";
 import { Link } from "react-router";
+import { ageAt } from "../../shared/reference.ts";
 import type { UserDto } from "../../shared/schemas.ts";
-import { AppleHealthCard, HealthTodayCard, lastActiveIndex, SleepCard, useHealthDays } from "../appleHealth.tsx";
+import { useMeasurements } from "../api.ts";
+import { AppleHealthCard, HealthTodayCard, lastActiveIndex, nightScore, SleepCard, useHealthDays } from "../appleHealth.tsx";
 import { type Row, type Series, TrendChart } from "../charts.tsx";
 import { type MessageKey, useI18n } from "../i18n.tsx";
+import { DatePicker } from "../DatePicker.tsx";
 import { Segmented, useFormat } from "../ui.tsx";
 
 type RangeKey = "30" | "90" | "365";
+
+/** The date in the list closest to the one asked for (dates are "yyyy-MM-dd", oldest first). */
+function closestDate(dates: string[], wanted: string): string {
+  const at = Date.parse(`${wanted}T12:00:00Z`);
+  return dates.reduce((best, d) => (Math.abs(Date.parse(`${d}T12:00:00Z`) - at) < Math.abs(Date.parse(`${best}T12:00:00Z`) - at) ? d : best), dates[0]!);
+}
 
 /** Everything from Apple Health: last night, the latest day in full, and how each measure moves. */
 export function ActivityPage({ user }: { user: UserDto }) {
@@ -15,6 +24,13 @@ export function ActivityPage({ user }: { user: UserDto }) {
   const f = useFormat();
   const connected = user.appleHealth != null;
   const [picked, setPicked] = useState<string | null>(null);
+  // Who the recommendations are for: the profile and the latest weigh-in.
+  const latestWeight = useMeasurements().data?.[0]?.weightKg;
+  const profile = user.profile;
+  const person =
+    profile && latestWeight !== undefined
+      ? { sex: profile.sex, age: ageAt(new Date(`${profile.birthDate}T00:00:00Z`), new Date()), heightCm: profile.heightCm, weightKg: latestWeight }
+      : undefined;
   const [range, setRange] = useState<RangeKey>("30");
   const cutoff = Date.now() - Number(range) * 24 * 60 * 60 * 1000;
   // Days at local noon so each sits on its own day.
@@ -22,8 +38,9 @@ export function ActivityPage({ user }: { user: UserDto }) {
   const healthRows = useMemo<Row[]>(
     () =>
       healthDays
-        .map((d) => ({
+        .map((d, i) => ({
           t: new Date(`${d.date}T12:00:00`).getTime(),
+          sleepScore: nightScore(healthDays, i)?.score ?? null,
           steps: d.steps,
           exerciseMin: d.exerciseMin,
           restingHr: d.restingHr,
@@ -73,7 +90,18 @@ export function ActivityPage({ user }: { user: UserDto }) {
           >
             <FiChevronLeft size={20} aria-hidden />
           </button>
-          <p className="text-center font-semibold first-letter:uppercase">{dayLabel(date)}</p>
+          <div className="min-w-0 flex-1">
+            <DatePicker
+              label={t("activityPickDay")}
+              trigger={<span className="first-letter:uppercase">{dayLabel(date)}</span>}
+              value={date}
+              required
+              minDate={new Date(`${dates[0]}T12:00:00`)}
+              maxDate={new Date(`${dates[dates.length - 1]}T12:00:00`)}
+              // A day without data jumps to the closest one that has it.
+              onChange={(v) => v && setPicked(closestDate(dates, v))}
+            />
+          </div>
           <button
             type="button"
             aria-label={t("dayNext")}
@@ -86,7 +114,7 @@ export function ActivityPage({ user }: { user: UserDto }) {
         </div>
       )}
       <SleepCard connected={connected} date={date} />
-      <HealthTodayCard connected={connected} expanded date={date} />
+      <HealthTodayCard connected={connected} expanded date={date} person={person} unit={user.profile?.unit} />
       {healthRows.length > 0 && (
         <>
           <Segmented
@@ -96,6 +124,15 @@ export function ActivityPage({ user }: { user: UserDto }) {
             options={(["30", "90", "365"] as const).map((r) => ({ value: r, label: t(`range.${r}` as MessageKey) }))}
           />
 <h2 className="px-1 pt-2 text-lg font-semibold">{t("activityCharts")}</h2>
+          <TrendChart
+            title={t("sleepScoreTitle")}
+            rows={healthRows}
+            series={one("sleepScore", t("sleepScoreTitle"))}
+            band={{ min: 80, max: 100 }}
+            formatTick={(n) => f.number(n, 0)}
+            formatValue={(n) => f.number(n, 0)}
+            about={t("sleepScoreNote")}
+          />
           <TrendChart
             title={`${t("sleepTitle")} (h)`}
             rows={healthRows}

@@ -2,6 +2,7 @@ import type { ObjectId } from "mongodb";
 import webpush from "web-push";
 import { BADGE_NAMES, type BadgeId, TIER_NAMES, TIERS } from "../shared/achievements.ts";
 import type { GoalEvent } from "../shared/goals.ts";
+import type { RewardKind } from "../shared/schemas.ts";
 import type { Collections } from "./db.ts";
 import { envValue } from "./env.ts";
 
@@ -196,11 +197,25 @@ export const messages = {
             : `⚡ You are 2 days away from your ${best}-day record.`,
     url: "/",
   }),
-  rewardEarned: (lang: Language, text: string, days: number): Message => ({
-    title: "Caliche Balance",
-    body: lang === "es" ? `🎁 ¡${days} días seguidos! Te ganaste tu premio: ${text}.` : `🎁 ${days} days in a row! You earned your reward: ${text}.`,
-    url: "/logros",
-  }),
+  rewardEarned: (lang: Language, unit: Unit, text: string, kind: RewardKind, target: number): Message => {
+    const what =
+      kind === "streak"
+        ? lang === "es"
+          ? `¡${target} días seguidos!`
+          : `${target} days in a row!`
+        : kind === "weight"
+          ? lang === "es"
+            ? `¡Bajaste ${formatWeight(target, unit, lang)}!`
+            : `You lost ${formatWeight(target, unit, lang)}!`
+          : lang === "es"
+            ? `¡Bajaste ${target} puntos de grasa!`
+            : `You lost ${target} points of body fat!`;
+    return {
+      title: "Caliche Balance",
+      body: lang === "es" ? `🎁 ${what} Te ganaste tu premio: ${text}.` : `🎁 ${what} You earned your reward: ${text}.`,
+      url: "/logros",
+    };
+  },
   test: (lang: Language): Message => ({
     title: "Caliche Balance",
     body: lang === "es" ? "Las notificaciones funcionan. 💚" : "Notifications are working. 💚",

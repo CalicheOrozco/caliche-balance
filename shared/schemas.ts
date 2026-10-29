@@ -140,18 +140,56 @@ export interface NotificationPrefs {
   streak: boolean;
 }
 
-/** A reward the person picks for reaching a streak length. */
+/**
+ * A reward the person picks for themselves: for a streak length, for kilos lost, or for points of
+ * body fat lost. Weight and fat count from where they were when the reward was set.
+ */
 export interface StreakReward {
   text: string;
-  days: number;
+  kind: RewardKind;
+  /** Days in a row, kilos to lose, or points of body fat to lose. */
+  target: number;
+  /** Weight (kg) or body fat (%) when it was set; null for a streak. */
+  start: number | null;
   setAt: string;
   earnedAt: string | null;
 }
 
-export const streakRewardSchema = z.object({
-  text: z.string().trim().min(1).max(60),
-  days: z.coerce.number().int().min(2).max(1000),
-});
+export const REWARD_KINDS = ["streak", "weight", "fat"] as const;
+export type RewardKind = (typeof REWARD_KINDS)[number];
+
+export const streakRewardSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("streak"), text: z.string().trim().min(1).max(60), amount: z.coerce.number().int().min(2).max(1000) }),
+  z.object({
+    kind: z.literal("weight"),
+    text: z.string().trim().min(1).max(60),
+    amount: z.preprocess((v) => (typeof v === "string" ? v.replace(",", ".") : v), z.coerce.number().min(0.5).max(220)),
+    unit: z.enum(["kg", "lb"]),
+  }),
+  z.object({
+    kind: z.literal("fat"),
+    text: z.string().trim().min(1).max(60),
+    amount: z.preprocess((v) => (typeof v === "string" ? v.replace(",", ".") : v), z.coerce.number().min(0.5).max(40)),
+  }),
+]);
+
+/** How far along a reward is: how much counts so far against its target. */
+export function rewardProgress(
+  reward: Pick<StreakReward, "kind" | "target" | "start">,
+  now: { streak: number; weightKg: number | null; fatPct: number | null },
+): { current: number; reached: boolean } {
+  const current =
+    reward.kind === "streak"
+      ? now.streak
+      : reward.kind === "weight"
+        ? reward.start !== null && now.weightKg !== null
+          ? Math.max(reward.start - now.weightKg, 0)
+          : 0
+        : reward.start !== null && now.fatPct !== null
+          ? Math.max(reward.start - now.fatPct, 0)
+          : 0;
+  return { current: Math.min(current, reward.target), reached: current >= reward.target };
+}
 
 export interface UserDto {
   username: string;

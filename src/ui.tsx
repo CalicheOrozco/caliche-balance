@@ -1,6 +1,6 @@
-import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, useId, useState } from "react";
+import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, useEffect, useId, useState } from "react";
 import type { IconType } from "react-icons";
-import { FiAlertOctagon, FiAlertTriangle, FiCheckCircle, FiEye, FiEyeOff } from "react-icons/fi";
+import { FiAlertOctagon, FiAlertTriangle, FiCheckCircle, FiEye, FiEyeOff, FiX } from "react-icons/fi";
 import type { Band, Classification, Status } from "../shared/reference.ts";
 import { fromKilograms } from "../shared/schemas.ts";
 import { type MessageKey, useI18n } from "./i18n.tsx";
@@ -229,4 +229,49 @@ export function AppVersion() {
   // The dev server always runs the code as it is now; a commit would be the one it started on.
   const text = __APP_VERSION__ === "local" ? t("appVersionLocal") : tf("appVersion", { version: __APP_VERSION__, when: f.dateTime(__APP_BUILT_AT__) });
   return <p className="text-center text-xs text-muted">{text}</p>;
+}
+
+/**
+ * A small window over the page: closes with its button, a tap outside it, or Escape, and gives
+ * the focus back to whatever opened it.
+ */
+export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const { t } = useI18n();
+  const titleId = useId();
+  useEffect(() => {
+    const back = document.activeElement as HTMLElement | null;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      back?.focus();
+    };
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-3xl border border-line bg-surface p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <h2 id={titleId} className="text-lg font-semibold">
+            {title}
+          </h2>
+          <button
+            type="button"
+            autoFocus
+            onClick={onClose}
+            aria-label={t("close")}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2 text-ink-2 hover:text-ink"
+          >
+            <FiX size={18} aria-hidden />
+          </button>
+        </div>
+        <div className="mt-3">{children}</div>
+      </div>
+    </div>
+  );
 }

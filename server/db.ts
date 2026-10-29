@@ -1,6 +1,6 @@
 import { type Collection, type Db, MongoClient, type ObjectId } from "mongodb";
 import type { HealthAttempt, HealthMetric, HealthSymptom, SleepSummary } from "../shared/health.ts";
-import type { BodyFatGoal, MaintainGoal, ProfileDto, WeightGoal } from "../shared/schemas.ts";
+import type { BodyFatGoal, MaintainGoal, ProfileDto, RewardKind, WeightGoal } from "../shared/schemas.ts";
 
 export interface UserDoc {
   _id: ObjectId;
@@ -10,7 +10,8 @@ export interface UserDoc {
   profile: (Omit<ProfileDto, "displayName"> & { displayName: string | null }) | null;
   /** Which notifications the person wants; missing means on. */
   notifications?: { newWeighIn: boolean; zepp: boolean; goals?: boolean; streak?: boolean };
-  streakReward?: { text: string; days: number; setAt: Date; earnedAt: Date | null } | null;
+  /** `days` alone is a streak reward saved before weight and body fat rewards existed. */
+  streakReward?: { text: string; kind?: RewardKind; target?: number; start?: number | null; days?: number; setAt: Date; earnedAt: Date | null } | null;
   /** Streak length last announced (record near, tied or beaten), so each is told once. */
   streakNudged?: number;
   /** Local day (YYYY-MM-DD) of the last evening reminder, so it goes out at most once a day. */

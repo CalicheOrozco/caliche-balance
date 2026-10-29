@@ -3,6 +3,8 @@ import { type Achievements, achievements, type BadgeId, type HealthDayFacts, lev
 
 /** The Apple Health values the badges read. */
 const HEALTH_FACT_KEYS = ["steps", "distanceKm", "flightsClimbed", "standMin", "exerciseMin", "activeKcal", "restingHr", "hrvMs", "bloodOxygenPct"] as const;
+import { bodyFatOf } from "../shared/composition.ts";
+import { rewardProgress, type StreakReward } from "../shared/schemas.ts";
 import type { Collections, UserDoc } from "./db.ts";
 import { toMeasurementDto } from "./http.ts";
 import { messages, notifyUser, type PushSender } from "./push.ts";
@@ -43,6 +45,29 @@ export async function achievementsFor(c: Collections, user: UserDoc, now = Date.
   });
 }
 
+/** The stored reward as the app sees it; one saved with only `days` is a streak reward. */
+export function toRewardDto(r: NonNullable<UserDoc["streakReward"]>): StreakReward {
+  return {
+    text: r.text,
+    kind: r.kind ?? "streak",
+    target: r.target ?? r.days ?? 0,
+    start: r.start ?? null,
+    setAt: r.setAt.toISOString(),
+    earnedAt: r.earnedAt?.toISOString() ?? null,
+  };
+}
+
+/** The latest weight, and the body fat of the latest weigh-in that has it (North American recalculation). */
+export async function latestBody(c: Collections, user: UserDoc): Promise<{ weightKg: number | null; fatPct: number | null }> {
+  const latest = await c.measurements.findOne({ userId: user._id }, { sort: { measuredAt: -1 } });
+  const full = await c.measurements.findOne(
+    { userId: user._id, $or: [{ bodyFatPct: { $ne: null } }, { impedance: { $ne: null } }] },
+    { sort: { measuredAt: -1 } },
+  );
+  const fat = full && user.profile ? bodyFatOf(user.profile, toMeasurementDto(full)) : null;
+  return { weightKg: latest?.weightKg ?? null, fatPct: fat?.value ?? null };
+}
+
 export type StreakNudge = "close" | "tie" | "record";
 
 /** What to say about the record after today's weigh-in: 2 days away, tied, or beaten. */
@@ -75,18 +100,24 @@ export async function checkAchievements(c: Collections, push: PushSender | undef
       before === undefined || written.modifiedCount !== 1
         ? []
         : // A badge new to the app is recorded silently the first time, like a first check.
-          a.badges.filter((b) => b.id in before && b.level > before[b.id]!).map((b) => ({ id: b.id, level: b.level, count: b.dates.length }));
+          a.badges.filter((b) => b.id in before && b.level > before[b.id]!).map((b) => ({ id: b.id, level: b.level, count: b.count }));
     // A reached goal already has its own notification; the goal badge is not announced twice.
     const announce = ups.filter((u) => u.id !== "goal");
     if (announce.length > 0) await notifyUser(c, push, userId, "goals", (lang) => messages.badges(lang, announce));
 
-    const reward = user.streakReward;
-    if (reward && !reward.earnedAt && a.streak.current >= reward.days) {
-      const earned = await c.users.updateOne(
-        { _id: userId, "streakReward.setAt": reward.setAt, "streakReward.earnedAt": null },
-        { $set: { "streakReward.earnedAt": new Date() } },
-      );
-      if (earned.modifiedCount === 1) await notifyUser(c, push, userId, "streak", (lang) => messages.rewardEarned(lang, reward.text, reward.days));
+    const stored = user.streakReward;
+    if (stored && !stored.earnedAt) {
+      const reward = toRewardDto(stored);
+      const body = reward.kind === "streak" ? { weightKg: null, fatPct: null } : await latestBody(c, user);
+      if (rewardProgress(reward, { streak: a.streak.current, ...body }).reached) {
+        const earned = await c.users.updateOne(
+          { _id: userId, "streakReward.setAt": stored.setAt, "streakReward.earnedAt": null },
+          { $set: { "streakReward.earnedAt": new Date() } },
+        );
+        if (earned.modifiedCount === 1) {
+          await notifyUser(c, push, userId, "streak", (lang, unit) => messages.rewardEarned(lang, unit, reward.text, reward.kind, reward.target));
+        }
+      }
     }
 
     const { current, bestBefore, weighedToday } = a.streak;

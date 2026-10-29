@@ -4,7 +4,7 @@ import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../server/app.ts";
 import { collections, ensureIndexes } from "../server/db.ts";
-import { HEALTH_SHORTCUT_VERSION } from "../shared/health.ts";
+import { HEALTH_SHORTCUT_VERSION, type HealthDayDto } from "../shared/health.ts";
 
 let mongo: MongoMemoryServer;
 let client: MongoClient;
@@ -137,6 +137,27 @@ describe("Caliche Balance API", () => {
     expect(week.length).toBeGreaterThan(32 * 1024);
     expect((await shortcut(made.body.key, { hrvMs: week })).status).toBe(200);
 
+    // The one-time year Shortcut: 366 days of steps and 300 nights of sleep stages in one send.
+    const yearDay = (i: number) => new Date(Date.parse("2025-10-01T12:00:00Z") + i * 86_400_000).toISOString().slice(0, 10);
+    const steps = Array.from({ length: 366 }, (_, i) => `${yearDay(i)}T00:05:00-04:00|${8_000 + i}|count`).join("\n");
+    const nights = Array.from({ length: 300 }, (_, i) =>
+      [
+        `${yearDay(i)}T23:30:00-04:00|${yearDay(i + 1)}T02:00:00-04:00|Core`,
+        `${yearDay(i + 1)}T02:00:00-04:00|${yearDay(i + 1)}T03:00:00-04:00|Deep`,
+        `${yearDay(i + 1)}T03:00:00-04:00|${yearDay(i + 1)}T05:00:00-04:00|REM`,
+        `${yearDay(i + 1)}T05:00:00-04:00|${yearDay(i + 1)}T07:00:00-04:00|Core`,
+      ].join("\n"),
+    ).join("\n");
+    const started = Date.now();
+    const year = await shortcut(made.body.key, { steps, sleep: nights, shortcutVersion: "14" });
+    expect(year.status).toBe(200);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    // The oldest night is dropped (the window cuts it): 299 nights, each 7.5 hours.
+    const withSleep = year.body.saved.filter((d: HealthDayDto) => d.sleep);
+    expect(withSleep).toHaveLength(299);
+    expect(withSleep[0].sleep.asleepMin).toBe(450);
+    expect(year.body.saved.filter((d: HealthDayDto) => d.steps !== null).length).toBeGreaterThanOrEqual(366);
+
     // Wrong or missing keys, empty days and other people's data are refused.
     expect((await shortcut("cbh_inventada", { steps: 1 })).status).toBe(401);
     expect((await request(app).post("/api/apple-health/ingest").send({ steps: 1 })).status).toBe(401);
@@ -162,7 +183,7 @@ describe("Caliche Balance API", () => {
     expect((await shortcut(again.body.key, { steps: 9500 })).status).toBe(200);
     expect((await agent.delete("/api/me/apple-health/key")).status).toBe(204);
     expect((await shortcut(again.body.key, { steps: 1 })).status).toBe(401);
-    expect((await agent.get("/api/me/apple-health/days")).body).toHaveLength(8);
+    expect((await agent.get("/api/me/apple-health/days?days=400")).body.length).toBeGreaterThan(366);
   });
 
   it("saves goals with the starting point from the latest reading", async () => {

@@ -30,7 +30,7 @@ import type { Collections, UserDoc } from "./db.ts";
 import { bodyFatOf } from "../shared/composition.ts";
 import { isTimeZone } from "../shared/achievements.ts";
 import { maintainRange } from "../shared/goals.ts";
-import { achievementsFor, checkAchievements, remindStreaks } from "./achievementCheck.ts";
+import { achievementsFor, checkAchievements, latestBody, remindStreaks, toRewardDto } from "./achievementCheck.ts";
 import { appleHealthRoutes, toAppleHealthStatus } from "./appleHealthRoutes.ts";
 import { checkGoals } from "./goalCheck.ts";
 import { messages, notifyUser, type PushSender } from "./push.ts";
@@ -71,9 +71,7 @@ function toUserDto(user: UserDoc): UserDto {
     appleHealth: user.appleHealth
       ? toAppleHealthStatus(user.appleHealth)
       : null,
-    streakReward: user.streakReward
-      ? { ...user.streakReward, setAt: user.streakReward.setAt.toISOString(), earnedAt: user.streakReward.earnedAt?.toISOString() ?? null }
-      : null,
+    streakReward: user.streakReward ? toRewardDto(user.streakReward) : null,
     goals: {
       weight: g?.weight ? { ...g.weight, setAt: g.weight.setAt.toISOString(), reachedAt: g.weight.reachedAt?.toISOString() ?? null } : null,
       bodyFat: g?.bodyFat ? { ...g.bodyFat, setAt: g.bodyFat.setAt.toISOString(), reachedAt: g.bodyFat.reachedAt?.toISOString() ?? null } : null,
@@ -87,8 +85,9 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
   const app = express();
   app.set("trust proxy", true);
   app.disable("x-powered-by");
-  // The Shortcut sends a week of Health readings (one line each); everything else is small.
-  app.use("/api/apple-health/ingest", express.json({ limit: "2mb" }));
+  // The Shortcut sends a week of Health readings (one line each), or a whole year once; Vercel
+  // takes up to 4.5 MB. Everything else is small.
+  app.use("/api/apple-health/ingest", express.json({ limit: "4mb" }));
   app.use(express.json({ limit: "32kb" }));
   app.use(cookieParser());
 
@@ -406,10 +405,22 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
     withUser(),
     asyncRoute(async (req, res) => {
       const input = streakRewardSchema.parse(req.body);
-      const a = await achievementsFor(collections, req.user!);
-      // A reward is for a streak still ahead, not one already reached.
-      if (a && input.days <= a.streak.current) return res.status(400).json({ error: "invalid", fields: [{ path: "days", code: "reward-too-short" }] });
-      const streakReward = { ...input, setAt: new Date(), earnedAt: null };
+      const bad = (code: string) => res.status(400).json({ error: "invalid", fields: [{ path: "amount", code }] });
+      let target = input.amount;
+      let start: number | null = null;
+      if (input.kind === "streak") {
+        // A reward is for a streak still ahead, not one already reached.
+        const a = await achievementsFor(collections, req.user!);
+        if (a && input.amount <= a.streak.current) return bad("reward-too-short");
+      } else {
+        // Weight and body fat count from where they are now.
+        const body = await latestBody(collections, req.user!);
+        start = input.kind === "weight" ? body.weightKg : body.fatPct;
+        if (start === null) return bad(input.kind === "weight" ? "reward-no-weight" : "reward-no-fat");
+        if (input.kind === "weight") target = Math.round(toKilograms(input.amount, input.unit) * 100) / 100;
+        if (start - target <= 0) return bad("reward-too-much");
+      }
+      const streakReward = { text: input.text, kind: input.kind, target, start, setAt: new Date(), earnedAt: null };
       await collections.users.updateOne({ _id: req.user!._id }, { $set: { streakReward } });
       res.json(toUserDto({ ...req.user!, streakReward }));
     }),

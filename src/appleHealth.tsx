@@ -1,15 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { FiCheck, FiChevronDown, FiChevronRight, FiCopy, FiDownload, FiHeart, FiMoon } from "react-icons/fi";
+import { FiCheck, FiChevronDown, FiChevronRight, FiCopy, FiDownload, FiHeart, FiInfo, FiMoon } from "react-icons/fi";
 import { Link } from "react-router";
-import { type AppleHealthStatus, type HealthDayDto, HEALTH_METRICS, HEALTH_SHORTCUT_VERSION, type HealthMetric, healthAverages } from "../shared/health.ts";
+import { healthTargets, type PersonFacts } from "../shared/healthReference.ts";
+import { type SleepPart, type SleepScore, sleepScoreOf } from "../shared/sleepScore.ts";
+import { type AppleHealthStatus, type HealthDayDto, HEALTH_METRICS, type SleepSegment, HEALTH_SHORTCUT_VERSION, type HealthMetric, healthAverages } from "../shared/health.ts";
 import type { UserDto } from "../shared/schemas.ts";
 import { api } from "./api.ts";
 import { type MessageKey, useI18n } from "./i18n.tsx";
-import { Button, Card, useFormat } from "./ui.tsx";
+import { Button, Card, Modal, useFormat } from "./ui.tsx";
 
 /** The signed Shortcut built by scripts/build-health-shortcut.py. */
 const SHORTCUT_FILE = "/shortcuts/caliche-salud.shortcut";
+/** The one-time Shortcut that brings in the last 12 months. */
+const YEAR_SHORTCUT_FILE = "/shortcuts/caliche-salud-anio.shortcut";
 /** Metrics the Shortcut sends today; sleep can be sent by hand-built Shortcuts. */
 const SENT: HealthMetric[] = ["steps", "activeKcal", "exerciseMin", "distanceKm", "restingHr"];
 
@@ -166,6 +170,14 @@ export function AppleHealthCard({ user }: { user: UserDto }) {
             >
               <FiDownload aria-hidden /> {tf("ahAddShortcut", { n: HEALTH_SHORTCUT_VERSION })}
             </a>
+            <a
+              href={YEAR_SHORTCUT_FILE}
+              download="Caliche Salud Año.shortcut"
+              className="flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-surface-2 px-4 py-2.5 font-medium text-ink"
+            >
+              <FiDownload aria-hidden /> {t("ahAddYearShortcut")}
+            </a>
+            <p className="text-xs text-muted">{t("ahYearShortcutHint")}</p>
             <Button
               variant="secondary"
               disabled={create.isPending}
@@ -277,6 +289,45 @@ export function hoursText(minutes: number): string {
   return h === 0 ? `${m} min` : `${h} h ${String(m).padStart(2, "0")} min`;
 }
 
+/** What is recommended for this person for one measure, with the day's value and the week's average. */
+function HealthInfoModal({
+  metric,
+  person,
+  unit,
+  value,
+  week,
+  onClose,
+}: {
+  metric: HealthMetric | "totalKcal";
+  person: PersonFacts;
+  unit: "kg" | "lb";
+  value: string;
+  week: string;
+  onClose: () => void;
+}) {
+  const { t, tf } = useI18n();
+  const f = useFormat();
+  const x = healthTargets(person);
+  const n = (v: number, digits = 0) => f.number(v, digits);
+  const params: Record<string, string | number> = {
+    bmr: n(x.bmrKcal),
+    from: metric === "steps" ? n(x.steps[0]) : metric === "distanceKm" ? n(x.distanceKm[0], 1) : metric === "bodyFatPct" ? n(x.bodyFatPct[0]) : f.weight(x.healthyWeightKg.min, unit),
+    to: metric === "steps" ? n(x.steps[1]) : metric === "distanceKm" ? n(x.distanceKm[1], 1) : metric === "bodyFatPct" ? n(x.bodyFatPct[1]) : f.weight(x.healthyWeightKg.max, unit),
+    step: n(x.stepLengthCm),
+    stepsFrom: n(x.steps[0]),
+    stepsTo: n(x.steps[1]),
+    kcal: n(x.activeDayKcal),
+    loss: x.exerciseForLoss ? t("ahInfo.exerciseLoss") : "",
+  };
+  return (
+    <Modal title={metric === "totalKcal" ? t("ahTotalKcal") : t(`ahMetric.${metric}` as MessageKey)} onClose={onClose}>
+      <p className="text-sm font-medium text-ink">{tf("ahInfoToday", { value, week })}</p>
+      <p className="mt-3 text-sm text-ink-2">{tf(`ahInfo.${metric}` as MessageKey, params)}</p>
+      <p className="mt-4 text-xs text-muted">{t("ahInfoNote")}</p>
+    </Modal>
+  );
+}
+
 /** The last day with any activity; Health's "Fill Missing" makes a day that just started all zeros. */
 export function lastActiveIndex(days: HealthDayDto[]): number {
   return days.findLastIndex((d) => (d.steps ?? 0) > 0 || (d.activeKcal ?? 0) > 0 || (d.exerciseMin ?? 0) > 0);
@@ -293,8 +344,22 @@ const GROUPS: { key: "activity" | "energy" | "heart" | "body"; metrics: HealthMe
 ];
 
 /** The latest day from Apple Health next to the 7-day average: total calories burned and the key numbers, then the rest (folded unless expanded). */
-export function HealthTodayCard({ connected, expanded = false, date }: { connected: boolean; expanded?: boolean; date?: string }) {
+export function HealthTodayCard({
+  connected,
+  expanded = false,
+  date,
+  person,
+  unit = "kg",
+}: {
+  connected: boolean;
+  expanded?: boolean;
+  date?: string;
+  /** With it, each number gets an info button with what is recommended for this person. */
+  person?: PersonFacts;
+  unit?: "kg" | "lb";
+}) {
   const { t, tf } = useI18n();
+  const [info, setInfo] = useState<HealthMetric | "totalKcal" | null>(null);
   const f = useFormat();
   const format = useMetricFormat();
   const all = useHealthDays(connected).data ?? [];
@@ -308,9 +373,23 @@ export function HealthTodayCard({ connected, expanded = false, date }: { connect
   const weekTotal = week.activeKcal !== null && week.restingKcal !== null ? week.activeKcal + week.restingKcal : null;
   const symptoms = Object.entries(latest.symptoms) as [keyof typeof latest.symptoms, string][];
   const has = (m: HealthMetric) => latest[m] !== null || week[m] !== null;
+  const infoButton = (m: HealthMetric | "totalKcal") =>
+    person && (
+      <button
+        type="button"
+        onClick={() => setInfo(m)}
+        aria-label={`${t("ahInfoOpen")}: ${m === "totalKcal" ? t("ahTotalKcal") : t(`ahMetric.${m}` as MessageKey)}`}
+        className="-m-1.5 shrink-0 rounded-full p-1.5 text-muted transition hover:text-ink"
+      >
+        <FiInfo size={16} aria-hidden />
+      </button>
+    );
   const tile = (m: HealthMetric) => (
     <div key={m} className="rounded-2xl bg-surface-2 p-3">
-      <dt className="text-xs text-ink-2">{t(`ahMetric.${m}` as MessageKey)}</dt>
+      <dt className="flex items-start justify-between gap-1 text-xs text-ink-2">
+        <span>{t(`ahMetric.${m}` as MessageKey)}</span>
+        {infoButton(m)}
+      </dt>
       <dd className="text-lg font-semibold">{format(m, latest[m])}</dd>
       <dd className="text-xs text-muted">
         {t("ahWeekAvg")}: {format(m, week[m])}
@@ -336,7 +415,10 @@ export function HealthTodayCard({ connected, expanded = false, date }: { connect
       <p className="text-sm text-muted">{tf("ahFrom", { date: f.date(`${latest.date}T12:00:00`) })}</p>
       {total !== null && (
         <div className="mt-3 rounded-2xl bg-brand/10 p-3">
-          <p className="text-sm text-ink-2">{t("ahTotalKcal")}</p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm text-ink-2">{t("ahTotalKcal")}</p>
+            {infoButton("totalKcal")}
+          </div>
           <p className="text-2xl font-bold">{f.number(total, 0)} kcal</p>
           {weekTotal !== null && (
             <p className="text-xs text-muted">
@@ -369,13 +451,164 @@ export function HealthTodayCard({ connected, expanded = false, date }: { connect
           </ul>
         </div>
       )}
+      {info && person && (
+        <HealthInfoModal
+          metric={info}
+          person={person}
+          unit={unit}
+          value={info === "totalKcal" ? (total === null ? "-" : `${f.number(total, 0)} kcal`) : format(info, latest[info])}
+          week={info === "totalKcal" ? (weekTotal === null ? "-" : `${f.number(weekTotal, 0)} kcal`) : format(info, week[info])}
+          onClose={() => setInfo(null)}
+        />
+      )}
     </Card>
   );
 }
 
 const STAGE_COLOR = { deep: "bg-[#3b5bdb]", core: "bg-[#4dabf7]", rem: "bg-[#22b8cf]", awake: "bg-[#f59f00]" } as const;
+/** The same colors for the chart, which draws in SVG; "asleep" (no Watch stages) shares core's. */
+const STAGE_HEX = { deep: "#3b5bdb", core: "#4dabf7", rem: "#22b8cf", awake: "#f59f00", asleep: "#4dabf7" } as const;
+/** Rows from top to bottom, as Apple Health draws them. */
+const CHART_ROWS = ["awake", "rem", "core", "deep"] as const;
+
+/**
+ * The night stage by stage over time, like Apple Health's: a row per stage, a bar for each stretch,
+ * thin lines where it moves from one stage to the next, and the hours underneath.
+ */
+function SleepChart({ segments }: { segments: SleepSegment[] }) {
+  const { t, tf, locale } = useI18n();
+  const clock = (iso: string) => new Date(iso).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+  if (segments.length === 0) return null;
+  const from = Date.parse(segments[0]!.start);
+  const to = Math.max(...segments.map((x) => Date.parse(x.end)));
+  const W = 320;
+  const LABEL = 48;
+  const ROW = 38;
+  const BAR = 18;
+  const H = ROW * CHART_ROWS.length + 18;
+  const x = (iso: string) => LABEL + ((Date.parse(iso) - from) / (to - from)) * (W - LABEL - 4);
+  const rowOf = (stage: SleepSegment["stage"]) => CHART_ROWS.indexOf(stage === "asleep" ? "core" : stage);
+  const y = (stage: SleepSegment["stage"]) => rowOf(stage) * ROW + ROW / 2;
+  // Every 2 hours on the hour, local time.
+  const ticks: number[] = [];
+  const first = new Date(from);
+  first.setMinutes(0, 0, 0);
+  for (let t0 = first.getTime() + 3_600_000; t0 < to; t0 += 3_600_000) if (new Date(t0).getHours() % 2 === 0) ticks.push(t0);
+  const xs = (ms: number) => LABEL + ((ms - from) / (to - from)) * (W - LABEL - 4);
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="mt-3 w-full" role="img" aria-label={t("sleepChartLabel")}>
+      {CHART_ROWS.map((r, i) => (
+        <g key={r}>
+          <line x1={LABEL} x2={W} y1={(i + 1) * ROW} y2={(i + 1) * ROW} stroke="var(--line)" strokeWidth={0.5} />
+          <text x={0} y={i * ROW + ROW / 2 + 4} fontSize={10} fill="var(--ink-2)">
+            {t(`sleepStage.${r}` as MessageKey)}
+          </text>
+        </g>
+      ))}
+      {ticks.map((t0) => (
+        <g key={t0}>
+          <line x1={xs(t0)} x2={xs(t0)} y1={0} y2={ROW * CHART_ROWS.length} stroke="var(--line)" strokeWidth={0.5} strokeDasharray="2 3" />
+          <text x={xs(t0)} y={H - 4} fontSize={9} fill="var(--muted)" textAnchor="middle">
+            {new Date(t0).toLocaleTimeString(locale, { hour: "numeric" })}
+          </text>
+        </g>
+      ))}
+      {segments.slice(1).map((seg, i) => {
+        const prev = segments[i]!;
+        return <line key={`l${i}`} x1={x(seg.start)} x2={x(seg.start)} y1={y(prev.stage)} y2={y(seg.stage)} stroke="var(--muted)" strokeWidth={1} opacity={0.6} />;
+      })}
+      {segments.map((seg, i) => (
+        <rect
+          key={i}
+          x={x(seg.start)}
+          y={y(seg.stage) - BAR / 2}
+          width={Math.max(x(seg.end) - x(seg.start), 1.5)}
+          height={BAR}
+          rx={4}
+          fill={STAGE_HEX[seg.stage]}
+        >
+          <title>
+            {tf("sleepSegmentSpan", {
+              stage: t(`sleepStage.${seg.stage === "asleep" ? "core" : seg.stage}` as MessageKey),
+              start: clock(seg.start),
+              end: clock(seg.end),
+            })}
+          </title>
+        </rect>
+      ))}
+    </svg>
+  );
+}
 
 /** Home: last night's sleep with its stages, against the 7-day average. */
+/** The sleep score of the night on days[index], with the nights before it for the usual bedtime. */
+export function nightScore(days: HealthDayDto[], index: number): SleepScore | null {
+  const night = days[index]?.sleep;
+  if (!night) return null;
+  const before = days.slice(0, index).flatMap((d) => (d.sleep ? [d.sleep] : []));
+  return sleepScoreOf(night, before, Intl.DateTimeFormat().resolvedOptions().timeZone);
+}
+
+/** A 0 to 100 score in a ring, with its name under it. */
+function ScoreRing({ score, label }: { score: number; label: string }) {
+  return (
+    <div className="flex shrink-0 flex-col items-center">
+      <div className="relative h-16 w-16">
+        <svg viewBox="0 0 36 36" className="h-16 w-16 -rotate-90" aria-hidden>
+          <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--surface-2)" strokeWidth="3.5" />
+          <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--brand)" strokeWidth="3.5" strokeLinecap="round" strokeDasharray={`${score} 100`} pathLength={100} />
+        </svg>
+        <span className="absolute inset-0 flex items-center justify-center text-lg font-bold">{score}</span>
+      </div>
+      <span className="mt-0.5 text-xs text-ink-2">{label}</span>
+    </div>
+  );
+}
+
+/** Each part of the sleep score with what it read, folded. */
+function SleepScoreParts({ score }: { score: SleepScore }) {
+  const { t, tf } = useI18n();
+  const f = useFormat();
+  const x = score.facts;
+  const read: Record<SleepPart, string> = {
+    duration: hoursText(x.asleepMin),
+    stages: x.deepPct !== null && x.remPct !== null ? tf("sleepScoreStages", { deep: f.number(x.deepPct, 0), rem: f.number(x.remPct, 0) }) : "-",
+    continuity: [
+      x.awakeMin !== null ? tf("sleepScoreAwake", { min: f.number(x.awakeMin, 0) }) : null,
+      x.awakenings === 1 ? t("sleepAwakeningsOne") : tf("sleepAwakenings", { n: x.awakenings }),
+      x.efficiencyPct !== null ? tf("sleepScoreEfficiency", { pct: f.number(x.efficiencyPct, 0) }) : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    regularity: x.bedtimeOffMin !== null ? tf("sleepScoreBedtime", { min: f.number(x.bedtimeOffMin, 0) }) : "-",
+  };
+  return (
+    <details className="group mt-3">
+      <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-medium text-brand [&::-webkit-details-marker]:hidden">
+        {t("sleepScoreHow")} <FiChevronDown className="transition group-open:rotate-180" aria-hidden />
+      </summary>
+      <ul className="mt-3 space-y-3">
+        {score.parts.map((p) => (
+          <li key={p.part}>
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <span className="text-ink">
+                {t(`sleepPart.${p.part}` as MessageKey)} <span className="text-muted">· {read[p.part]}</span>
+              </span>
+              <span className="shrink-0 text-ink-2">
+                <strong className="text-ink">{Math.round(p.score)}</strong>/100 · {tf("scorePartWeight", { weight: Math.round(p.weight * 100) })}
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2" aria-hidden>
+              <div className="h-full rounded-full bg-brand" style={{ width: `${Math.max(p.score, 2)}%` }} />
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-sm text-muted">{t("sleepScoreNote")}</p>
+    </details>
+  );
+}
+
 /** "Noche del 24 al 25 oct": a night is filed on the day you woke up. */
 function useNightLabel() {
   const { tf, locale } = useI18n();
@@ -413,6 +646,7 @@ export function SleepCard({ connected, date }: { connected: boolean; date?: stri
     );
   }
   const week = healthAverages(all.slice(Math.max(0, index - 6), index + 1)).sleepMin;
+  const score = nightScore(all, index);
   const time = (iso: string) => new Date(iso).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
   const stages = (["deep", "core", "rem", "awake"] as const).map((k) => ({ k, min: night[`${k}Min`] })).filter((s) => s.min !== null && s.min > 0);
   const total = stages.reduce((sum, s) => sum + (s.min ?? 0), 0);
@@ -422,9 +656,23 @@ export function SleepCard({ connected, date }: { connected: boolean; date?: stri
         <FiMoon className="text-brand" aria-hidden /> {t("sleepTitle")}
       </h2>
       <p className="text-sm text-muted">{nightLabel(day.date)}</p>
-      <p className="mt-2 text-2xl font-bold">{tf("sleepAsleep", { hours: hoursText(night.asleepMin) })}</p>
-      <p className="text-sm text-ink-2">{tf("sleepSpan", { start: time(night.start), end: time(night.end) })}</p>
-      {night.inBedMin !== null && <p className="text-sm text-muted">{tf("sleepInBed", { hours: hoursText(night.inBedMin) })}</p>}
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-2xl font-bold">{tf("sleepAsleep", { hours: hoursText(night.asleepMin) })}</p>
+          <p className="text-sm text-ink-2">{tf("sleepSpan", { start: time(night.start), end: time(night.end) })}</p>
+          {night.inBedMin !== null && <p className="text-sm text-muted">{tf("sleepInBed", { hours: hoursText(night.inBedMin) })}</p>}
+        </div>
+        {score && <ScoreRing score={score.score} label={t("sleepScore")} />}
+      </div>
+      {night.segments && night.segments.length > 0 && <SleepChart segments={night.segments} />}
+      {score?.facts.bedtimeDiffMin != null && score.facts.usualBedtimeMin !== null && Math.abs(score.facts.bedtimeDiffMin) >= 5 && (
+        <p className="mt-2 text-sm text-ink-2">
+          {tf(score.facts.bedtimeDiffMin < 0 ? "sleepBedtimeEarlier" : "sleepBedtimeLater", {
+            min: Math.round(Math.abs(score.facts.bedtimeDiffMin)),
+            usual: new Date(2000, 0, 1, Math.floor(score.facts.usualBedtimeMin / 60), score.facts.usualBedtimeMin % 60).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" }),
+          })}
+        </p>
+      )}
       {total > 0 ? (
         <>
           <div className="mt-3 flex h-3 gap-0.5 overflow-hidden rounded-full" aria-hidden>
@@ -448,6 +696,7 @@ export function SleepCard({ connected, date }: { connected: boolean; date?: stri
       )}
       {week !== null && <p className="mt-2 text-sm text-muted">{tf("sleepWeekAvg", { hours: hoursText(week) })}</p>}
       {night.asleepMin > 0 && night.asleepMin < 7 * 60 && <p className="mt-2 text-sm text-warn">{t("sleepShort")}</p>}
+      {score && <SleepScoreParts score={score} />}
     </Card>
   );
 }

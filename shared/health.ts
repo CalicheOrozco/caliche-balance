@@ -169,6 +169,39 @@ export interface SleepSummary {
   /** Fell asleep / woke up (ISO), from the asleep stages or, without them, time in bed. */
   start: string;
   end: string;
+  /**
+   * The night stage by stage, in time order, without overlaps: what the sleep chart draws. Missing
+   * on nights saved before it existed.
+   */
+  segments?: SleepSegment[];
+}
+
+export interface SleepSegment {
+  stage: "awake" | "rem" | "core" | "deep" | "asleep";
+  start: string;
+  end: string;
+}
+
+/** Awake time just before falling asleep or after waking up still shows on the chart. */
+const SEGMENT_MARGIN_MS = 30 * 60 * 1000;
+
+/**
+ * One stage at a time from falling asleep to waking up: the Watch's stages (or, without them, the
+ * iPhone's "Asleep") and the awake moments, each a union of intervals, then clipped so no two
+ * overlap (the earlier one keeps the time).
+ */
+function segmentsOf(byStage: (s: SleepStage) => Interval[], hasStages: boolean, start: number, end: number): SleepSegment[] {
+  const kinds: SleepSegment["stage"][] = hasStages ? ["deep", "core", "rem", "awake"] : ["asleep", "awake"];
+  const all = kinds
+    .flatMap((stage) => merge(byStage(stage)).map(([s, e]) => ({ stage, s, e })))
+    .filter((x) => x.e > start - SEGMENT_MARGIN_MS && x.s < end + SEGMENT_MARGIN_MS)
+    .sort((a, b) => a.s - b.s);
+  const out: { stage: SleepSegment["stage"]; s: number; e: number }[] = [];
+  for (const x of all) {
+    const from = Math.max(x.s, out.at(-1)?.e ?? -Infinity);
+    if (x.e > from) out.push({ stage: x.stage, s: from, e: x.e });
+  }
+  return out.map((x) => ({ stage: x.stage, start: new Date(x.s).toISOString(), end: new Date(x.e).toISOString() }));
 }
 
 /** Sleep values as Health reports them, in English or Spanish. */
@@ -234,6 +267,7 @@ export function summarizeSleep(text: string): SleepSummary | null {
     awakenings,
     start: new Date(start).toISOString(),
     end: new Date(end).toISOString(),
+    segments: segmentsOf(get, hasStages, start, end),
   };
 }
 
