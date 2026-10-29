@@ -37,10 +37,17 @@ const IN_THE_LAST = 1001;
 interface Windows {
   metricDays: number;
   symptomDays: number;
-  sleepHours: number;
-  /** The year Shortcut, which honors each type's `yearDays`. */
+  /** [amount, DAY or HOUR]: Shortcuts refused 2,880 hours (shown in red), so long windows are in days. */
+  sleep: [number, number];
+  /**
+   * The year Shortcuts: honor each type's `yearDays`, and read every property of the whole list at
+   * once (columns) instead of a Repeat per item, which made a year of 10 types too many steps.
+   */
   year?: boolean;
 }
+
+/** Field suffix for each property when sent as columns; shared/health.ts zips them in this order. */
+const COLUMN: Record<string, string> = { "Start Date": "start", "End Date": "end", Value: "value", Unit: "unit" };
 
 /** What one Shortcut reads; the daily one reads everything. */
 interface Part {
@@ -66,13 +73,13 @@ const YEAR_PARTS: { file: string; part: Part }[] = [
  * The daily Shortcut: a week back, so today with no data yet does not fail and days missed by
  * earlier runs fill in; 3 days of sleep, the last two full nights.
  */
-const DAILY: Windows = { metricDays: 7, symptomDays: 30, sleepHours: 72 };
+const DAILY: Windows = { metricDays: 7, symptomDays: 30, sleep: [72, HOUR] };
 /**
  * The one-time Shortcut that brings in a year. Types recorded about every minute (energy) look back
  * less (their `yearDays`), as do sound levels (2 days) and sleep (120 days, thousands of stretches):
  * with a whole year of them Shortcuts ran out of room and stopped.
  */
-const YEAR: Windows = { metricDays: 366, symptomDays: 366, sleepHours: 120 * 24, year: true };
+const YEAR: Windows = { metricDays: 366, symptomDays: 366, sleep: [120, DAY], year: true };
 
 type Plist = string | number | boolean | Plist[] | { [key: string]: Plist };
 
@@ -200,6 +207,30 @@ function build(baseUrl: string, windows: Windows, part: Part): Record<string, Pl
     return tokens([output(combinedId, "Combined Text")]);
   };
 
+  /**
+   * The same as `lines`, as columns: Get Details on the whole list gives every item's property in
+   * order, one combined text per property ("steps__start", "steps__value"...), and the server zips
+   * them back into lines. No Repeat, so a year stays a handful of steps.
+   */
+  const columns = (key: string, foundId: string, properties: string[]) => {
+    const samples = attachment(output(foundId, "Health Samples"));
+    for (const property of properties) {
+      const got = details(samples, property);
+      const combinedId = uuid();
+      actions.push(
+        got.action,
+        action("is.workflow.actions.text.combine", {
+          UUID: combinedId,
+          WFTextSeparator: "New Lines",
+          text: attachment(output(got.id, property, property.endsWith("Date") ? ISO_DATE : undefined)),
+        }),
+      );
+      field(`${key}__${COLUMN[property]}`, tokens([output(combinedId, "Combined Text")]));
+    }
+  };
+  const read = (key: string, foundId: string, properties: string[]) =>
+    windows.year ? columns(key, foundId, properties) : field(key, lines(foundId, properties));
+
   // Metrics: the last week as "day|value|unit" lines, one per day (grouped by Health); readings
   // that still come one by one are averaged per day on the server.
   // Health gives the person's preferred unit; the server converts it and files each value on its day.
@@ -207,21 +238,21 @@ function build(baseUrl: string, windows: Windows, part: Part): Record<string, Pl
     const spec = HEALTH_METRIC_SPECS[metric];
     const found = findHealth(spec.type, { window: [Math.min(spec.days ?? windows.metricDays, windows.metricDays, windows.year ? (spec.yearDays ?? Infinity) : Infinity), DAY], groupByDay: spec.groupByDay ?? true });
     actions.push(found.action);
-    field(metric, lines(found.id, ["Start Date", "Value", "Unit"]));
+    read(metric, found.id, ["Start Date", "Value", "Unit"]);
   }
 
   // Symptoms logged in the last month, as "when|value" ("Mild", "Present"...).
   for (const symptom of part.symptoms ? HEALTH_SYMPTOM_KEYS : []) {
     const found = findHealth(HEALTH_SYMPTOMS[symptom], { window: [windows.symptomDays, DAY], groupByDay: false });
     actions.push(found.action);
-    field(symptomField(symptom), lines(found.id, ["Start Date", "Value"]));
+    read(symptomField(symptom), found.id, ["Start Date", "Value"]);
   }
 
   // Sleep: every sample of the last 3 days as "start|end|stage"; the server splits them into nights.
   if (part.sleep) {
-    const sleep = findHealth("Sleep", { window: [windows.sleepHours, HOUR], groupByDay: false });
+    const sleep = findHealth("Sleep", { window: windows.sleep, groupByDay: false });
     actions.push(sleep.action);
-    field("sleep", lines(sleep.id, ["Start Date", "End Date", "Value"]));
+    read("sleep", sleep.id, ["Start Date", "End Date", "Value"]);
   }
   // Lets Settings tell this copy from an older one.
   field("shortcutVersion", text(String(HEALTH_SHORTCUT_VERSION)));
@@ -288,7 +319,7 @@ function write(file: string, windows: Windows, part: Part) {
   mkdirSync(SHORTCUTS, { recursive: true });
   execFileSync("shortcuts", ["sign", "--mode", "anyone", "--input", unsigned, "--output", join(SHORTCUTS, file)]);
   console.log(
-    `signed: public/shortcuts/${file} (version ${HEALTH_SHORTCUT_VERSION}, ${part.metrics.length} metrics${part.symptoms ? ", symptoms" : ""}${part.sleep ? ", sleep" : ""}; ${windows.metricDays} days)`,
+    `signed: public/shortcuts/${file} (version ${HEALTH_SHORTCUT_VERSION}, ${part.metrics.length} metrics${part.symptoms ? ", symptoms" : ""}${part.sleep ? ", sleep" : ""}; ${windows.metricDays} days${windows.year ? ", columns" : ""})`,
   );
 }
 

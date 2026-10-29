@@ -403,6 +403,29 @@ function metricByDay(spec: HealthMetricSpec, rows: string[][], now: number): Map
   return out;
 }
 
+/** The columns each kind of field can come in, in the order their lines put them. */
+const COLUMNS = { metric: ["start", "value", "unit"], symptom: ["start", "value"], sleep: ["start", "end", "value"] } as const;
+
+/**
+ * The year Shortcuts send each field as columns, one text per property ("steps__start",
+ * "steps__value", "steps__unit"), each with one item per line in the same order. They are zipped
+ * back into the usual lines ("day|value|unit") here, so everything after reads one format.
+ */
+function zipColumns(body: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(body)) if (!key.includes("__")) out[key] = value;
+  const symptomKeys = new Set<string>(HEALTH_SYMPTOM_KEYS.map(symptomField));
+  for (const key of DATA_FIELDS) {
+    const cols = COLUMNS[key === "sleep" ? "sleep" : symptomKeys.has(key) ? "symptom" : "metric"];
+    const lists = cols.map((c) => body[`${key}__${c}`]);
+    if (!lists.some((l) => typeof l === "string")) continue;
+    const rows = lists.map((l) => (typeof l === "string" ? l.split(/\r?\n/) : []));
+    const count = Math.max(...rows.map((r) => r.length));
+    out[key] = Array.from({ length: count }, (_, i) => rows.map((r) => (r[i] ?? "").trim()).join("|")).join("\n");
+  }
+  return out;
+}
+
 function splitByDate(body: Record<string, unknown>, now: number): Record<string, unknown>[] {
   const days = new Map<string, Record<string, unknown>>();
   const put = (date: unknown, key: string, value: unknown) => {
@@ -446,7 +469,7 @@ export function readHealthSend(body: unknown, now = Date.now()): { days: HealthD
   if (!isObject || (listed !== undefined && (!Array.isArray(listed) || listed.length < 1 || listed.length > MAX_DAYS_PER_SEND))) {
     return { days: [], problems: [{ path: listed === undefined ? "" : "days", code: "invalid" }] };
   }
-  const raw = (listed as unknown[] | undefined) ?? splitByDate(body as Record<string, unknown>, now);
+  const raw = (listed as unknown[] | undefined) ?? splitByDate(zipColumns(body as Record<string, unknown>), now);
   const days: HealthDayInput[] = [];
   const problems: HealthProblem[] = [];
   const empty: HealthProblem[] = [];

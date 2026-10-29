@@ -130,7 +130,7 @@ export function AuthPage() {
 function Shell({ children }: { children: React.ReactNode }) {
   const { t } = useI18n();
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-10">
+    <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-10">
       <div className="mb-4 flex justify-end">
         <Controls />
       </div>

@@ -274,3 +274,30 @@ describe("healthTargets", () => {
     expect(healthTargets({ sex: "female", age: 65, heightCm: 160, weightKg: 55 })).toMatchObject({ steps: [6_000, 8_000], exerciseForLoss: null });
   });
 });
+
+describe("columns from the year Shortcuts", () => {
+  it("zips each property's list back into lines, for metrics, symptoms and sleep", () => {
+    const d = (day: string, time = "00:00:00") => `2026-10-${day}T${time}-04:00`;
+    const { days, problems } = readHealthSend(
+      {
+        steps__start: [d("19", "00:05:00"), d("18", "00:04:00")].join("\n"),
+        steps__value: ["9,312", "10,240"].join("\n"),
+        steps__unit: ["count", "count"].join("\n"),
+        symptom_fatigue__start: d("19", "21:00:00"),
+        symptom_fatigue__value: "Mild",
+        sleep__start: [d("19", "23:40:00"), d("20", "03:00:00")].join("\n"),
+        sleep__end: [d("20", "03:00:00"), d("20", "06:30:00")].join("\n"),
+        sleep__value: ["Core", "Deep"].join("\n"),
+        shortcutVersion: "14",
+      },
+      Date.parse("2026-10-20T08:00:00-04:00"),
+    );
+    expect(problems).toEqual([]);
+    expect(days.map((x) => [x.date, x.values, x.symptoms, x.sleep?.asleepMin ?? null])).toEqual([
+      ["2026-10-19", { steps: 9312 }, { fatigue: "Mild" }, null],
+      ["2026-10-18", { steps: 10240 }, {}, null],
+      ["2026-10-20", {}, {}, 410],
+    ]);
+  });
+});
+

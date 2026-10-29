@@ -36,7 +36,12 @@ function Shell({ children }: { children: ReactNode }) {
   const online = useOnline();
   return (
     <div className="mx-auto min-h-dvh max-w-md">
-      <header className="flex items-center gap-2 px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-2">
+      {/*
+        iOS 26 blurs whatever sits right under the status bar in a home-screen app. A solid strip there
+        gives the blur a plain color, and the header starts below it so it never looks cut off.
+      */}
+      <div className="pointer-events-none fixed inset-x-0 top-0 z-40 h-[env(safe-area-inset-top)] bg-bg" aria-hidden />
+      <header className="flex items-center gap-2 px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-2">
         <Logo size={28} />
         <span className="flex-1 font-bold">
           <span className="text-brand">Caliche</span> Balance
@@ -86,7 +91,7 @@ function SignedIn({ user }: { user: UserDto }) {
 
   if (!profile) {
     return (
-      <main className="mx-auto max-w-md px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-10">
+      <main className="mx-auto max-w-md px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-10">
         <div className="mb-6 flex justify-end">
           <Controls />
         </div>
