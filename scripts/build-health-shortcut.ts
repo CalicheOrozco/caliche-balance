@@ -38,6 +38,8 @@ interface Windows {
   metricDays: number;
   symptomDays: number;
   sleepHours: number;
+  /** The year Shortcut, which honors each type's `yearDays`. */
+  year?: boolean;
 }
 
 /**
@@ -45,8 +47,12 @@ interface Windows {
  * earlier runs fill in; 3 days of sleep, the last two full nights.
  */
 const DAILY: Windows = { metricDays: 7, symptomDays: 30, sleepHours: 72 };
-/** The one-time Shortcut that brings in a whole year (sound levels stay at 2 days: hundreds of readings a day). */
-const YEAR: Windows = { metricDays: 366, symptomDays: 366, sleepHours: 366 * 24 };
+/**
+ * The one-time Shortcut that brings in a year. Types recorded about every minute (energy) look back
+ * less (their `yearDays`), as do sound levels (2 days) and sleep (120 days, thousands of stretches):
+ * with a whole year of them Shortcuts ran out of room and stopped.
+ */
+const YEAR: Windows = { metricDays: 366, symptomDays: 366, sleepHours: 120 * 24, year: true };
 
 type Plist = string | number | boolean | Plist[] | { [key: string]: Plist };
 
@@ -179,7 +185,7 @@ function build(baseUrl: string, windows: Windows): Record<string, Plist> {
   // Health gives the person's preferred unit; the server converts it and files each value on its day.
   for (const metric of HEALTH_METRICS) {
     const spec = HEALTH_METRIC_SPECS[metric];
-    const found = findHealth(spec.type, { window: [Math.min(spec.days ?? windows.metricDays, windows.metricDays), DAY], groupByDay: spec.groupByDay ?? true });
+    const found = findHealth(spec.type, { window: [Math.min(spec.days ?? windows.metricDays, windows.metricDays, windows.year ? (spec.yearDays ?? Infinity) : Infinity), DAY], groupByDay: spec.groupByDay ?? true });
     actions.push(found.action);
     field(metric, lines(found.id, ["Start Date", "Value", "Unit"]));
   }

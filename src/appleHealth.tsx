@@ -664,7 +664,12 @@ export function SleepCard({ connected, date }: { connected: boolean; date?: stri
         </div>
         {score && <ScoreRing score={score.score} label={t("sleepScore")} />}
       </div>
-      {night.segments && night.segments.length > 0 && <SleepChart segments={night.segments} />}
+      {night.segments && night.segments.length > 0 ? (
+        <SleepChart segments={night.segments} />
+      ) : (
+        // Saved before stage times were kept: only the totals are there, so there is no timeline to draw.
+        <p className="mt-3 rounded-2xl bg-surface-2 px-3 py-2 text-sm text-ink-2">{t("sleepChartMissing")}</p>
+      )}
       {score?.facts.bedtimeDiffMin != null && score.facts.usualBedtimeMin !== null && Math.abs(score.facts.bedtimeDiffMin) >= 5 && (
         <p className="mt-2 text-sm text-ink-2">
           {tf(score.facts.bedtimeDiffMin < 0 ? "sleepBedtimeEarlier" : "sleepBedtimeLater", {

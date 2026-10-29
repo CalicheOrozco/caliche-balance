@@ -22,6 +22,11 @@ export interface HealthMetricSpec {
   groupByDay?: boolean;
   /** Days back the Shortcut looks; fewer for types with hundreds of readings a day. Defaults to 7. */
   days?: number;
+  /**
+   * The most days the one-time year Shortcut can ask for. Energy is recorded about every minute,
+   * and a year of it made Shortcuts fail ("There was a problem running the shortcut").
+   */
+  yearDays?: number;
   min: number;
   max: number;
   group: "activity" | "energy" | "heart" | "body";
@@ -48,8 +53,8 @@ export const HEALTH_METRIC_SPECS = {
   walkingAsymmetryPct: { type: "Walking Asymmetry", unit: "%", kind: "mean", min: 0, max: 100, group: "activity" },
   stairSpeedUpMs: { type: "Stair Speed: Up", unit: "m/s", kind: "mean", min: 0.05, max: 3, group: "activity" },
   stairSpeedDownMs: { type: "Stair Speed: Down", unit: "m/s", kind: "mean", min: 0.05, max: 3, group: "activity" },
-  activeKcal: { type: "Active Calories", unit: "kcal", kind: "sum", min: 0, max: 20_000, group: "energy" },
-  restingKcal: { type: "Resting Calories", unit: "kcal", kind: "sum", min: 0, max: 10_000, group: "energy" },
+  activeKcal: { type: "Active Calories", unit: "kcal", kind: "sum", min: 0, max: 20_000, group: "energy", yearDays: 60 },
+  restingKcal: { type: "Resting Calories", unit: "kcal", kind: "sum", min: 0, max: 10_000, group: "energy", yearDays: 60 },
   restingHr: { type: "Resting Heart Rate", unit: "count/min", kind: "mean", min: 20, max: 250, group: "heart" },
   hrvMs: { type: "Heart Rate Variability", unit: "ms", kind: "mean", min: 1, max: 500, group: "heart" },
   walkingHr: { type: "Walking Heart Rate Average", unit: "count/min", kind: "mean", min: 30, max: 250, group: "heart" },
