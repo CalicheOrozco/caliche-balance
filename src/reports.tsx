@@ -1,7 +1,7 @@
 import { FiLock } from "react-icons/fi";
 import { STREAK_UNLOCKS, type StreakUnlock } from "../shared/achievements.ts";
 import { CM_PER_IN, fromKilograms, type MeasurementDto, type ProfileDto } from "../shared/schemas.ts";
-import { periodReport, type PeriodSummary, trendNow, weightTrend } from "../shared/trend.ts";
+import { periodReport, type PeriodSummary } from "../shared/trend.ts";
 import { useAchievementsQuery } from "./api.ts";
 import { type MessageKey, useI18n } from "./i18n.tsx";
 import { Card, signed, useFormat } from "./ui.tsx";
@@ -15,37 +15,10 @@ export function useBestStreak(): number | null {
 export function LockedNote({ unlock, best }: { unlock: StreakUnlock; best: number }) {
   const { t, tf } = useI18n();
   return (
-    <p className="flex items-start gap-2 text-sm text-muted">
+    <p className="flex items-start gap-2 text-sm font-semibold text-muted">
       <FiLock size={15} className="mt-0.5 shrink-0" aria-hidden />
       {tf("reportLocked", { name: t(`unlock.${unlock}` as MessageKey), n: STREAK_UNLOCKS[unlock], best })}
     </p>
-  );
-}
-
-/** "Real weight" for the weight card: the smoothed trend and its weekly change, or how to unlock it. */
-export function TrendLine({ measurements, unit }: { measurements: MeasurementDto[]; unit: ProfileDto["unit"] }) {
-  const { t, tf } = useI18n();
-  const f = useFormat();
-  const best = useBestStreak();
-  if (best === null) return null;
-  if (best < STREAK_UNLOCKS.trend) {
-    return <p className="mt-3 text-sm text-muted">{tf("trendLocked", { n: STREAK_UNLOCKS.trend, best })}</p>;
-  }
-  const now = trendNow(weightTrend(measurements));
-  if (!now) return null;
-  return (
-    <div className="mt-3 border-t border-line pt-3">
-      <p className="text-sm font-medium text-ink-2">{t("trendTitle")}</p>
-      <p className="text-2xl font-bold">
-        {f.weight(now.trendKg, unit)}
-        {now.perWeekKg !== null && (
-          <span className="ml-2 text-sm font-medium text-ink-2">
-            {tf("trendPerWeek", { delta: signed(fromKilograms(now.perWeekKg, unit), (n) => `${f.number(n)} ${unit}`) })}
-          </span>
-        )}
-      </p>
-      <p className="mt-1 text-xs text-muted">{t("trendHint")}</p>
-    </div>
   );
 }
 
@@ -57,6 +30,7 @@ export function ReportCard({
   unlock,
   title,
   intro,
+  bare = false,
 }: {
   profile: ProfileDto;
   measurements: MeasurementDto[];
@@ -64,6 +38,8 @@ export function ReportCard({
   unlock: StreakUnlock;
   title: string;
   intro: string;
+  /** Only the table, for a card that already has its own title (the weekly row on Today). */
+  bare?: boolean;
 }) {
   const { t } = useI18n();
   const f = useFormat();
@@ -72,7 +48,7 @@ export function ReportCard({
   if (best < STREAK_UNLOCKS[unlock]) {
     return (
       <Card>
-        <h2 className="text-lg font-semibold">{title}</h2>
+        <h2 className="text-base font-extrabold">{title}</h2>
         <div className="mt-2">
           <LockedNote unlock={unlock} best={best} />
         </div>
@@ -98,34 +74,38 @@ export function ReportCard({
     { label: t("reportCount"), pick: (p) => p.count, format: (n) => f.number(n, 0) },
   ];
   const shown = rows.filter((r) => r.pick(current) !== null || r.pick(previous) !== null);
+  const table = (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="text-left text-xs font-extrabold text-muted">
+          <th className="py-1" />
+          <th className="py-1 pl-2 text-right">{t("reportNow")}</th>
+          <th className="py-1 pl-2 text-right">{t("reportBefore")}</th>
+          <th className="py-1 pl-2 text-right">{t("reportChange")}</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-line">
+        {shown.map((r) => {
+          const now = r.pick(current);
+          const before = r.pick(previous);
+          return (
+            <tr key={r.label} className="font-bold">
+              <td className="py-2.5 text-ink-2">{r.label}</td>
+              <td className="py-2.5 pl-2 text-right font-extrabold">{now === null ? "-" : r.format(now)}</td>
+              <td className="py-2.5 pl-2 text-right text-ink-2">{before === null ? "-" : r.format(before)}</td>
+              <td className="py-2.5 pl-2 text-right">{now === null || before === null ? "-" : signed(now - before, r.format)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+  if (bare) return table;
   return (
     <Card>
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <p className="mt-1 text-sm text-ink-2">{intro}</p>
-      <table className="mt-3 w-full text-sm">
-        <thead>
-          <tr className="text-left text-muted">
-            <th className="py-1 font-medium" />
-            <th className="py-1 pl-2 text-right font-medium">{t("reportNow")}</th>
-            <th className="py-1 pl-2 text-right font-medium">{t("reportBefore")}</th>
-            <th className="py-1 pl-2 text-right font-medium">{t("reportChange")}</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-line">
-          {shown.map((r) => {
-            const now = r.pick(current);
-            const before = r.pick(previous);
-            return (
-              <tr key={r.label}>
-                <td className="py-2 text-ink-2">{r.label}</td>
-                <td className="py-2 pl-2 text-right font-semibold">{now === null ? "-" : r.format(now)}</td>
-                <td className="py-2 pl-2 text-right">{before === null ? "-" : r.format(before)}</td>
-                <td className="py-2 pl-2 text-right font-medium">{now === null || before === null ? "-" : signed(now - before, r.format)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <h2 className="text-base font-extrabold">{title}</h2>
+      <p className="mt-1 text-[13px] font-semibold text-ink-2">{intro}</p>
+      <div className="mt-3">{table}</div>
     </Card>
   );
 }
