@@ -6,3 +6,6 @@ dist/
 .env.backup-*
 .vercel/
 .DS_Store
+
+# Design exports from Claude Design (large, not part of the app)
+*rediseño.html
