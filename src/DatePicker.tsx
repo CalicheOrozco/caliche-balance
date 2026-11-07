@@ -203,7 +203,7 @@ export function DatePicker({ label, value, onChange, disabled, placeholder, maxD
 
   return (
     <div ref={containerRef} className="relative">
-      <label htmlFor={id} className={trigger ? "sr-only" : "mb-1.5 block text-sm font-medium text-ink-2"}>
+      <label htmlFor={id} className={trigger ? "sr-only" : "mb-1.5 block text-[13px] font-bold text-ink-2"}>
         {label}
       </label>
       {trigger ? (
@@ -226,9 +226,9 @@ export function DatePicker({ label, value, onChange, disabled, placeholder, maxD
           disabled={disabled}
           aria-haspopup="dialog"
           aria-expanded={open}
-          className={`flex w-full items-center justify-between gap-2 rounded-2xl border bg-surface-2 px-4 py-3 text-left transition ${
+          className={`flex h-13.5 w-full items-center justify-between gap-2 rounded-2xl border bg-surface px-4 text-left font-semibold transition ${
             disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"
-          } ${open ? "border-brand ring-2 ring-brand/20" : "border-line"}`}
+          } ${open ? "border-2 border-brand" : "border-line"}`}
         >
           <span className={`truncate ${selected ? "text-ink" : "text-muted"}`}>
             {selected ? format(selected, "PP", { locale }) : (placeholder ?? t("selectDate"))}
@@ -403,7 +403,7 @@ export function DatePicker({ label, value, onChange, disabled, placeholder, maxD
               </button>
             )}
             {!isDayDisabled(today) && (
-              <button type="button" onClick={() => selectDay(today)} className="min-h-10 text-sm font-semibold text-brand transition hover:opacity-80">
+              <button type="button" onClick={() => selectDay(today)} className="min-h-10 text-sm font-bold text-brand-text transition hover:opacity-80">
                 {t("today")}
               </button>
             )}

@@ -6,24 +6,50 @@ import { api } from "../api.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
 import { Button, Card, CopyButton, Field, PasswordField, useFormat } from "../ui.tsx";
 
-function useZeppStatus() {
+export function useZeppStatus() {
   return useQuery({ queryKey: ["zepp"], queryFn: api.zeppStatus });
 }
 
 /** Household scale settings: connect, join with a code, invite people, assign weigh-ins. */
 export function ZeppCard() {
+  return (
+    <div className="space-y-4">
+      <ZeppScaleCard />
+      <ZeppHouseholdCard />
+    </div>
+  );
+}
+
+/** The scale itself: connect your Zepp account, its sync status, or disconnect. */
+export function ZeppScaleCard() {
   const { t } = useI18n();
   const status = useZeppStatus();
-
   return (
     <Card>
-      <h2 className="text-lg font-semibold">{t("zeppTitle")}</h2>
-      <p className="mt-1 text-sm text-ink-2">{t("zeppIntro")}</p>
+      <h2 className="text-lg font-extrabold">{t("zeppTitle")}</h2>
+      <p className="mt-1 text-sm font-semibold text-ink-2">{t("zeppIntro")}</p>
       {status.data?.role === "owner" && <Owner status={status.data} />}
+      {status.data?.role === "member" && <SyncRow status={status.data} />}
+      {status.data?.role === "none" && (
+        <div className="mt-5">
+          <ConnectForm />
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** The people who share the scale: invite them, assign weigh-ins, or join someone else's. */
+export function ZeppHouseholdCard() {
+  const { t } = useI18n();
+  const status = useZeppStatus();
+  return (
+    <Card>
+      <h2 className="text-lg font-extrabold">{t("household")}</h2>
+      {status.data?.role === "owner" && <Household status={status.data} />}
       {status.data?.role === "member" && <Member status={status.data} />}
       {status.data?.role === "none" && (
-        <div className="mt-5 space-y-6">
-          <ConnectForm />
+        <div className="mt-3">
           <JoinForm />
         </div>
       )}
@@ -44,7 +70,7 @@ function ErrorText({ error }: { error: unknown }) {
   const { te } = useI18n();
   if (!error) return null;
   return (
-    <p role="alert" className="rounded-2xl bg-bad/15 px-4 py-3 text-sm text-bad">
+    <p role="alert" className="rounded-2xl bg-bad-soft px-4 py-3 text-sm font-semibold text-bad-text">
       {te(error)}
     </p>
   );
@@ -66,7 +92,7 @@ function ConnectForm({ title }: { title?: string }) {
       }}
     >
       <div>
-        <h3 className="font-semibold">{title ?? t("zeppConnectTitle")}</h3>
+        <h3 className="font-extrabold">{title ?? t("zeppConnectTitle")}</h3>
         <p className="mt-1 text-sm text-muted">{t("zeppConnectHelp")}</p>
       </div>
       <ol className="list-decimal space-y-1 pl-5 text-sm text-ink-2">
@@ -91,14 +117,14 @@ function JoinForm() {
   const join = useMutation({ mutationFn: () => api.zeppJoin(code), onSuccess: refresh });
   return (
     <form
-      className="space-y-4 border-t border-line pt-6"
+      className="space-y-4"
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         join.mutate();
       }}
     >
       <div>
-        <h3 className="font-semibold">{t("zeppJoinTitle")}</h3>
+        <h3 className="font-extrabold">{t("zeppJoinTitle")}</h3>
         <p className="mt-1 text-sm text-muted">{t("zeppJoinHelp")}</p>
       </div>
       <Field
@@ -130,14 +156,14 @@ function SyncRow({ status }: { status: ZeppStatusDto }) {
       refresh();
     },
   });
-  const tone = status.status === "ok" ? "bg-good/15 text-good" : "bg-warn/15 text-warn";
+  const tone = status.status === "ok" ? "bg-good-soft text-good-text" : "bg-warn-soft text-warn-text";
   return (
     <div className="mt-4 space-y-3">
-      <div className={`rounded-2xl px-4 py-3 text-sm font-medium ${tone}`}>
+      <div className={`rounded-2xl px-4 py-3 text-sm font-bold ${tone}`}>
         <p>{t(`zeppStatus.${status.status}` as MessageKey)}</p>
         {/* What Zepp or the network actually said, so a failure can be told apart from the next. */}
         {status.status !== "ok" && status.lastError && (
-          <p className="mt-1 text-xs font-normal break-words opacity-90">
+          <p className="mt-1 text-xs font-normal wrap-break-word opacity-90">
             {t("zeppErrorDetail")}: {status.lastError}
           </p>
         )}
@@ -146,7 +172,7 @@ function SyncRow({ status }: { status: ZeppStatusDto }) {
         <p className="text-sm text-muted">
           {t("lastSync")}: {status.lastSyncAt ? f.dateTime(status.lastSyncAt) : t("never")}
           {result && <span className="block text-ink-2">{result}</span>}
-          {sync.isError && <span className="block text-bad">{(sync.error as Error).message}</span>}
+          {sync.isError && <span className="block text-bad-text">{(sync.error as Error).message}</span>}
         </p>
         <Button variant="secondary" disabled={sync.isPending || status.status === "invalid-token"} onClick={() => sync.mutate()} className="flex shrink-0 items-center gap-2">
           <FiRefreshCw size={16} aria-hidden className={sync.isPending ? "animate-spin" : ""} />
@@ -159,9 +185,40 @@ function SyncRow({ status }: { status: ZeppStatusDto }) {
 
 function Owner({ status }: { status: ZeppStatusDto }) {
   const { t } = useI18n();
-  const f = useFormat();
   const refresh = useRefreshAll();
   const queryClient = useQueryClient();
+  const disconnect = useMutation({
+    mutationFn: api.zeppDisconnect,
+    onSuccess: () => {
+      queryClient.setQueryData(["zepp"], { ...status, role: "none", members: [] });
+      refresh();
+    },
+  });
+  return (
+    <div>
+      <SyncRow status={status} />
+      {status.status === "invalid-token" && (
+        <div className="mt-5">
+          <ConnectForm />
+        </div>
+      )}
+      <Button
+        variant="danger"
+        className="mt-6 w-full"
+        onClick={() => {
+          if (confirm(t("disconnectConfirm"))) disconnect.mutate();
+        }}
+      >
+        {t("disconnect")}
+      </Button>
+    </div>
+  );
+}
+
+function Household({ status }: { status: ZeppStatusDto }) {
+  const { t } = useI18n();
+  const f = useFormat();
+  const refresh = useRefreshAll();
   const [codes, setCodes] = useState<Record<string, string>>({});
   const unassigned = useQuery({ queryKey: ["zepp-unassigned"], queryFn: api.zeppUnassigned });
   const invite = useMutation({
@@ -173,13 +230,6 @@ function Owner({ status }: { status: ZeppStatusDto }) {
   });
   const unlink = useMutation({ mutationFn: api.zeppUnlink, onSuccess: refresh });
   const assign = useMutation({ mutationFn: ({ id, memberId }: { id: string; memberId: string }) => api.zeppAssign(id, memberId), onSuccess: refresh });
-  const disconnect = useMutation({
-    mutationFn: api.zeppDisconnect,
-    onSuccess: () => {
-      queryClient.setQueryData(["zepp"], { ...status, role: "none", members: [] });
-      refresh();
-    },
-  });
   const memberName = (memberId: string) => {
     const m = status.members.find((x) => x.memberId === memberId);
     return memberId === "-1" ? `${m?.nickname ?? t("you")} (${t("you")})` : (m?.nickname ?? memberId);
@@ -187,20 +237,12 @@ function Owner({ status }: { status: ZeppStatusDto }) {
 
   return (
     <div>
-      <SyncRow status={status} />
-      {status.status === "invalid-token" && (
-        <div className="mt-5">
-          <ConnectForm />
-        </div>
-      )}
-
-      <h3 className="mt-6 font-semibold">{t("household")}</h3>
       <ul className="mt-2 divide-y divide-line">
         {status.members.map((m) => (
           <li key={m.memberId} className="py-3">
             <div className="flex items-center gap-3">
               <div className="min-w-0 flex-1">
-                <p className="font-medium">{memberName(m.memberId)}</p>
+                <p className="font-bold">{memberName(m.memberId)}</p>
                 <p className="text-sm text-muted">
                   {m.linkedUsername ? `@${m.linkedUsername}` : t("notLinked")}
                   {m.unassignedCount > 0 && ` · ${t("waitingCount").replace("{n}", String(m.unassignedCount))}`}
@@ -223,7 +265,7 @@ function Owner({ status }: { status: ZeppStatusDto }) {
                 ))}
             </div>
             {codes[m.memberId] && (
-              <div className="mt-3 rounded-2xl bg-brand/15 p-4">
+              <div className="mt-3 rounded-2xl bg-brand-soft p-4">
                 <p className="text-sm">{t("inviteShare")}</p>
                 <p className="my-2 font-mono text-xl tracking-wider select-all">{codes[m.memberId]}</p>
                 <CopyButton text={codes[m.memberId]!} />
@@ -236,7 +278,7 @@ function Owner({ status }: { status: ZeppStatusDto }) {
 
       {(unassigned.data?.length ?? 0) > 0 && (
         <>
-          <h3 className="mt-6 font-semibold">{t("unassignedTitle")}</h3>
+          <h3 className="mt-6 font-extrabold">{t("unassignedTitle")}</h3>
           <p className="mt-1 text-sm text-muted">{t("unassignedHelp")}</p>
           <ul className="mt-2 divide-y divide-line">
             {unassigned.data!.map((m) => (
@@ -251,7 +293,7 @@ function Owner({ status }: { status: ZeppStatusDto }) {
                   aria-label={t("assignTo")}
                   value=""
                   onChange={(e) => e.target.value && assign.mutate({ id: m.id, memberId: e.target.value })}
-                  className="rounded-xl border border-line bg-surface-2 px-3 py-2 text-ink"
+                  className="min-h-11 rounded-xl border border-line bg-surface px-3 py-2 font-semibold text-ink"
                 >
                   <option value="">{t("assignTo")}…</option>
                   {status.members.map((x) => (
@@ -265,16 +307,6 @@ function Owner({ status }: { status: ZeppStatusDto }) {
           </ul>
         </>
       )}
-
-      <Button
-        variant="danger"
-        className="mt-6 w-full"
-        onClick={() => {
-          if (confirm(t("disconnectConfirm"))) disconnect.mutate();
-        }}
-      >
-        {t("disconnect")}
-      </Button>
     </div>
   );
 }
@@ -285,8 +317,7 @@ function Member({ status }: { status: ZeppStatusDto }) {
   const leave = useMutation({ mutationFn: api.zeppLeave, onSuccess: refresh });
   return (
     <div>
-      <p className="mt-4 font-medium">{t("memberOf").replace("{owner}", `@${status.ownerUsername ?? "?"}`)}</p>
-      <SyncRow status={status} />
+      <p className="mt-3 font-semibold">{t("memberOf").replace("{owner}", `@${status.ownerUsername ?? "?"}`)}</p>
       <Button
         variant="danger"
         className="mt-6 w-full"
