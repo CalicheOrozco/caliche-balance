@@ -1,58 +1,118 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useMemo, useState } from "react";
-import { FiEdit2, FiTrash2, FiUserX } from "react-icons/fi";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { FiChevronRight, FiInfo } from "react-icons/fi";
 import { Link } from "react-router";
+import { STREAK_UNLOCKS } from "../../shared/achievements.ts";
 import { bodyFatAge } from "../../shared/bodyAge.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
-import { ageAt, bodyFatBands, healthyWeightRange } from "../../shared/reference.ts";
+import { ageAt, bmi, bodyFatBands, healthyWeightRange } from "../../shared/reference.ts";
 import { type ReportItemKey, readingReport } from "../../shared/report.ts";
-import { scoreOf } from "../../shared/score.ts";
-import { STREAK_UNLOCKS } from "../../shared/achievements.ts";
-import { weightTrend } from "../../shared/trend.ts";
-import { ReportCard, useBestStreak } from "../reports.tsx";
 import { CM_PER_IN, fromKilograms, type GoalsDto, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
-import { api } from "../api.ts";
+import { exerciseFatPattern, type HabitPattern, sleepWeightPattern } from "../../shared/patterns.ts";
+import { scoreOf } from "../../shared/score.ts";
+import { weightTrend } from "../../shared/trend.ts";
+import { api, useMe } from "../api.ts";
 import { useAdvice } from "../advice.ts";
+import { type LinePoint, LineChartSvg, type Row, type Series, Spark, TrendChart } from "../charts.tsx";
 import { useCompareXiaomi } from "../compare.ts";
-import { type Row, type Series, TrendChart } from "../charts.tsx";
+import { BulbIcon } from "../icons.tsx";
 import { type MessageKey, useI18n } from "../i18n.tsx";
-import { Button, Card, Field, Segmented, Switch, signed, useFormat } from "../ui.tsx";
+import { ReportCard, useBestStreak } from "../reports.tsx";
+import { Button, Callout, Card, DeltaPill, Segmented, SectionHeader, Switch, signed, useFormat } from "../ui.tsx";
+import { BodyTop, isFull, useCountSince, ExportButton } from "./Body.tsx";
 
-type RangeKey = "30" | "90" | "365" | "all";
+type RangeKey = "30" | "90" | "180" | "365" | "all";
+const RANGES: RangeKey[] = ["30", "90", "180", "365", "all"];
+const DAY = 24 * 60 * 60 * 1000;
 
+type Props = { profile: ProfileDto; measurements: MeasurementDto[]; goals: GoalsDto };
 
-export function HistoryPage({
-  profile,
-  measurements,
-  goals,
-}: {
-  profile: ProfileDto;
-  measurements: MeasurementDto[];
-  goals: GoalsDto;
-}) {
-  const { t, tf } = useI18n();
+/** "en 3 meses" for the period picked, to follow a change. */
+function usePeriodText(range: RangeKey) {
+  const { t } = useI18n();
+  return t(`body.period.${range}` as MessageKey);
+}
+
+/**
+ * Day-of-week pattern: how far each weekday's weigh-ins sit from the mean of their own week.
+ * Only weeks with three or more weigh-ins count, and a weekday needs two such weeks; with fewer
+ * than three weeks there is no pattern to tell. Monday first.
+ */
+function weekdayPattern(points: { t: number; v: number }[]): (number | null)[] | null {
+  const weeks = new Map<number, { day: number; v: number }[]>();
+  for (const p of points) {
+    const d = new Date(p.t);
+    const day = (d.getDay() + 6) % 7;
+    const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - day).getTime();
+    weeks.set(monday, [...(weeks.get(monday) ?? []), { day, v: p.v }]);
+  }
+  const sums = Array.from({ length: 7 }, () => ({ total: 0, n: 0 }));
+  let used = 0;
+  for (const list of weeks.values()) {
+    if (list.length < 3) continue;
+    used += 1;
+    const mean = list.reduce((s, x) => s + x.v, 0) / list.length;
+    for (const x of list) {
+      sums[x.day]!.total += x.v - mean;
+      sums[x.day]!.n += 1;
+    }
+  }
+  if (used < 3) return null;
+  return sums.map((s) => (s.n >= 2 ? s.total / s.n : null));
+}
+
+/** "2026-11-06" on the person's own calendar, to line weigh-ins up with Apple Health days. */
+function localDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Sleep and exercise patterns over all the weigh-ins (not only the chosen period: they need many
+ * weeks), from up to a year of Apple Health days. Nothing when Apple Health is not connected.
+ */
+function useHealthPatterns(profile: ProfileDto, measurements: MeasurementDto[]) {
+  const connected = useMe().data?.appleHealth != null;
+  const days = useQuery({ queryKey: ["apple-health", "days", 365], queryFn: () => api.healthDays(365), enabled: connected }).data;
+  return useMemo(() => {
+    if (!days || days.length === 0) return { sleep: null, exercise: null };
+    const nights = days.flatMap((d) => (d.sleep ? [{ date: d.date, value: d.sleep.asleepMin }] : []));
+    const exercise = days.flatMap((d) => (d.exerciseMin !== null ? [{ date: d.date, value: d.exerciseMin }] : []));
+    const weights = measurements.map((m) => ({ date: localDate(m.measuredAt), value: fromKilograms(m.weightKg, profile.unit) }));
+    const fats = measurements.flatMap((m) => {
+      const fat = isFull(m) ? bodyFatOf(profile, m) : null;
+      return fat ? [{ date: localDate(m.measuredAt), value: fat.value }] : [];
+    });
+    const shown = (p: HabitPattern | null, min: number) => (p && Math.abs(p.difference) >= min ? p : null);
+    return { sleep: shown(sleepWeightPattern(nights, weights), 0.1), exercise: shown(exerciseFatPattern(exercise, fats), 0.05) };
+  }, [days, measurements, profile]);
+}
+
+/** One found pattern: the difference in big type and what it means next to it. */
+function PatternRow({ pattern, text, digits }: { pattern: HabitPattern; text: string; digits: number }) {
   const f = useFormat();
-  const queryClient = useQueryClient();
+  return (
+    <div className="flex items-start gap-3">
+      <span className={`min-w-16 text-[22px] font-extrabold ${pattern.difference < 0 ? "text-good-text" : "text-warn-text"}`}>
+        {signed(pattern.difference, (n) => f.number(n, digits))}
+      </span>
+      <p className="text-[13px] leading-4.75 font-semibold text-ink-2">{text}</p>
+    </div>
+  );
+}
+
+export function TrendsPage({ profile, measurements, goals }: Props) {
+  const { t, tf, locale } = useI18n();
+  const f = useFormat();
   const [range, setRange] = useState<RangeKey>("90");
   const [compare, setCompare] = useCompareXiaomi();
+  const period = usePeriodText(range);
+  const subtitle = useCountSince(measurements);
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["measurements"] });
-  const remove = useMutation({ mutationFn: api.deleteMeasurement, onSuccess: refresh });
-  const notMine = useMutation({ mutationFn: api.notMine, onSuccess: refresh });
-
-  const cutoff = range === "all" ? -Infinity : Date.now() - Number(range) * 24 * 60 * 60 * 1000;
+  const cutoff = range === "all" ? -Infinity : Date.now() - Number(range) * DAY;
   const visible = useMemo(() => measurements.filter((m) => new Date(m.measuredAt).getTime() >= cutoff), [measurements, cutoff]);
   const unit = profile.unit;
   const waistUnit = unit === "lb" ? "in" : "cm";
-  const [waistFor, setWaistFor] = useState<string | null>(null);
-  const [waistValue, setWaistValue] = useState("");
-  const saveWaist = useMutation({
-    mutationFn: ({ id, value }: { id: string; value: string }) => api.setWaist(id, value.trim() ? value : null, waistUnit),
-    onSuccess: () => {
-      setWaistFor(null);
-      void refresh();
-    },
-  });
   const mass = (kg: number | null | undefined) => (kg === null || kg === undefined ? null : fromKilograms(kg, unit));
 
   // The real weight runs over the whole history, so the first days of a range are already smoothed.
@@ -71,6 +131,7 @@ export function HistoryPage({
           t: new Date(m.measuredAt).getTime(),
           weight: mass(m.weightKg),
           trend: mass(trendAt.get(new Date(m.measuredAt).getTime())),
+          bmi: bmi(m.weightKg, profile.heightCm),
           "fat.c": fat?.value ?? null,
           "fat.x": x.bodyFatPct,
           "ffm.c": mass(na?.fatFreeMassKg),
@@ -90,12 +151,13 @@ export function HistoryPage({
           waist: m.waistCm === null ? null : waistUnit === "in" ? m.waistCm / CM_PER_IN : m.waistCm,
           visceral: m.visceralFat,
           // Weight-only weigh-ins would score on BMI alone and jump; only full ones are charted.
-          "score.c": m.bodyFatPct !== null || m.impedance !== null ? scoreOf(profile, m).score : null,
+          "score.c": isFull(m) ? scoreOf(profile, m).score : null,
           "score.x": m.bodyScore,
         };
       }),
     [visible, profile, unit, trendAt],
   );
+  const column = (key: string): LinePoint[] => rows.flatMap((r) => (r[key] === null || r[key] === undefined ? [] : [{ t: r.t, v: r[key]! }]));
 
   const healthy = healthyWeightRange(profile.heightCm);
   const age = ageAt(new Date(`${profile.birthDate}T00:00:00Z`), new Date());
@@ -108,7 +170,7 @@ export function HistoryPage({
 
   // What the latest weigh-in means, from the same report as the weigh-in detail page.
   const latest = measurements[0];
-  const latestFull = measurements.find((m) => m.bodyFatPct !== null || m.impedance !== null) ?? latest;
+  const latestFull = measurements.find(isFull) ?? latest;
   const report = latestFull ? readingReport(profile, latestFull, measurements) : null;
   const advice = useAdvice(profile);
   const adviceFor = (key: ReportItemKey) => {
@@ -136,22 +198,212 @@ export function HistoryPage({
         : tf("bodyAgeYears", { age: fatAge.age })
     : null;
   const waistCount = measurements.filter((m) => m.waistCm !== null).length;
-  return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold">{t("historyTitle")}</h1>
-      <Segmented
-        label={t("range")}
-        value={range}
-        onChange={setRange}
-        options={(["30", "90", "365", "all"] as const).map((r) => ({ value: r, label: t(`range.${r}` as MessageKey) }))}
-      />
-      <Card className="py-3">
-        <Switch label={t("compareXiaomi")} checked={compare} onChange={setCompare} />
-        <p className="text-sm text-muted">{t("compareHint")}</p>
+
+  // Weight: the change over the period goes the right way when it heads toward the healthy range.
+  const weights = column("weight");
+  const wFirst = weights[0];
+  const wLast = weights[weights.length - 1];
+  const wDelta = wFirst && wLast && weights.length > 1 ? wLast.v - wFirst.v : null;
+  const wGood = wDelta === null || (latest && latest.weightKg > healthy.max ? wDelta <= 0 : latest && latest.weightKg < healthy.min ? wDelta >= 0 : true);
+
+  // Body fat, ours and Xiaomi's, from the newest weigh-in in the period that has each.
+  const fatC = column("fat.c");
+  const fatX = column("fat.x");
+  const fatXLatest = latestFull ? xiaomiComparable(latestFull).bodyFatPct : null;
+  const fatGap =
+    compare && report?.bodyFat?.source === "north-america" && fatXLatest !== null ? report.bodyFat.value - fatXLatest : null;
+
+  const pattern = weekdayPattern(weights);
+  const health = useHealthPatterns(profile, measurements);
+  const patternMax = pattern ? Math.max(...pattern.map((v) => v ?? -Infinity)) : -Infinity;
+  const patternDay = pattern && patternMax >= 0.2 ? pattern.indexOf(patternMax) : -1;
+  // Monday 2024-01-01 onward, for weekday names in the person's language.
+  const weekday = (i: number, style: "narrow" | "long") => new Date(2024, 0, 1 + i).toLocaleDateString(locale, { weekday: style });
+
+  const mini = (key: string, label: string, valueUnit: string, digits: number, goodWhen: "up" | "down" | null) => {
+    const points = column(key);
+    const last = points[points.length - 1];
+    if (!last) return null;
+    const delta = points.length > 1 ? last.v - points[0]!.v : null;
+    const tone =
+      delta === null || goodWhen === null || Math.abs(delta) < 0.05
+        ? "text-ink-2"
+        : (goodWhen === "up") === delta > 0
+          ? "text-good-text"
+          : "text-warn-text";
+    return (
+      <Card key={key} className="flex flex-col gap-1.5 p-4!">
+        <p className="text-[13px] font-bold text-ink-2">{label}</p>
+        <p className="flex items-baseline gap-1">
+          <span className="text-2xl leading-7 font-extrabold tracking-[-0.02em]">{f.number(last.v, digits)}</span>
+          {valueUnit && <span className="text-[13px] font-bold text-muted">{valueUnit}</span>}
+        </p>
+        <Spark values={points.map((p) => p.v)} />
+        {delta !== null && (
+          <p className={`text-xs font-bold ${tone}`}>{tf("body.inPeriod", { value: `${signed(delta, (n) => f.number(n, digits))}${valueUnit ? ` ${valueUnit}` : ""}`, period })}</p>
+        )}
       </Card>
+    );
+  };
+  const minis = [
+    mini("skeletalMuscle", t("skeletalMuscle"), unit, 1, "up"),
+    mini("water.c", t("bodyWater"), "%", 1, null),
+    mini("bmi", t("bmi"), "", 1, latest && latest.weightKg > healthy.max ? "down" : latest && latest.weightKg < healthy.min ? "up" : null),
+    mini("bmr.c", t("bmr"), "kcal", 0, null),
+  ].filter((m) => m !== null);
+
+  return (
+    <div className="flex flex-col gap-3.5">
+      <BodyTop subtitle={subtitle}>
+        <ExportButton profile={profile} measurements={measurements} />
+      </BodyTop>
+      <Segmented label={t("range")} value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r, label: t(`body.range.${r}` as MessageKey) }))} />
+      <div className="rounded-[20px] border border-line bg-surface px-4 py-2.5">
+        <Switch label={t("compareXiaomi")} hint={t("body.compareHint")} checked={compare} onChange={setCompare} />
+      </div>
+
+      {wLast && (
+        <Card className="flex flex-col gap-1">
+          <p className="text-[15px] font-bold text-ink-2">{t("weight")}</p>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[40px] leading-11.5 font-extrabold tracking-[-0.03em]">{f.number(wLast.v)}</span>
+            <span className="text-base font-bold text-muted">{unit}</span>
+            <span className="flex-1" />
+            {wDelta !== null && (
+              <span className="self-center">
+                <DeltaPill value={wDelta} good={wGood} size="sm">
+                  {tf("body.inPeriod", { value: `${f.number(Math.abs(wDelta))} ${unit}`, period })}
+                </DeltaPill>
+              </span>
+            )}
+          </div>
+          <LineChartSvg
+            label={tf("body.weightChartLabel", { period })}
+            height={170}
+            area
+            lines={[
+              { points: weights, kind: "caliche" },
+              ...(trendUnlocked ? [{ points: column("trend"), kind: "trend" as const }] : []),
+            ]}
+            goal={goals.weight ? fromKilograms(goals.weight.targetKg, unit) : null}
+            goalLabel={goals.weight ? tf("body.goalLabel", { value: f.number(fromKilograms(goals.weight.targetKg, unit), 0) }) : undefined}
+            formatTick={(n) => f.number(n, 0)}
+          />
+          {trendUnlocked && <p className="mt-1 text-xs font-semibold text-muted">{t("body.trendLegend")}</p>}
+          {weightNow && <p className="mt-2.5 text-[13px] leading-4.75 font-semibold text-ink-2">{weightNow}</p>}
+        </Card>
+      )}
+
+      {fatC.length > 0 && (
+        <Card className="flex flex-col gap-1">
+          <p className="text-[15px] font-bold text-ink-2">{t("bodyFat")}</p>
+          <div className={`mt-1.5 grid gap-2 ${compare && fatX.length > 0 ? "grid-cols-2" : "grid-cols-1"}`}>
+            <div className="flex flex-col gap-0.5">
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-2">
+                <span className="h-0.75 w-3.5 rounded-full bg-brand" />
+                Caliche Balance
+              </span>
+              <span className="text-[26px] font-extrabold tracking-[-0.02em]">{f.number(fatC[fatC.length - 1]!.v)} %</span>
+            </div>
+            {compare && fatX.length > 0 && (
+              <div className="flex flex-col gap-0.5">
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-2">
+                  <svg width="14" height="4" aria-hidden>
+                    <line x1="0" x2="14" y1="2" y2="2" stroke="var(--series-2)" strokeWidth="3" strokeDasharray="4 3" />
+                  </svg>
+                  Xiaomi
+                </span>
+                <span className="text-[26px] font-extrabold tracking-[-0.02em]">{f.number(fatX[fatX.length - 1]!.v)} %</span>
+              </div>
+            )}
+          </div>
+          <LineChartSvg
+            label={tf("body.fatChartLabel", { period })}
+            height={150}
+            lines={[{ points: fatC, kind: "caliche" }, ...(compare ? [{ points: fatX, kind: "xiaomi" as const }] : [])]}
+            band={{ min: fatHealthy.min!, max: fatHealthy.max! }}
+            goal={goals.bodyFat?.targetPct ?? null}
+            goalLabel={goals.bodyFat ? tf("body.goalLabel", { value: `${f.number(goals.bodyFat.targetPct, 0)} %` }) : undefined}
+            formatTick={(n) => `${f.number(n, 0)} %`}
+          />
+          <div className="mt-2.5 flex items-center gap-2 rounded-2xl bg-surface-2 px-3.5 py-3">
+            <span className="h-3 w-3 shrink-0 rounded-[3px] border border-brand/40 bg-(--band)" aria-hidden />
+            <p className="text-[13px] leading-4.75 font-semibold text-ink-2">
+              {tf("body.fatHealthyTo", { min: f.number(fatHealthy.min!, 0), max: f.number(fatHealthy.max!, 1) })}
+              {fatGap !== null && Math.abs(fatGap) >= 0.1 && (
+                <>
+                  {" "}
+                  {tf(fatGap > 0 ? "body.xiaomiLower" : "body.xiaomiHigher", { n: f.number(Math.abs(fatGap)) })}
+                </>
+              )}
+            </p>
+          </div>
+        </Card>
+      )}
+
+      {((pattern && patternDay >= 0) || health.sleep || health.exercise) && (
+        <Card className="flex flex-col gap-3.5">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-soft text-brand">
+              <BulbIcon size={20} />
+            </span>
+            <p className="text-base font-extrabold">{t("body.patternsTitle")}</p>
+          </div>
+          {pattern && patternDay >= 0 && (
+          <div className="flex flex-col gap-2">
+            <p className="text-sm font-bold">{tf("body.patternDay", { day: weekday(patternDay, "long") })}</p>
+            <div className="flex h-19 items-end gap-1.5" role="img" aria-label={t("body.patternNote")}>
+              {pattern.map((v, i) => (
+                <div key={i} className="flex flex-1 flex-col items-center gap-1">
+                  <span className={`text-[10px] font-extrabold ${i === patternDay ? "text-warn-text" : "text-muted"}`}>
+                    {v === null ? "" : signed(v, (n) => f.number(n))}
+                  </span>
+                  <span
+                    className={`w-full rounded-md ${i === patternDay ? "bg-warn" : "bg-track"}`}
+                    style={{ height: v === null ? 2 : Math.round(6 + Math.min(Math.abs(v), 0.8) * 60) }}
+                  />
+                  <span className="text-[11px] font-bold text-muted uppercase">{weekday(i, "narrow")}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs font-semibold text-muted">{tf("body.patternNote", { unit })}</p>
+          </div>
+          )}
+          {(health.sleep || health.exercise) && (
+            <>
+              {pattern && patternDay >= 0 && <div className="h-px bg-line" />}
+              {health.sleep && (
+                <PatternRow
+                  pattern={health.sleep}
+                  digits={1}
+                  text={tf(health.sleep.difference < 0 ? "body.patternSleepLess" : "body.patternSleepMore", {
+                    unit,
+                    n: health.sleep.habitWeeks,
+                    total: health.sleep.totalWeeks,
+                  })}
+                />
+              )}
+              {health.exercise && (
+                <PatternRow
+                  pattern={health.exercise}
+                  digits={1}
+                  text={tf(health.exercise.difference < 0 ? "body.patternExerciseLess" : "body.patternExerciseMore", {
+                    n: health.exercise.habitWeeks,
+                    total: health.exercise.totalWeeks,
+                  })}
+                />
+              )}
+              <p className="text-xs font-semibold text-muted">{t("body.patternsHealthNote")}</p>
+            </>
+          )}
+        </Card>
+      )}
+
+      {minis.length > 0 && <div className="grid grid-cols-2 gap-3">{minis}</div>}
 
       <ReportCard profile={profile} measurements={measurements} days={30} unlock="monthly" title={t("monthlyTitle")} intro={t("monthlyIntro")} />
 
+      <SectionHeader title={t("body.moreCharts")} />
       <TrendChart
         title={`${t("bodyScoreTitle")} (0-100)`}
         rows={rows}
@@ -162,34 +414,30 @@ export function HistoryPage({
         now={report ? tf("now.score", { score: report.score.score }) : null}
       />
       <TrendChart
-        title={`${t("weight")} (${unit})`}
-        rows={rows}
-        series={trendUnlocked ? [caliche("weight", t("weight")), { key: "trend", label: t("trendTitle"), kind: "trend" }] : one("weight", t("weight"))}
-        band={{ min: fromKilograms(healthy.min, unit), max: fromKilograms(healthy.max, unit) }}
-        goal={goals.weight ? fromKilograms(goals.weight.targetKg, unit) : null}
-        unit={` ${unit}`}
-        about={t("about.weight")}
-        now={weightNow}
-        {...plain}
-      />
-      <TrendChart
-        title={`${t("bodyFat")} (%)`}
-        rows={rows}
-        series={paired("fat.c", "fat.x")}
-        band={{ min: fatHealthy.min!, max: fatHealthy.max! }}
-        goal={goals.bodyFat?.targetPct ?? null}
-        unit=" %"
-        about={t("about.bodyFat")}
-        now={adviceFor("bodyFat")}
-        {...plain}
-      />
-      <TrendChart
         title={`${t("fatFreeMass")} (${unit})`}
         rows={rows}
         series={paired("ffm.c", "ffm.x")}
         unit={` ${unit}`}
         about={t("about.ffm")}
         now={na ? tf("now.value", { value: f.weight(na.fatFreeMassKg, unit) }) : null}
+        {...plain}
+      />
+      <TrendChart
+        title={`${t("skeletalMuscle")} (${unit})`}
+        rows={rows}
+        series={one("skeletalMuscle", t("skeletalMuscle"))}
+        unit={` ${unit}`}
+        about={t("about.skeletalMuscle")}
+        now={adviceFor("muscleIndex")}
+        {...plain}
+      />
+      <TrendChart
+        title={`${t("leanSoftVsXiaomi")} (${unit})`}
+        rows={rows}
+        series={paired("lean.c", "lean.x")}
+        unit={` ${unit}`}
+        about={t("about.lean")}
+        now={na ? tf("now.value", { value: f.weight(na.leanSoftKg, unit) }) : null}
         {...plain}
       />
       <TrendChart
@@ -210,24 +458,6 @@ export function HistoryPage({
         unit=" kcal"
         about={t("about.bmr")}
         now={na ? tf("now.value", { value: `${f.number(na.bmrKcal, 0)} ${t("kcalDay")}` }) : null}
-      />
-      <TrendChart
-        title={`${t("skeletalMuscle")} (${unit})`}
-        rows={rows}
-        series={one("skeletalMuscle", t("skeletalMuscle"))}
-        unit={` ${unit}`}
-        about={t("about.skeletalMuscle")}
-        now={adviceFor("muscleIndex")}
-        {...plain}
-      />
-      <TrendChart
-        title={`${t("leanSoftVsXiaomi")} (${unit})`}
-        rows={rows}
-        series={paired("lean.c", "lean.x")}
-        unit={` ${unit}`}
-        about={t("about.lean")}
-        now={na ? tf("now.value", { value: f.weight(na.leanSoftKg, unit) }) : null}
-        {...plain}
       />
       <TrendChart
         title={`${t("proteinExperimental")} (%)`}
@@ -256,13 +486,12 @@ export function HistoryPage({
         unit={` ${waistUnit}`}
         about={t("about.waist")}
         now={adviceFor("waist")}
-        empty={waistCount === 0 ? t("now.waistNone") : waistCount === 1 ? t("now.waistOne") : undefined}
+        empty={waistCount === 0 ? t("body.waistNone") : waistCount === 1 ? t("now.waistOne") : undefined}
         {...plain}
       />
-
       {compare && (
         <>
-          <h2 className="px-1 pt-2 text-lg font-semibold">{t("xiaomiOnlyTitle")}</h2>
+          <SectionHeader title={t("xiaomiOnlyTitle")} />
           <TrendChart
             title={t("visceral")}
             rows={rows}
@@ -273,84 +502,101 @@ export function HistoryPage({
           />
         </>
       )}
+    </div>
+  );
+}
 
-      <Card padded={false}>
-        <h2 className="px-5 pt-5 text-lg font-semibold">{t("measurements")}</h2>
-        <ul className="mt-2 divide-y divide-line">
-          {visible.map((m) => {
-            const fat = bodyFatOf(profile, m);
-            return (
-              <li key={m.id} className="flex items-center gap-3 px-5 py-3">
-                <div className="min-w-0 flex-1">
-                  <Link to={`/medicion/${m.id}`} className="-my-1 block rounded-xl py-1 active:opacity-70">
-                    <p className="font-semibold">
-                      {f.weight(m.weightKg, unit)}
-                      {fat && <span className="font-normal text-ink-2"> · {f.number(fat.value)} %</span>}
-                    </p>
-                    <p className="text-sm text-muted">
-                      {f.dateTime(m.measuredAt)} · {t(`source.${m.source}` as MessageKey)}
-                      {m.waistCm !== null &&
-                        ` · ${t("waist")} ${waistUnit === "in" ? f.number(m.waistCm / CM_PER_IN) : f.number(m.waistCm, 0)} ${waistUnit}`}
-                    </p>
-                  </Link>
-                  {waistFor === m.id && (
-                    <form
-                      className="mt-2 flex items-end gap-2"
-                      onSubmit={(e: FormEvent) => {
-                        e.preventDefault();
-                        saveWaist.mutate({ id: m.id, value: waistValue });
-                      }}
+/** How many weeks the weigh-ins list shows at first, and how many more each tap adds. */
+const WEEKS_PAGE = 6;
+
+/** Body > Weigh-ins: every weigh-in, newest first, a card per week. */
+export function WeighInsPage({ profile, measurements }: Props) {
+  const { t, tf, locale } = useI18n();
+  const f = useFormat();
+  const [weeks, setWeeks] = useState(WEEKS_PAGE);
+  const subtitle = useCountSince(measurements);
+  const unit = profile.unit;
+  const waistUnit = unit === "lb" ? "in" : "cm";
+
+  const groups = useMemo(() => {
+    const out: { monday: number; items: { m: MeasurementDto; older: MeasurementDto | undefined }[] }[] = [];
+    measurements.forEach((m, i) => {
+      const d = new Date(m.measuredAt);
+      const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)).getTime();
+      const item = { m, older: measurements[i + 1] };
+      const last = out[out.length - 1];
+      if (last && last.monday === monday) last.items.push(item);
+      else out.push({ monday, items: [item] });
+    });
+    return out;
+  }, [measurements]);
+
+  const now = new Date();
+  const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7)).getTime();
+  const weekTitle = (monday: number) =>
+    monday === thisMonday
+      ? t("body.thisWeek")
+      : monday === new Date(new Date(thisMonday).setDate(new Date(thisMonday).getDate() - 7)).getTime()
+        ? t("body.lastWeek")
+        : tf("body.weekOf", { date: new Date(monday).toLocaleDateString(locale, { day: "numeric", month: "short", year: new Date(monday).getFullYear() === now.getFullYear() ? undefined : "numeric" }) });
+
+  return (
+    <div className="flex flex-col gap-3.5">
+      <BodyTop subtitle={subtitle}>
+        <ExportButton profile={profile} measurements={measurements} />
+      </BodyTop>
+      {groups.length === 0 && (
+        <Card className="text-center">
+          <p className="text-sm font-semibold text-ink-2">{t("noMeasurementsBody")}</p>
+        </Card>
+      )}
+      {groups.slice(0, weeks).map((g) => (
+        <section key={g.monday} className="flex flex-col gap-2.5">
+          <SectionHeader title={weekTitle(g.monday)} aside={tf("body.weighInsCount", { n: g.items.length })} />
+          <Card padded={false}>
+            {g.items.map(({ m, older }) => {
+              const d = new Date(m.measuredAt);
+              const fat = bodyFatOf(profile, m);
+              const delta = older ? fromKilograms(m.weightKg, unit) - fromKilograms(older.weightKg, unit) : null;
+              const meta = [
+                isFull(m) ? t("body.full") : t("body.weightOnly"),
+                fat && isFull(m) ? tf("body.fatShort", { value: f.number(fat.value) }) : null,
+                m.waistCm !== null ? `${t("waist")} ${waistUnit === "in" ? f.number(m.waistCm / CM_PER_IN) : f.number(m.waistCm, 0)} ${waistUnit}` : null,
+                f.time(m.measuredAt),
+              ]
+                .filter(Boolean)
+                .join(" · ");
+              return (
+                <Link key={m.id} to={`/medicion/${m.id}`} className="flex min-h-16 items-center gap-3 border-t border-line px-4 py-2.5 text-ink first:border-t-0">
+                  <span className="flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-[14px] bg-surface-2">
+                    <span className="text-[10px] font-extrabold text-muted uppercase">{d.toLocaleDateString(locale, { weekday: "short" }).replace(".", "")}</span>
+                    <span className="text-base leading-4.5 font-extrabold">{d.getDate()}</span>
+                  </span>
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="text-base font-extrabold">{f.weight(m.weightKg, unit)}</span>
+                    <span className="truncate text-xs font-semibold text-muted">{meta}</span>
+                    {m.note && <span className="truncate text-xs font-semibold text-ink-2 italic">“{m.note}”</span>}
+                  </span>
+                  {delta !== null && (
+                    <span
+                      className={`inline-flex h-6.5 shrink-0 items-center rounded-full px-2.5 text-xs font-extrabold ${delta <= 0 ? "bg-good-soft text-good-text" : "bg-warn-soft text-warn-text"}`}
                     >
-                      <div className="flex-1">
-                        <Field label={`${t("waist")} (${waistUnit})`} inputMode="decimal" value={waistValue} onChange={(e) => setWaistValue(e.target.value)} autoFocus />
-                      </div>
-                      <Button type="submit" disabled={saveWaist.isPending}>
-                        {t("save")}
-                      </Button>
-                    </form>
+                      {signed(delta, (n) => f.number(n))}
+                    </span>
                   )}
-                </div>
-                <button
-                  type="button"
-                  aria-label={`${t("editWaist")}: ${f.dateTime(m.measuredAt)}`}
-                  title={t("editWaist")}
-                  onClick={() => {
-                    setWaistFor(waistFor === m.id ? null : m.id);
-                    setWaistValue(m.waistCm === null ? "" : String(Math.round((waistUnit === "in" ? m.waistCm / CM_PER_IN : m.waistCm) * 10) / 10));
-                  }}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-ink active:scale-95"
-                >
-                  <FiEdit2 size={18} aria-hidden />
-                </button>
-                {m.source === "zepp" && (
-                  <button
-                    type="button"
-                    aria-label={`${t("notMine")}: ${f.dateTime(m.measuredAt)}`}
-                    title={t("notMine")}
-                    onClick={() => {
-                      if (confirm(t("notMineConfirm"))) notMine.mutate(m.id);
-                    }}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-ink active:scale-95"
-                  >
-                    <FiUserX size={20} aria-hidden />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  aria-label={`${t("delete")}: ${f.dateTime(m.measuredAt)}`}
-                  title={t("delete")}
-                  onClick={() => {
-                    if (confirm(t("deleteMeasurementConfirm"))) remove.mutate(m.id);
-                  }}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-bad transition hover:bg-bad/15 active:scale-95"
-                >
-                  <FiTrash2 size={20} aria-hidden />
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </Card>
+                  <FiChevronRight size={18} strokeWidth={2.4} className="shrink-0 text-muted" aria-hidden />
+                </Link>
+              );
+            })}
+          </Card>
+        </section>
+      ))}
+      {groups.length > weeks && (
+        <Button variant="secondary" onClick={() => setWeeks((w) => w + WEEKS_PAGE)}>
+          {t("body.showMore")}
+        </Button>
+      )}
+      <Callout icon={FiInfo}>{t("body.weighInsHint")}</Callout>
     </div>
   );
 }
