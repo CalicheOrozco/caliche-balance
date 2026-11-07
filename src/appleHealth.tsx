@@ -1,14 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { FiCheck, FiChevronDown, FiChevronRight, FiCopy, FiDownload, FiHeart, FiInfo, FiMoon } from "react-icons/fi";
+import { FiAlertCircle, FiCheck, FiChevronDown, FiChevronRight, FiCopy, FiDownload, FiHeart, FiInfo, FiMoon } from "react-icons/fi";
 import { Link } from "react-router";
 import { healthTargets, type PersonFacts } from "../shared/healthReference.ts";
 import { type SleepPart, type SleepScore, sleepScoreOf } from "../shared/sleepScore.ts";
-import { type AppleHealthStatus, type HealthDayDto, HEALTH_METRICS, type SleepSegment, HEALTH_SHORTCUT_VERSION, type HealthMetric, healthAverages } from "../shared/health.ts";
+import { type AppleHealthStatus, type HealthDayDto, HEALTH_METRICS, type SleepSegment, type SleepSummary, HEALTH_SHORTCUT_VERSION, type HealthMetric, healthAverages } from "../shared/health.ts";
 import type { UserDto } from "../shared/schemas.ts";
 import { api } from "./api.ts";
 import { type MessageKey, useI18n } from "./i18n.tsx";
-import { Button, Card, Modal, useFormat } from "./ui.tsx";
+import { Button, Card, Modal, Progress, Rings, useFormat } from "./ui.tsx";
 
 /** The signed Shortcut built by scripts/build-health-shortcut.py. */
 const SHORTCUT_FILE = "/shortcuts/caliche-salud.shortcut";
@@ -37,7 +37,7 @@ function CopyChip({ value, label }: { value: string; label?: string }) {
       aria-label={`${t("ahCopy")} ${label ?? value}`}
     >
       <span className="min-w-0 flex-1">{label ?? value}</span>
-      <span className="flex shrink-0 items-center gap-1 font-sans text-xs font-medium text-brand">
+      <span className="flex shrink-0 items-center gap-1 font-sans text-xs font-bold text-brand-text">
         {copied ? <FiCheck aria-hidden /> : <FiCopy aria-hidden />} {copied ? t("ahCopied") : t("ahCopy")}
       </span>
     </button>
@@ -58,7 +58,7 @@ function LastRun({ attempt }: { attempt: NonNullable<AppleHealthStatus["lastAtte
   const current = attempt.version === HEALTH_SHORTCUT_VERSION;
   return (
     <div className="mt-2 space-y-1 text-sm">
-      <p className={current ? "text-good" : "text-warn"}>
+      <p className={current ? "text-good-text" : "text-warn-text"}>
         {current
           ? tf("ahVersionCurrent", { n: attempt.version ?? 0 })
           : tf("ahVersionOld", { n: attempt.version === null ? t("ahVersionNone") : String(attempt.version) })}
@@ -71,10 +71,10 @@ function LastRun({ attempt }: { attempt: NonNullable<AppleHealthStatus["lastAtte
           })}
         </p>
       ) : (
-        <p className="text-bad">{tf("ahLastFailed", { when: f.dateTime(attempt.at) })}</p>
+        <p className="text-bad-text">{tf("ahLastFailed", { when: f.dateTime(attempt.at) })}</p>
       )}
       {attempt.problems.length > 0 && (
-        <div className={attempt.ok ? "text-warn" : "text-bad"}>
+        <div className={attempt.ok ? "text-warn-text" : "text-bad-text"}>
           {attempt.ok && <p>{t("ahLeftOut")}</p>}
           <ul className="mt-1 list-disc space-y-0.5 pl-5">
             {attempt.problems.map((p) => (
@@ -88,7 +88,7 @@ function LastRun({ attempt }: { attempt: NonNullable<AppleHealthStatus["lastAtte
       )}
       {attempt.received && (
         <details className="group">
-          <summary className="flex cursor-pointer list-none items-center gap-1 font-medium text-brand [&::-webkit-details-marker]:hidden">
+          <summary className="flex cursor-pointer list-none items-center gap-1 font-bold text-brand-text [&::-webkit-details-marker]:hidden">
             {t("ahReceivedTitle")} <FiChevronDown className="transition group-open:rotate-180" aria-hidden />
           </summary>
           <pre className="mt-2 max-h-80 overflow-auto rounded-xl bg-surface-2 p-2 text-xs whitespace-pre-wrap break-all text-ink-2">{attempt.received}</pre>
@@ -130,8 +130,8 @@ export function AppleHealthCard({ user }: { user: UserDto }) {
 
   return (
     <Card>
-      <h2 className="flex items-center gap-2 text-lg font-semibold">
-        <FiHeart className="text-bad" aria-hidden /> {t("ahTitle")}
+      <h2 className="flex items-center gap-2 text-lg font-extrabold">
+        <FiHeart className="text-bad-text" aria-hidden /> {t("ahTitle")}
       </h2>
       <p className="mt-1 text-sm text-ink-2">{t("ahIntro")}</p>
 
@@ -139,7 +139,7 @@ export function AppleHealthCard({ user }: { user: UserDto }) {
         <p className="mt-3 text-sm text-ink">
           {tf("ahConnectedSince", { date: f.date(status.since) })}{" "}
           {!status.lastAttempt && (
-            <span className={status.lastSyncAt ? "text-good" : "text-muted"}>
+            <span className={status.lastSyncAt ? "text-good-text" : "text-muted"}>
               {status.lastSyncAt ? tf("ahLastSync", { when: f.dateTime(status.lastSyncAt) }) : t("ahNoSyncYet")}
             </span>
           )}
@@ -148,7 +148,7 @@ export function AppleHealthCard({ user }: { user: UserDto }) {
       {status?.lastAttempt && <LastRun attempt={status.lastAttempt} />}
 
       {key && (
-        <div className="mt-3 rounded-2xl border-2 border-brand/40 p-3">
+        <div className="mt-3 rounded-2xl border-2 border-brand p-3">
           <p className="text-sm font-medium text-ink">{t("ahKeyOnce")}</p>
           <div className="mt-2">
             <CopyChip value={key} />
@@ -166,12 +166,12 @@ export function AppleHealthCard({ user }: { user: UserDto }) {
             <a
               href={SHORTCUT_FILE}
               download="Caliche Salud.shortcut"
-              className="flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-brand px-4 py-2.5 font-semibold text-brand-ink"
+              className="flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-brand px-4 py-2.5 font-extrabold text-brand-ink"
             >
               <FiDownload aria-hidden /> {tf("ahAddShortcut", { n: HEALTH_SHORTCUT_VERSION })}
             </a>
-            <details className="group rounded-2xl border border-line p-3">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 font-medium [&::-webkit-details-marker]:hidden">
+            <details className="group rounded-2xl border border-line p-3.5">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 font-bold [&::-webkit-details-marker]:hidden">
                 {t("ahAddYearShortcut")} <FiChevronDown className="transition group-open:rotate-180" aria-hidden />
               </summary>
               <p className="mt-2 text-xs text-muted">{t("ahYearShortcutHint")}</p>
@@ -181,7 +181,7 @@ export function AppleHealthCard({ user }: { user: UserDto }) {
                     key={n}
                     href={`/shortcuts/caliche-salud-anio-${n}.shortcut`}
                     download={`${t(`ahYearPart.${n}` as MessageKey)}.shortcut`}
-                    className="flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-surface-2 px-4 py-2.5 font-medium text-ink"
+                    className="flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-surface-2 px-4 py-2.5 font-bold text-ink"
                   >
                     <FiDownload aria-hidden /> {t(`ahYearPart.${n}` as MessageKey)}
                   </a>
@@ -205,7 +205,7 @@ export function AppleHealthCard({ user }: { user: UserDto }) {
       {steps(["ahQuick1", "ahQuick2", "ahQuick3", "ahQuickLarge", "ahQuick4"])}
 
       <details className="group mt-4">
-        <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-medium text-brand [&::-webkit-details-marker]:hidden">
+        <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-bold text-brand-text [&::-webkit-details-marker]:hidden">
           {t("ahGuideTitle")} <FiChevronDown className="transition group-open:rotate-180" aria-hidden />
         </summary>
         {steps(["ahStep1", "ahStep2", "ahStep3", "ahStep4", "ahStep5"])}
@@ -396,11 +396,11 @@ export function HealthTodayCard({
     );
   const tile = (m: HealthMetric) => (
     <div key={m} className="rounded-2xl bg-surface-2 p-3">
-      <dt className="flex items-start justify-between gap-1 text-xs text-ink-2">
+      <dt className="flex items-start justify-between gap-1 text-xs font-bold text-ink-2">
         <span>{t(`ahMetric.${m}` as MessageKey)}</span>
         {infoButton(m)}
       </dt>
-      <dd className="text-lg font-semibold">{format(m, latest[m])}</dd>
+      <dd className="text-lg font-extrabold">{format(m, latest[m])}</dd>
       <dd className="text-xs text-muted">
         {t("ahWeekAvg")}: {format(m, week[m])}
       </dd>
@@ -412,24 +412,24 @@ export function HealthTodayCard({
     if (shown.length === 0) return null;
     return (
       <div key={g.key} className="mt-4">
-        <p className="text-sm font-semibold text-ink-2">{t(`ahGroup.${g.key}` as MessageKey)}</p>
+        <p className="text-[13px] font-extrabold tracking-[0.06em] text-muted uppercase">{t(`ahGroup.${g.key}` as MessageKey)}</p>
         <dl className="mt-2 grid grid-cols-2 gap-2">{shown.map(tile)}</dl>
       </div>
     );
   });
   return (
     <Card>
-      <h2 className="flex items-center gap-2 text-lg font-semibold">
-        <FiHeart className="text-bad" aria-hidden /> {t("ahTodayTitle")}
+      <h2 className="flex items-center gap-2 text-lg font-extrabold">
+        <FiHeart className="text-bad-text" aria-hidden /> {t("ahTodayTitle")}
       </h2>
       <p className="text-sm text-muted">{tf("ahFrom", { date: f.date(`${latest.date}T12:00:00`) })}</p>
       {total !== null && (
-        <div className="mt-3 rounded-2xl bg-brand/10 p-3">
+        <div className="mt-3 rounded-2xl bg-brand-soft p-3">
           <div className="flex items-start justify-between gap-2">
             <p className="text-sm text-ink-2">{t("ahTotalKcal")}</p>
             {infoButton("totalKcal")}
           </div>
-          <p className="text-2xl font-bold">{f.number(total, 0)} kcal</p>
+          <p className="text-[28px] leading-8 font-extrabold">{f.number(total, 0)} kcal</p>
           {weekTotal !== null && (
             <p className="text-xs text-muted">
               {t("ahWeekAvg")}: {f.number(weekTotal, 0)} kcal
@@ -443,7 +443,7 @@ export function HealthTodayCard({
         ? rest
         : GROUPS.some((g) => g.metrics.some((m) => !KEY_METRICS.includes(m) && has(m))) && (
             <details className="group mt-3">
-              <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-medium text-brand [&::-webkit-details-marker]:hidden">
+              <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-bold text-brand-text [&::-webkit-details-marker]:hidden">
                 {t("ahSeeAll")} <FiChevronDown className="transition group-open:rotate-180" aria-hidden />
               </summary>
               {rest}
@@ -475,78 +475,63 @@ export function HealthTodayCard({
   );
 }
 
-const STAGE_COLOR = { deep: "bg-[#3b5bdb]", core: "bg-[#4dabf7]", rem: "bg-[#22b8cf]", awake: "bg-[#f59f00]" } as const;
-/** The same colors for the chart, which draws in SVG; "asleep" (no Watch stages) shares core's. */
-const STAGE_HEX = { deep: "#3b5bdb", core: "#4dabf7", rem: "#22b8cf", awake: "#f59f00", asleep: "#4dabf7" } as const;
+/** Stage colors from the design tokens; "asleep" (no Watch stages) shares core's. */
+const STAGE_FILL = { deep: "var(--sleep-deep)", core: "var(--sleep-core)", rem: "var(--sleep-rem)", awake: "var(--sleep-awake)", asleep: "var(--sleep-core)" } as const;
 /** Rows from top to bottom, as Apple Health draws them. */
 const CHART_ROWS = ["awake", "rem", "core", "deep"] as const;
 
 /**
  * The night stage by stage over time, like Apple Health's: a row per stage, a bar for each stretch,
- * thin lines where it moves from one stage to the next, and the hours underneath.
+ * and the hours underneath.
  */
 function SleepChart({ segments }: { segments: SleepSegment[] }) {
   const { t, tf, locale } = useI18n();
-  const clock = (iso: string) => new Date(iso).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+  const clock = (ms: number) => new Date(ms).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
   if (segments.length === 0) return null;
   const from = Date.parse(segments[0]!.start);
   const to = Math.max(...segments.map((x) => Date.parse(x.end)));
-  const W = 320;
-  const LABEL = 48;
-  const ROW = 38;
-  const BAR = 18;
-  const H = ROW * CHART_ROWS.length + 18;
-  const x = (iso: string) => LABEL + ((Date.parse(iso) - from) / (to - from)) * (W - LABEL - 4);
+  const W = 280;
+  const ROW = 24;
+  const BAR = 16;
+  const H = ROW * CHART_ROWS.length - (ROW - BAR);
+  const x = (ms: number) => ((ms - from) / (to - from)) * W;
   const rowOf = (stage: SleepSegment["stage"]) => CHART_ROWS.indexOf(stage === "asleep" ? "core" : stage);
-  const y = (stage: SleepSegment["stage"]) => rowOf(stage) * ROW + ROW / 2;
-  // Every 2 hours on the hour, local time.
-  const ticks: number[] = [];
-  const first = new Date(from);
-  first.setMinutes(0, 0, 0);
-  for (let t0 = first.getTime() + 3_600_000; t0 < to; t0 += 3_600_000) if (new Date(t0).getHours() % 2 === 0) ticks.push(t0);
-  const xs = (ms: number) => LABEL + ((ms - from) / (to - from)) * (W - LABEL - 4);
+  // Start, end and two times in between.
+  const marks = [0, 1 / 3, 2 / 3, 1].map((k) => from + k * (to - from));
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="mt-3 w-full" role="img" aria-label={t("sleepChartLabel")}>
-      {CHART_ROWS.map((r, i) => (
-        <g key={r}>
-          <line x1={LABEL} x2={W} y1={(i + 1) * ROW} y2={(i + 1) * ROW} stroke="var(--line)" strokeWidth={0.5} />
-          <text x={0} y={i * ROW + ROW / 2 + 4} fontSize={10} fill="var(--ink-2)">
-            {t(`sleepStage.${r}` as MessageKey)}
-          </text>
-        </g>
-      ))}
-      {ticks.map((t0) => (
-        <g key={t0}>
-          <line x1={xs(t0)} x2={xs(t0)} y1={0} y2={ROW * CHART_ROWS.length} stroke="var(--line)" strokeWidth={0.5} strokeDasharray="2 3" />
-          <text x={xs(t0)} y={H - 4} fontSize={9} fill="var(--muted)" textAnchor="middle">
-            {new Date(t0).toLocaleTimeString(locale, { hour: "numeric" })}
-          </text>
-        </g>
-      ))}
-      {segments.slice(1).map((seg, i) => {
-        const prev = segments[i]!;
-        return <line key={`l${i}`} x1={x(seg.start)} x2={x(seg.start)} y1={y(prev.stage)} y2={y(seg.stage)} stroke="var(--muted)" strokeWidth={1} opacity={0.6} />;
-      })}
-      {segments.map((seg, i) => (
-        <rect
-          key={i}
-          x={x(seg.start)}
-          y={y(seg.stage) - BAR / 2}
-          width={Math.max(x(seg.end) - x(seg.start), 1.5)}
-          height={BAR}
-          rx={4}
-          fill={STAGE_HEX[seg.stage]}
-        >
-          <title>
-            {tf("sleepSegmentSpan", {
-              stage: t(`sleepStage.${seg.stage === "asleep" ? "core" : seg.stage}` as MessageKey),
-              start: clock(seg.start),
-              end: clock(seg.end),
-            })}
-          </title>
-        </rect>
-      ))}
-    </svg>
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-2">
+        <div className="flex w-14.5 shrink-0 flex-col justify-between text-[10px] font-bold text-muted" style={{ height: H }} aria-hidden>
+          {CHART_ROWS.map((r) => (
+            <span key={r} className="leading-4">
+              {t(`sleepStage.${r}` as MessageKey)}
+            </span>
+          ))}
+        </div>
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="min-w-0 flex-1" style={{ height: H }} role="img" aria-label={t("act.sleepChartRows")}>
+          {segments.map((seg, i) => {
+            const s = Date.parse(seg.start);
+            const e = Date.parse(seg.end);
+            return (
+              <rect key={i} x={x(s)} y={rowOf(seg.stage) * ROW} width={Math.max(x(e) - x(s) - 1, 2)} height={BAR} rx={4} fill={STAGE_FILL[seg.stage]}>
+                <title>
+                  {tf("sleepSegmentSpan", {
+                    stage: t(`sleepStage.${seg.stage === "asleep" ? "core" : seg.stage}` as MessageKey),
+                    start: clock(s),
+                    end: clock(e),
+                  })}
+                </title>
+              </rect>
+            );
+          })}
+        </svg>
+      </div>
+      <div className="flex justify-between pl-16.5 text-[11px] font-semibold text-muted" aria-hidden>
+        {marks.map((m) => (
+          <span key={m}>{clock(m)}</span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -557,22 +542,6 @@ export function nightScore(days: HealthDayDto[], index: number): SleepScore | nu
   if (!night) return null;
   const before = days.slice(0, index).flatMap((d) => (d.sleep ? [d.sleep] : []));
   return sleepScoreOf(night, before, Intl.DateTimeFormat().resolvedOptions().timeZone);
-}
-
-/** A 0 to 100 score in a ring, with its name under it. */
-function ScoreRing({ score, label }: { score: number; label: string }) {
-  return (
-    <div className="flex shrink-0 flex-col items-center">
-      <div className="relative h-16 w-16">
-        <svg viewBox="0 0 36 36" className="h-16 w-16 -rotate-90" aria-hidden>
-          <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--surface-2)" strokeWidth="3.5" />
-          <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--brand)" strokeWidth="3.5" strokeLinecap="round" strokeDasharray={`${score} 100`} pathLength={100} />
-        </svg>
-        <span className="absolute inset-0 flex items-center justify-center text-lg font-bold">{score}</span>
-      </div>
-      <span className="mt-0.5 text-xs text-ink-2">{label}</span>
-    </div>
-  );
 }
 
 /** Each part of the sleep score with what it read, folded. */
@@ -593,28 +562,26 @@ function SleepScoreParts({ score }: { score: SleepScore }) {
     regularity: x.bedtimeOffMin !== null ? tf("sleepScoreBedtime", { min: f.number(x.bedtimeOffMin, 0) }) : "-",
   };
   return (
-    <details className="group mt-3">
-      <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-medium text-brand [&::-webkit-details-marker]:hidden">
+    <details className="group">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1 text-sm font-bold text-brand-text [&::-webkit-details-marker]:hidden">
         {t("sleepScoreHow")} <FiChevronDown className="transition group-open:rotate-180" aria-hidden />
       </summary>
-      <ul className="mt-3 space-y-3">
+      <ul className="mt-1 space-y-3">
         {score.parts.map((p) => (
           <li key={p.part}>
-            <div className="flex items-baseline justify-between gap-3 text-sm">
-              <span className="text-ink">
+            <div className="mb-1.5 flex items-baseline justify-between gap-3 text-[13px] font-bold">
+              <span className="text-ink-2">
                 {t(`sleepPart.${p.part}` as MessageKey)} <span className="text-muted">· {read[p.part]}</span>
               </span>
-              <span className="shrink-0 text-ink-2">
-                <strong className="text-ink">{Math.round(p.score)}</strong>/100 · {tf("scorePartWeight", { weight: Math.round(p.weight * 100) })}
+              <span className="shrink-0">
+                {Math.round(p.score)} <span className="text-muted">/ 100 · {tf("scorePartWeight", { weight: Math.round(p.weight * 100) })}</span>
               </span>
             </div>
-            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2" aria-hidden>
-              <div className="h-full rounded-full bg-brand" style={{ width: `${Math.max(p.score, 2)}%` }} />
-            </div>
+            <Progress fraction={p.score / 100} height={8} />
           </li>
         ))}
       </ul>
-      <p className="mt-3 text-sm text-muted">{t("sleepScoreNote")}</p>
+      <p className="mt-3 text-[13px] font-semibold text-muted">{t("sleepScoreNote")}</p>
     </details>
   );
 }
@@ -632,6 +599,57 @@ function useNightLabel() {
   };
 }
 
+/** One factor of the night: its name, what it read, and a check or a warning. */
+function FactorTile({ label, value, good }: { label: string; value: string; good: boolean }) {
+  const { t } = useI18n();
+  return (
+    <div className="flex items-center gap-2 rounded-[14px] bg-surface-2 px-3 py-2.5">
+      <span className={`flex h-5.5 w-5.5 shrink-0 items-center justify-center rounded-full ${good ? "bg-good-soft text-good-text" : "bg-warn-soft text-warn-text"}`}>
+        {good ? <FiCheck size={12} strokeWidth={3} aria-hidden /> : <FiAlertCircle size={12} strokeWidth={3} aria-hidden />}
+        <span className="sr-only">{good ? t("act.factorGood") : t("act.factorWarn")}</span>
+      </span>
+      <span className="flex min-w-0 flex-col">
+        <span className="text-[11px] font-bold text-muted">{label}</span>
+        <span className="truncate text-sm font-extrabold">{value}</span>
+      </span>
+    </div>
+  );
+}
+
+/** The night's factors next to the published references the sleep score uses. */
+function SleepFactors({ night, score }: { night: SleepSummary; score: SleepScore | null }) {
+  const { t, tf } = useI18n();
+  const f = useFormat();
+  const x = score?.facts;
+  const pctOf = (min: number | null) => (min !== null && night.asleepMin > 0 ? (min / night.asleepMin) * 100 : null);
+  const deep = x?.deepPct ?? pctOf(night.deepMin);
+  const rem = x?.remPct ?? pctOf(night.remMin);
+  const h = night.asleepMin / 60;
+  const tiles: { label: string; value: string; good: boolean }[] = [{ label: t("act.factor.duration"), value: hoursText(night.asleepMin), good: h >= 7 && h <= 9 }];
+  // Deep 13 to 23 % and REM 20 to 25 % of the night are usual in adults.
+  if (deep !== null && night.deepMin !== null) tiles.push({ label: t("act.factor.deep"), value: `${f.number(deep, 0)} % · ${hoursText(night.deepMin)}`, good: deep >= 13 });
+  if (rem !== null && night.remMin !== null) tiles.push({ label: t("act.factor.rem"), value: `${f.number(rem, 0)} % · ${hoursText(night.remMin)}`, good: rem >= 20 });
+  // National Sleep Foundation: efficiency of 85 % or more and 20 minutes awake or less are good.
+  if (x?.efficiencyPct != null) tiles.push({ label: t("act.factor.efficiency"), value: `${f.number(x.efficiencyPct, 0)} %`, good: x.efficiencyPct >= 85 });
+  const awake = x?.awakeMin ?? night.awakeMin;
+  if (awake !== null) tiles.push({ label: t("act.factor.awake"), value: hoursText(awake), good: awake <= 20 });
+  if (x?.bedtimeDiffMin != null) {
+    const diff = Math.round(x.bedtimeDiffMin);
+    tiles.push({
+      label: t("act.factor.bedtime"),
+      value: Math.abs(diff) < 5 ? t("act.bedtimeOnTime") : diff > 0 ? tf("act.bedtimeLate", { min: diff }) : tf("act.bedtimeEarly", { min: -diff }),
+      good: Math.abs(diff) <= 30,
+    });
+  }
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {tiles.map((tile) => (
+        <FactorTile key={tile.label} {...tile} />
+      ))}
+    </div>
+  );
+}
+
 /**
  * Last night, or the night that ended on `date` (the Activity page's day picker), with the average
  * of the 7 days up to it.
@@ -644,73 +662,61 @@ export function SleepCard({ connected, date }: { connected: boolean; date?: stri
   const day = all[index];
   if (date === undefined && !day) return null;
   const night = day?.sleep;
+  const heading = (label?: string) => (
+    <p className="flex items-center gap-1.5 text-[13px] font-bold text-ink-2">
+      <FiMoon size={15} strokeWidth={2.2} aria-hidden /> {t("sleepTitle")}
+      {label && <span className="font-bold">· {label.charAt(0).toLowerCase() + label.slice(1)}</span>}
+    </p>
+  );
   if (!night) {
     return (
-      <Card>
-        <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <FiMoon className="text-brand" aria-hidden /> {t("sleepTitle")}
-        </h2>
-        {date && <p className="text-sm text-muted">{nightLabel(date)}</p>}
-        <p className="mt-2 text-sm text-ink-2">{t("sleepNone")}</p>
+      <Card className="flex flex-col gap-2">
+        {heading(date ? nightLabel(date) : undefined)}
+        <p className="text-sm font-semibold text-ink-2">{t("sleepNone")}</p>
       </Card>
     );
   }
   const week = healthAverages(all.slice(Math.max(0, index - 6), index + 1)).sleepMin;
   const score = nightScore(all, index);
   const time = (iso: string) => new Date(iso).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
-  const stages = (["deep", "core", "rem", "awake"] as const).map((k) => ({ k, min: night[`${k}Min`] })).filter((s) => s.min !== null && s.min > 0);
-  const total = stages.reduce((sum, s) => sum + (s.min ?? 0), 0);
+  const hasStages = [night.deepMin, night.coreMin, night.remMin].some((m) => m !== null && m > 0);
   return (
-    <Card>
-      <h2 className="flex items-center gap-2 text-lg font-semibold">
-        <FiMoon className="text-brand" aria-hidden /> {t("sleepTitle")}
-      </h2>
-      <p className="text-sm text-muted">{nightLabel(day.date)}</p>
-      <div className="mt-2 flex items-center justify-between gap-3">
-        <div>
-          <p className="text-2xl font-bold">{tf("sleepAsleep", { hours: hoursText(night.asleepMin) })}</p>
-          <p className="text-sm text-ink-2">{tf("sleepSpan", { start: time(night.start), end: time(night.end) })}</p>
-          {night.inBedMin !== null && <p className="text-sm text-muted">{tf("sleepInBed", { hours: hoursText(night.inBedMin) })}</p>}
+    <Card className="flex flex-col gap-3.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          {heading(nightLabel(day.date))}
+          <p className="text-[34px] leading-9.5 font-extrabold tracking-[-0.03em]">{hoursText(night.asleepMin)}</p>
+          <p className="text-[13px] font-semibold text-muted">
+            {tf("sleepSpan", { start: time(night.start), end: time(night.end) })} ·{" "}
+            {night.awakenings === 1 ? t("act.awakeningsOne") : tf("act.awakenings", { n: night.awakenings })}
+          </p>
         </div>
-        {score && <ScoreRing score={score.score} label={t("sleepScore")} />}
+        {score && (
+          <Rings rings={[{ fraction: score.score / 100, className: "stroke-brand" }]} size={68} stroke={7} label={`${t("sleepScoreTitle")}: ${score.score}`}>
+            <span className="text-xl font-extrabold">{score.score}</span>
+          </Rings>
+        )}
       </div>
       {night.segments && night.segments.length > 0 ? (
         <SleepChart segments={night.segments} />
       ) : (
         // Saved before stage times were kept: only the totals are there, so there is no timeline to draw.
-        <p className="mt-3 rounded-2xl bg-surface-2 px-3 py-2 text-sm text-ink-2">{t("sleepChartMissing")}</p>
+        <p className="rounded-2xl bg-surface-2 px-3.5 py-3 text-[13px] font-semibold text-ink-2">{t("sleepChartMissing")}</p>
       )}
+      <SleepFactors night={night} score={score} />
+      {!hasStages && <p className="text-[13px] font-semibold text-muted">{t("sleepNoStages")}</p>}
       {score?.facts.bedtimeDiffMin != null && score.facts.usualBedtimeMin !== null && Math.abs(score.facts.bedtimeDiffMin) >= 5 && (
-        <p className="mt-2 text-sm text-ink-2">
+        <p className="text-[13px] font-semibold text-ink-2">
           {tf(score.facts.bedtimeDiffMin < 0 ? "sleepBedtimeEarlier" : "sleepBedtimeLater", {
             min: Math.round(Math.abs(score.facts.bedtimeDiffMin)),
             usual: new Date(2000, 0, 1, Math.floor(score.facts.usualBedtimeMin / 60), score.facts.usualBedtimeMin % 60).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" }),
           })}
         </p>
       )}
-      {total > 0 ? (
-        <>
-          <div className="mt-3 flex h-3 gap-0.5 overflow-hidden rounded-full" aria-hidden>
-            {stages.map((s) => (
-              <div key={s.k} className={STAGE_COLOR[s.k]} style={{ width: `${((s.min ?? 0) / total) * 100}%` }} />
-            ))}
-          </div>
-          <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
-            {stages.map((s) => (
-              <div key={s.k} className="flex items-center gap-2">
-                <span className={`h-2.5 w-2.5 rounded-full ${STAGE_COLOR[s.k]}`} aria-hidden />
-                <dt className="text-ink-2">{t(`sleepStage.${s.k}` as MessageKey)}</dt>
-                <dd className="ml-auto font-medium">{hoursText(s.min ?? 0)}</dd>
-              </div>
-            ))}
-          </dl>
-          <p className="mt-2 text-sm text-ink-2">{night.awakenings === 1 ? t("sleepAwakeningsOne") : tf("sleepAwakenings", { n: night.awakenings })}</p>
-        </>
-      ) : (
-        <p className="mt-2 text-sm text-muted">{t("sleepNoStages")}</p>
+      {night.asleepMin > 0 && night.asleepMin < 7 * 60 && (
+        <p className="rounded-2xl bg-warn-soft px-3.5 py-3 text-[13px] font-semibold text-warn-text">{t("sleepShort")}</p>
       )}
-      {week !== null && <p className="mt-2 text-sm text-muted">{tf("sleepWeekAvg", { hours: hoursText(week) })}</p>}
-      {night.asleepMin > 0 && night.asleepMin < 7 * 60 && <p className="mt-2 text-sm text-warn">{t("sleepShort")}</p>}
+      {week !== null && <p className="text-[13px] font-semibold text-muted">{tf("sleepWeekAvg", { hours: hoursText(week) })}</p>}
       {score && <SleepScoreParts score={score} />}
     </Card>
   );
@@ -732,21 +738,18 @@ export function ActivityGlanceCard({ connected }: { connected: boolean }) {
     { label: t("ahMetric.exerciseMin"), value: day?.exerciseMin != null ? `${f.number(day.exerciseMin, 0)} min` : "-" },
   ];
   return (
-    <Card>
-      <dl className="grid grid-cols-2 gap-2">
+    <Card padded={false}>
+      <dl className="grid grid-cols-2 gap-2 p-4">
         {tiles.map((x) => (
           <div key={x.label} className="rounded-2xl bg-surface-2 p-3">
-            <dt className="text-xs text-ink-2">{x.label}</dt>
-            <dd className="text-lg font-semibold">{x.value}</dd>
+            <dt className="text-xs font-bold text-ink-2">{x.label}</dt>
+            <dd className="text-lg font-extrabold">{x.value}</dd>
           </div>
         ))}
       </dl>
-      {day && <p className="mt-2 text-xs text-muted">{t("ahFrom").replace("{date}", f.date(`${day.date}T12:00:00`))}</p>}
-      <Link
-        to="/actividad"
-        className="mt-3 flex min-h-11 items-center justify-center gap-1 rounded-2xl bg-surface-2 px-4 py-2.5 font-medium text-ink"
-      >
-        {t("ahGlanceMore")} <FiChevronRight size={18} aria-hidden />
+      {day && <p className="-mt-1 px-5 pb-1 text-xs font-semibold text-muted">{t("ahFrom").replace("{date}", f.date(`${day.date}T12:00:00`))}</p>}
+      <Link to="/actividad" className="flex min-h-14 items-center justify-between gap-1 border-t border-line px-5 text-[15px] font-bold text-ink">
+        {t("ahGlanceMore")} <FiChevronRight size={18} strokeWidth={2.4} className="text-muted" aria-hidden />
       </Link>
     </Card>
   );
