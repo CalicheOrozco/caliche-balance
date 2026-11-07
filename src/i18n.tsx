@@ -1,9 +1,14 @@
 import { createContext, type ReactNode, useContext, useMemo, useState } from "react";
 import { describeError } from "./api.ts";
+import { activityCopy } from "./copy/activity.ts";
+import { bodyCopy } from "./copy/body.ts";
+import { homeCopy } from "./copy/home.ts";
+import { meCopy } from "./copy/me.ts";
+import { shellCopy } from "./copy/shell.ts";
 
 export type Language = "es" | "en";
 
-const es = {
+const baseEs = {
   appName: "Caliche Balance",
   tagline: "Tu báscula, comparada con rangos de referencia de Norteamérica (México, EE. UU. y Canadá).",
   // Auth
@@ -43,7 +48,7 @@ const es = {
   offlineBanner: "Sin conexión: estás viendo tus datos guardados de los últimos 3 meses.",
   offlineNoData: "Sin conexión. Conéctate a internet una vez para iniciar sesión; después podrás ver tus datos sin conexión.",
   // Navigation
-  "nav.home": "Inicio",
+  "nav.home": "Hoy",
   "nav.history": "Historial",
   "nav.add": "Agregar",
   "nav.settings": "Ajustes",
@@ -795,10 +800,16 @@ const es = {
   appVersionLocal: "Versión de la app: local (desarrollo, con tus cambios actuales)",
 };
 
+/*
+ * Text added with the 2026 redesign lives in src/copy, one file per area of the app, each with
+ * both languages side by side.
+ */
+const es = { ...baseEs, ...shellCopy.es, ...homeCopy.es, ...bodyCopy.es, ...activityCopy.es, ...meCopy.es };
+
 type Messages = typeof es;
 export type MessageKey = { [K in keyof Messages]: Messages[K] extends string ? K : never }[keyof Messages];
 
-const en: Messages = {
+const baseEn: typeof baseEs = {
   appName: "Caliche Balance",
   tagline: "Your scale, compared with North American reference ranges (Mexico, the US and Canada).",
   login: "Sign in",
@@ -835,7 +846,7 @@ const en: Messages = {
   "error.offline": "No internet connection. Try again when you are back online.",
   offlineBanner: "Offline: you are seeing your saved data from the last 3 months.",
   offlineNoData: "Offline. Connect to the internet once to sign in; after that you can see your data offline.",
-  "nav.home": "Home",
+  "nav.home": "Today",
   "nav.history": "History",
   "nav.add": "Add",
   "nav.settings": "Settings",
@@ -845,7 +856,7 @@ const en: Messages = {
   activitySettings: "Apple Health settings",
   ahGlanceSleep: "Last night's sleep",
   ahGlanceMore: "See all your activity",
-  "nav.achievements": "Badges",
+  "nav.achievements": "Awards",
   // Apple Health
   ahTitle: "Apple Health",
   ahIntro: "Bring in your sleep (with stages), steps, active and resting calories, exercise and stand minutes, heart rate, HRV and more with a Shortcut on your iPhone. Apple Health does not connect to websites; a Shortcut can read it and send it here with your key.",
@@ -1573,6 +1584,8 @@ const en: Messages = {
   appVersion: "App version: {version} ({when})",
   appVersionLocal: "App version: local (development, with your current changes)",
 };
+
+const en: Messages = { ...baseEn, ...shellCopy.en, ...homeCopy.en, ...bodyCopy.en, ...activityCopy.en, ...meCopy.en };
 
 const messages: Record<Language, Messages> = { es, en };
 

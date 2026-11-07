@@ -1,48 +1,144 @@
 @import "tailwindcss";
 
 /*
- * Caliche green on neutral surfaces. src/theme.ts sets data-theme on <html> from the saved
- * choice, or from the system preference when nothing was chosen.
+ * Manrope, served from the app itself so it also works offline. It is a variable font: one file
+ * per character range covers every weight from 200 to 800. SIL Open Font License 1.1.
+ */
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url("/fonts/manrope-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url("/fonts/manrope-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/*
+ * Caliche green on cool neutral surfaces (the 2026 redesign). src/theme.ts sets data-theme on
+ * <html> from the saved choice, or from the system preference when nothing was chosen.
+ * Rules from the design system: one hero number per card, green is the brand and what is going
+ * well, amber for attention, red only for high risk, statuses always carry an icon and text,
+ * corners of 24 to 28 px, touch targets of 44 px or more, and no shadows in dark mode (cards are
+ * separated by a subtle border instead).
  */
 :root {
-  --bg: #f6f8f7;
+  --bg: #f2f5f3;
   --surface: #ffffff;
-  --surface-2: #eef2f0;
-  --ink: #0f1a14;
-  --ink-2: #44524a;
-  --muted: #6b7a72;
-  --line: #dfe6e2;
-  --brand: #178a43;
+  --surface-2: #edf2ef;
+  --track: #e6ece8;
+  --ink: #0b1610;
+  --ink-2: #435249;
+  --muted: #66766d;
+  --line: #e1e8e4;
+  --line-strong: #c5d1ca;
+  --brand: #12873f;
   --brand-ink: #ffffff;
+  --brand-soft: #e2f3e8;
+  --brand-text: #0e7536;
   /* Chart series, validated against the light surface. */
-  --series: #178a43;
+  --series: #12873f;
   /* Xiaomi's values in comparisons; validated with --series for color vision deficiency. */
-  --series-2: #2a78d6;
-  --band: rgb(12 163 12 / 0.12);
+  --series-2: #2a6fd6;
+  --band: rgb(18 135 63 / 0.12);
+  --chart-fill: rgb(18 135 63 / 0.09);
   /* Status colors always ship with an icon and a label. */
-  --good: #0ca30c;
-  --warn: #c98a00;
+  --good: #12873f;
+  --good-soft: #e2f3e8;
+  --good-text: #0e7536;
+  --good-band: #9fd9b4;
+  --warn: #d99a12;
+  --warn-soft: #fbefd6;
+  --warn-text: #875800;
+  --warn-band: #f3d58f;
   --bad: #d03b3b;
+  --bad-soft: #fbe4e4;
+  --bad-text: #b02525;
+  --bad-band: #f1a9a9;
+  --gold: #b07a08;
+  --gold-soft: #fbf1d9;
+  --gold-text: #8a5f00;
+  /* The dark green hero cards (Today's balance, the streak). Same in both themes' spirit. */
+  --hero: #0b3d20;
+  --hero-ink: #ffffff;
+  --hero-muted: #a8d5b8;
+  --hero-track: rgb(255 255 255 / 0.12);
+  --hero-a: #5fe08f;
+  --hero-b: #bdf0cf;
+  --hero-c: #f2d46b;
+  /* Activity rings and sleep stages. */
+  --ring-2: #14a396;
+  --ring-3: #8cc63f;
+  --sleep-deep: #0b5e2c;
+  --sleep-core: #2fa65c;
+  --sleep-rem: #8fd6a8;
+  --sleep-awake: #e2a53a;
+  --shadow-card: 0 1px 2px rgb(11 22 16 / 0.04), 0 10px 30px rgb(11 22 16 / 0.05);
+  --shadow-pill: 0 1px 3px rgb(11 22 16 / 0.12);
+  --tab-bg: rgb(255 255 255 / 0.9);
+  --tab-shadow: 0 12px 40px rgb(11 22 16 / 0.14);
+  --fab-shadow: 0 8px 20px rgb(18 135 63 / 0.35);
   color-scheme: light;
 }
 
 :root[data-theme="dark"] {
-  --bg: #0b0f0d;
-  --surface: #141a17;
-  --surface-2: #1c2420;
-  --ink: #eef4f0;
-  --ink-2: #b6c2bb;
-  --muted: #84928a;
-  --line: #26302b;
-  --brand: #21b359;
-  --brand-ink: #04120a;
-  /* Validated against the dark surface (lightness band 0.48 to 0.67). */
-  --series: #1fa653;
-  --series-2: #3987e5;
-  --band: rgb(12 163 12 / 0.18);
-  --good: #0ca30c;
-  --warn: #fab219;
-  --bad: #e05a5a;
+  --bg: #050807;
+  --surface: #0e1411;
+  --surface-2: #172019;
+  --track: #1f2a24;
+  --ink: #edf3ef;
+  --ink-2: #b0beb6;
+  --muted: #85948b;
+  --line: #1d2722;
+  --line-strong: #33433a;
+  --brand: #2dc26b;
+  --brand-ink: #03140a;
+  --brand-soft: rgb(45 194 107 / 0.14);
+  --brand-text: #56d88e;
+  --series: #2dc26b;
+  --series-2: #4a90f0;
+  --band: rgb(45 194 107 / 0.13);
+  --chart-fill: rgb(45 194 107 / 0.12);
+  --good: #2dc26b;
+  --good-soft: rgb(45 194 107 / 0.14);
+  --good-text: #56d88e;
+  --good-band: #1f7a45;
+  --warn: #f5b83d;
+  --warn-soft: rgb(245 184 61 / 0.14);
+  --warn-text: #f5b83d;
+  --warn-band: #6b5216;
+  --bad: #f07272;
+  --bad-soft: rgb(240 114 114 / 0.14);
+  --bad-text: #f07272;
+  --bad-band: #6e2a2a;
+  --gold: #eab308;
+  --gold-soft: rgb(234 179 8 / 0.14);
+  --gold-text: #eab308;
+  --hero: #0d2617;
+  --hero-ink: #edf3ef;
+  --hero-muted: #8fc7a4;
+  --hero-track: rgb(255 255 255 / 0.08);
+  --hero-a: #2dc26b;
+  --hero-b: #a6ebc0;
+  --hero-c: #eab308;
+  --ring-2: #33c9bb;
+  --ring-3: #a9de5c;
+  --sleep-deep: #1c8a4a;
+  --sleep-core: #3fcb77;
+  --sleep-rem: #a6ebc0;
+  --sleep-awake: #f5b83d;
+  --shadow-card: none;
+  --shadow-pill: 0 1px 3px rgb(0 0 0 / 0.5);
+  --tab-bg: rgb(16 22 19 / 0.9);
+  --tab-shadow: 0 12px 40px rgb(0 0 0 / 0.6);
+  --fab-shadow: 0 8px 24px rgb(45 194 107 / 0.3);
   color-scheme: dark;
 }
 
@@ -54,65 +150,127 @@
 :root[data-accent="gold"] {
   --brand: #a16207;
   --brand-ink: #ffffff;
+  --brand-soft: #fbf1d9;
+  --brand-text: #8a5f00;
+  --fab-shadow: 0 8px 20px rgb(161 98 7 / 0.35);
 }
 :root[data-theme="dark"][data-accent="gold"] {
   --brand: #eab308;
   --brand-ink: #1a1300;
+  --brand-soft: rgb(234 179 8 / 0.14);
+  --brand-text: #eab308;
+  --fab-shadow: 0 8px 24px rgb(234 179 8 / 0.3);
 }
 :root[data-accent="diamond"] {
   --brand: #6d28d9;
   --brand-ink: #ffffff;
+  --brand-soft: #efe8fd;
+  --brand-text: #5b21b6;
+  --fab-shadow: 0 8px 20px rgb(109 40 217 / 0.35);
 }
 :root[data-theme="dark"][data-accent="diamond"] {
   --brand: #a78bfa;
   --brand-ink: #12062b;
+  --brand-soft: rgb(167 139 250 / 0.14);
+  --brand-text: #c4b5fd;
+  --fab-shadow: 0 8px 24px rgb(167 139 250 / 0.3);
 }
 
 @theme {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-track: var(--track);
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
   --color-muted: var(--muted);
   --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
   --color-brand: var(--brand);
   --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-text: var(--brand-text);
+  --color-series: var(--series);
+  --color-series-2: var(--series-2);
   --color-good: var(--good);
+  --color-good-soft: var(--good-soft);
+  --color-good-text: var(--good-text);
+  --color-good-band: var(--good-band);
   --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-text: var(--warn-text);
+  --color-warn-band: var(--warn-band);
   --color-bad: var(--bad);
-  --font-sans: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
-}
-
-html,
-body {
-  background: var(--bg);
-  color: var(--ink);
-  -webkit-tap-highlight-color: transparent;
-}
-
-input,
-select,
-button {
-  font: inherit;
+  --color-bad-soft: var(--bad-soft);
+  --color-bad-text: var(--bad-text);
+  --color-bad-band: var(--bad-band);
+  --color-gold: var(--gold);
+  --color-gold-soft: var(--gold-soft);
+  --color-gold-text: var(--gold-text);
+  --color-hero: var(--hero);
+  --color-hero-ink: var(--hero-ink);
+  --color-hero-muted: var(--hero-muted);
+  --color-hero-track: var(--hero-track);
+  --color-hero-a: var(--hero-a);
+  --color-hero-b: var(--hero-b);
+  --color-hero-c: var(--hero-c);
+  --color-ring-2: var(--ring-2);
+  --color-ring-3: var(--ring-3);
+  --color-sleep-deep: var(--sleep-deep);
+  --color-sleep-core: var(--sleep-core);
+  --color-sleep-rem: var(--sleep-rem);
+  --color-sleep-awake: var(--sleep-awake);
+  --shadow-card: var(--shadow-card);
+  --shadow-pill: var(--shadow-pill);
+  --font-sans: Manrope, ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 /*
- * iOS Safari draws date and time inputs with a native look that is taller than the other fields
- * and has a minimum width that can overflow its column; plain inputs keep every field the same.
+ * Base element styles sit in the base layer so Tailwind's utility classes (text-[64px],
+ * font-extrabold...) can still override them; unlayered rules would win over every utility.
  */
-input[type="time"],
-input[type="date"] {
-  -webkit-appearance: none;
-  appearance: none;
-  min-width: 0;
-}
-input::-webkit-date-and-time-value {
-  text-align: left;
+@layer base {
+  html,
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-tap-highlight-color: transparent;
+    font-variant-numeric: tabular-nums;
+  }
+
+  input,
+  select,
+  button,
+  textarea {
+    font: inherit;
+  }
+
+  /*
+   * iOS Safari draws date and time inputs with a native look that is taller than the other fields
+   * and has a minimum width that can overflow its column; plain inputs keep every field the same.
+   */
+  input[type="time"],
+  input[type="date"] {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 0;
+  }
+  input::-webkit-date-and-time-value {
+    text-align: left;
+  }
+
+  /* iOS zooms into inputs smaller than 16px. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
-/* iOS zooms into inputs smaller than 16px. */
-input,
-select {
-  font-size: 16px;
+/* Rows of chips that scroll sideways without showing a scrollbar. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }

@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 
 export type Theme = "light" | "dark";
+/** What the person picked in Settings: a fixed theme, or follow the system. */
+export type ThemeChoice = Theme | "system";
 
 const STORAGE_KEY = "theme";
-const BACKGROUND: Record<Theme, string> = { light: "#f6f8f7", dark: "#0b0f0d" };
+const BACKGROUND: Record<Theme, string> = { light: "#f2f5f3", dark: "#050807" };
 
 function savedTheme(): Theme | null {
   try {
@@ -24,10 +26,12 @@ function apply(theme: Theme) {
 }
 
 /**
- * Light or dark. Follows the system until the person picks one; the pick is remembered on
- * this device. index.html applies the same rule before the first paint.
+ * Light, dark or the system's. Follows the system until the person picks one; the pick is
+ * remembered on this device. index.html applies the same rule before the first paint.
+ * Returns the theme in use, the choice behind it and a setter for the choice.
  */
-export function useTheme(): [Theme, (theme: Theme) => void] {
+export function useTheme(): [Theme, (choice: ThemeChoice) => void, ThemeChoice] {
+  const [choice, setChoiceState] = useState<ThemeChoice>(() => savedTheme() ?? "system");
   const [theme, setThemeState] = useState<Theme>(() => savedTheme() ?? systemTheme());
 
   useEffect(() => {
@@ -43,15 +47,18 @@ export function useTheme(): [Theme, (theme: Theme) => void] {
     return () => query.removeEventListener("change", follow);
   }, []);
 
-  const setTheme = (next: Theme) => {
+  const setChoice = (next: ThemeChoice) => {
     try {
-      localStorage.setItem(STORAGE_KEY, next);
+      if (next === "system") localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, next);
     } catch {
       // Private mode: the change still applies for this visit.
     }
-    apply(next);
-    setThemeState(next);
+    const resolved = next === "system" ? systemTheme() : next;
+    apply(resolved);
+    setThemeState(resolved);
+    setChoiceState(next);
   };
 
-  return [theme, setTheme];
+  return [theme, setChoice, choice];
 }

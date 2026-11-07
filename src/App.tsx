@@ -1,14 +1,15 @@
 import { lazy, type ReactNode, Suspense, useEffect } from "react";
-import type { IconType } from "react-icons";
-import { FiActivity, FiAward, FiHome, FiPlusCircle, FiSettings, FiTrendingUp, FiUser } from "react-icons/fi";
-import { NavLink, Navigate, Route, Routes } from "react-router";
+import { FiActivity, FiPlus, FiSun } from "react-icons/fi";
+import { Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router";
 import type { UserDto } from "../shared/schemas.ts";
 import { useMe, useMeasurements } from "./api.ts";
 import { Controls } from "./Controls.tsx";
+import { MedalIcon, ScaleIcon } from "./icons.tsx";
 import { useOnline } from "./offline.ts";
 import { type MessageKey, useI18n } from "./i18n.tsx";
 import { AddPage } from "./pages/Add.tsx";
 import { AuthPage } from "./pages/Auth.tsx";
+import { BodyPage } from "./pages/Body.tsx";
 import { HomePage } from "./pages/Home.tsx";
 import { MePage } from "./pages/Me.tsx";
 import { ReadingPage } from "./pages/Reading.tsx";
@@ -18,67 +19,85 @@ import { useAutoSync } from "./pages/Zepp.tsx";
 import { Card, Logo } from "./ui.tsx";
 
 // The chart library is large, so the pages with charts load only when they are opened.
-const HistoryPage = lazy(() => import("./pages/History.tsx").then((m) => ({ default: m.HistoryPage })));
+const TrendsPage = lazy(() => import("./pages/History.tsx").then((m) => ({ default: m.TrendsPage })));
+const WeighInsPage = lazy(() => import("./pages/History.tsx").then((m) => ({ default: m.WeighInsPage })));
 const ActivityPage = lazy(() => import("./pages/Activity.tsx").then((m) => ({ default: m.ActivityPage })));
 
-// Six tabs fit a phone; Settings is the gear in the header.
-const NAV: { to: string; key: MessageKey; Icon: IconType }[] = [
-  { to: "/", key: "nav.home", Icon: FiHome },
-  { to: "/actividad", key: "nav.activity", Icon: FiActivity },
-  { to: "/agregar", key: "nav.add", Icon: FiPlusCircle },
-  { to: "/yo", key: "nav.me", Icon: FiUser },
-  { to: "/logros", key: "nav.achievements", Icon: FiAward },
-  { to: "/historial", key: "nav.history", Icon: FiTrendingUp },
+type Tab = { to: string; key: MessageKey; Icon: (props: { size?: number; strokeWidth?: number }) => ReactNode };
+
+// Four tabs with Add in the middle; the profile is the avatar in each header and Settings is
+// reached from Today and the profile.
+const TABS_LEFT: Tab[] = [
+  { to: "/", key: "nav.home", Icon: FiSun },
+  { to: "/cuerpo", key: "nav.body", Icon: ScaleIcon },
 ];
+const TABS_RIGHT: Tab[] = [
+  { to: "/actividad", key: "nav.activity", Icon: FiActivity },
+  { to: "/logros", key: "nav.achievements", Icon: MedalIcon },
+];
+
+/** Pages opened from somewhere else: they have a way back instead of the tab bar. */
+const PUSHED = ["/agregar", "/medicion/", "/yo", "/ajustes"];
+
+function TabLink({ tab }: { tab: Tab }) {
+  const { t } = useI18n();
+  return (
+    <NavLink
+      to={tab.to}
+      end={tab.to === "/"}
+      className={({ isActive }) =>
+        `flex h-14 min-w-14 flex-col items-center justify-center gap-0.75 text-[11px] font-extrabold transition active:scale-95 ${isActive ? "text-brand" : "text-muted"}`
+      }
+    >
+      <tab.Icon size={22} strokeWidth={2.2} />
+      {t(tab.key)}
+    </NavLink>
+  );
+}
+
+function TabBar() {
+  const { t } = useI18n();
+  return (
+    <nav
+      aria-label={t("nav.main")}
+      className="fixed inset-x-4 bottom-[max(env(safe-area-inset-bottom),12px)] z-30 mx-auto flex h-18 max-w-99.5 items-center justify-around rounded-[36px] border border-line bg-(--tab-bg) px-2 shadow-(--tab-shadow) backdrop-blur-xl"
+    >
+      {TABS_LEFT.map((tab) => (
+        <TabLink key={tab.to} tab={tab} />
+      ))}
+      <Link
+        to="/agregar"
+        aria-label={t("nav.addMeasurement")}
+        className="flex h-14 w-14 items-center justify-center rounded-full bg-brand text-brand-ink shadow-(--fab-shadow) transition active:scale-95"
+      >
+        <FiPlus size={26} strokeWidth={2.6} aria-hidden />
+      </Link>
+      {TABS_RIGHT.map((tab) => (
+        <TabLink key={tab.to} tab={tab} />
+      ))}
+    </nav>
+  );
+}
 
 function Shell({ children }: { children: ReactNode }) {
   const { t } = useI18n();
   const online = useOnline();
+  const { pathname } = useLocation();
+  const pushed = PUSHED.some((p) => pathname.startsWith(p));
   return (
     <div className="mx-auto min-h-dvh max-w-md">
       {/*
         iOS 26 blurs whatever sits right under the status bar in a home-screen app. A solid strip there
-        gives the blur a plain color, and the header starts below it so it never looks cut off.
+        gives the blur a plain color, and the page starts below it so it never looks cut off.
       */}
       <div className="pointer-events-none fixed inset-x-0 top-0 z-40 h-[env(safe-area-inset-top)] bg-bg" aria-hidden />
-      <header className="flex items-center gap-2 px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-2">
-        <Logo size={28} />
-        <span className="flex-1 font-bold">
-          <span className="text-brand">Caliche</span> Balance
-        </span>
-        <Controls />
-        <NavLink
-          to="/ajustes"
-          aria-label={t("nav.settings")}
-          className={({ isActive }) =>
-            `flex h-9 w-9 items-center justify-center rounded-full bg-surface-2 transition active:scale-95 ${isActive ? "text-brand" : "text-ink-2 hover:text-ink"}`
-          }
-        >
-          <FiSettings size={18} aria-hidden />
-        </NavLink>
-      </header>
-      <main className="px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+6rem)]">
-        {!online && <p className="mb-4 rounded-2xl bg-warn/15 px-4 py-3 text-sm text-ink">{t("offlineBanner")}</p>}
+      <main
+        className={`px-4 ${pushed ? "pt-[calc(env(safe-area-inset-top)+1.25rem)] pb-[calc(env(safe-area-inset-bottom)+3rem)]" : "pt-[calc(env(safe-area-inset-top)+1.75rem)] pb-[calc(env(safe-area-inset-bottom)+8rem)]"}`}
+      >
+        {!online && <p className="mb-4 rounded-2xl bg-warn-soft px-4 py-3 text-sm font-semibold text-warn-text">{t("offlineBanner")}</p>}
         {children}
       </main>
-      <nav className="fixed inset-x-0 bottom-0 border-t border-line bg-surface/90 pb-[env(safe-area-inset-bottom)] backdrop-blur">
-        <ul className="mx-auto flex max-w-md">
-          {NAV.map((item) => (
-            <li key={item.to} className="flex-1">
-              <NavLink
-                to={item.to}
-                end
-                className={({ isActive }) =>
-                  `flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium ${isActive ? "text-brand" : "text-muted"}`
-                }
-              >
-                <item.Icon size={22} aria-hidden />
-                {t(item.key)}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-      </nav>
+      {!pushed && <TabBar />}
     </div>
   );
 }
@@ -130,14 +149,24 @@ function SignedIn({ user }: { user: UserDto }) {
             path="/logros"
             element={<AchievementsPage user={user} profile={profile} />}
           />
+          <Route path="/cuerpo" element={<BodyPage profile={profile} measurements={list} />} />
           <Route
-            path="/historial"
+            path="/cuerpo/tendencias"
             element={
               <Suspense fallback={<p className="py-10 text-center text-muted">…</p>}>
-                <HistoryPage profile={profile} measurements={list} goals={user.goals} />
+                <TrendsPage profile={profile} measurements={list} goals={user.goals} />
               </Suspense>
             }
           />
+          <Route
+            path="/cuerpo/pesadas"
+            element={
+              <Suspense fallback={<p className="py-10 text-center text-muted">…</p>}>
+                <WeighInsPage profile={profile} measurements={list} goals={user.goals} />
+              </Suspense>
+            }
+          />
+          <Route path="/historial" element={<Navigate to="/cuerpo/tendencias" replace />} />
           <Route
             path="/actividad"
             element={
