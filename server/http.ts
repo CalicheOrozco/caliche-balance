@@ -21,6 +21,7 @@ export function toMeasurementDto(m: MeasurementDoc): MeasurementDto {
     impedance: m.impedance ?? null,
     idealWeightKg: m.idealWeightKg ?? null,
     waistCm: m.waistCm ?? null,
+    note: m.note ?? null,
     source: m.source,
   };
 }

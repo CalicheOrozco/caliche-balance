@@ -56,6 +56,7 @@ export const api = {
   deleteMeasurement: (id: string) => call<void>("DELETE", `/measurements/${id}`),
   setWaist: (id: string, waist: string | null, waistUnit: "cm" | "in") =>
     call<MeasurementDto>("PATCH", `/measurements/${id}/waist`, { waist, waistUnit }),
+  setNote: (id: string, note: string | null) => call<MeasurementDto>("PATCH", `/measurements/${id}/note`, { note }),
   zeppStatus: () => call<ZeppStatusDto>("GET", "/zepp"),
   zeppConnect: (appToken: string, zeppUserId: string) =>
     call<ZeppStatusDto & { imported: number }>("POST", "/zepp/connect", { appToken, zeppUserId }),

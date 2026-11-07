@@ -62,6 +62,12 @@ export const waistInputSchema = z.object({
   waistUnit: z.enum(["cm", "in"]).default("cm"),
 });
 
+/** Adds, changes or removes (null or empty) the note of a reading that already exists. */
+export const NOTE_MAX_LENGTH = 280;
+export const noteInputSchema = z.object({
+  note: z.string().trim().max(NOTE_MAX_LENGTH).nullable(),
+});
+
 export const CM_PER_IN = 2.54;
 
 export function waistToCm(value: number, unit: "cm" | "in"): number {
@@ -246,6 +252,8 @@ export interface MeasurementDto {
   impedance: number | null;
   idealWeightKg: number | null;
   waistCm: number | null;
+  /** Missing on weigh-ins cached offline by a version of the app from before notes. */
+  note?: string | null;
   source: "manual" | "zepp";
 }
 

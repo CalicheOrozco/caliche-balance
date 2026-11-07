@@ -8,6 +8,7 @@ import {
   measurementInputSchema,
   notificationPrefsSchema,
   pushSubscriptionSchema,
+  noteInputSchema,
   waistInputSchema,
   waistToCm,
   profileSchema,
@@ -322,6 +323,23 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
       const saved = await collections.measurements.findOneAndUpdate(
         { _id: new ObjectId(id), userId: req.user!._id },
         { $set: { waistCm } },
+        { returnDocument: "after" },
+      );
+      if (!saved) return res.status(404).json({ error: "not-found" });
+      res.json(toMeasurementDto(saved));
+    }),
+  );
+
+  router.patch(
+    "/measurements/:id/note",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const id = z.string().regex(/^[0-9a-f]{24}$/).parse(req.params.id);
+      const { note } = noteInputSchema.parse(req.body);
+      // Zepp re-syncs only touch Zepp's own fields, so a note added here stays.
+      const saved = await collections.measurements.findOneAndUpdate(
+        { _id: new ObjectId(id), userId: req.user!._id },
+        { $set: { note: note ? note : null } },
         { returnDocument: "after" },
       );
       if (!saved) return res.status(404).json({ error: "not-found" });

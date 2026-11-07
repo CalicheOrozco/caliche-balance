@@ -226,6 +226,24 @@ describe("Caliche Balance API", () => {
     expect((await other.patch(`/api/measurements/${plain.body.id}/waist`).send({ waist: 80 })).status).toBe(404);
   });
 
+  it("stores, trims and removes a note on a reading", async () => {
+    const agent = request.agent(app);
+    await agent.post("/api/auth/register").send({ username: "nora", password: "contraseña-nora" });
+    const reading = await agent.post("/api/measurements").send({ weight: 80 });
+    expect(reading.body.note).toBeNull();
+
+    const noted = await agent.patch(`/api/measurements/${reading.body.id}/note`).send({ note: "  Cena tarde y salada  " });
+    expect(noted.body.note).toBe("Cena tarde y salada");
+    expect((await agent.get("/api/measurements")).body[0].note).toBe("Cena tarde y salada");
+    expect((await agent.patch(`/api/measurements/${reading.body.id}/note`).send({ note: "" })).body.note).toBeNull();
+    expect((await agent.patch(`/api/measurements/${reading.body.id}/note`).send({ note: "x".repeat(281) })).status).toBe(400);
+
+    // Nobody else can touch it.
+    const other = request.agent(app);
+    await other.post("/api/auth/register").send({ username: "otto", password: "contraseña-otto" });
+    expect((await other.patch(`/api/measurements/${reading.body.id}/note`).send({ note: "mía" })).status).toBe(404);
+  });
+
   it("keeps each person's data private", async () => {
     const ana = request.agent(app);
     const beto = request.agent(app);

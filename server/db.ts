@@ -60,6 +60,8 @@ export interface MeasurementDoc {
   impedance?: number | null;
   idealWeightKg?: number | null;
   waistCm?: number | null;
+  /** A short note the person wrote about this weigh-in (Add > Note). */
+  note?: string | null;
   source: "manual" | "zepp";
   zepp?: { connectionId: ObjectId; memberId: string; key: string };
   createdAt: Date;
