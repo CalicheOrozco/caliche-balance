@@ -3,8 +3,10 @@ import { bodyFatOf } from "../shared/composition.ts";
 import { maintainRange } from "../shared/goals.ts";
 import type { LabStudyInput } from "../shared/labs.ts";
 import { type GoalsInput, goalsInputSchema, measurementInputSchema, type MeasurementInput, toKilograms, waistToCm } from "../shared/schemas.ts";
+import type { HealthDayInput } from "../shared/health.ts";
 import { checkAchievements } from "./achievementCheck.ts";
-import type { Collections, LabStudyDoc, MeasurementDoc, UserDoc } from "./db.ts";
+import { hashSecret, newSecret } from "./auth.ts";
+import type { Collections, HealthDayDoc, LabStudyDoc, MeasurementDoc, UserDoc } from "./db.ts";
 import { checkGoals } from "./goalCheck.ts";
 import type { PushSender } from "./push.ts";
 
@@ -98,4 +100,53 @@ export async function saveLabStudy(c: Collections, userId: ObjectId, input: LabS
     { upsert: true, returnDocument: "after" },
   );
   return saved!;
+}
+
+/**
+ * Saves days of Apple Health data, from the Shortcut or from Claude. Only what was sent is written,
+ * so separate sends can each bring their own part of a day; a day sent twice keeps the newer value.
+ * Returns the days as they are now and how many values each one got. Badges are checked after.
+ */
+export async function saveHealthDays(
+  c: Collections,
+  push: PushSender | undefined,
+  userId: ObjectId,
+  days: (HealthDayInput & { date: string })[],
+): Promise<{ docs: HealthDayDoc[]; counts: { date: string; count: number }[] }> {
+  const now = new Date();
+  // One write per day, merging every part of it that came in this send.
+  const byDate = new Map<string, { set: Record<string, unknown>; count: number }>();
+  for (const day of days) {
+    const entry = byDate.get(day.date) ?? { set: { updatedAt: now }, count: 0 };
+    Object.assign(entry.set, day.values);
+    if (day.sleep !== undefined) entry.set.sleep = day.sleep;
+    for (const [symptom, value] of Object.entries(day.symptoms)) entry.set[`symptoms.${symptom}`] = value;
+    entry.count += Object.values(day.values).filter((v) => v !== null).length + (day.sleep ? 1 : 0) + Object.keys(day.symptoms).length;
+    byDate.set(day.date, entry);
+  }
+  if (byDate.size > 0) {
+    await c.healthDays.bulkWrite(
+      [...byDate].map(([date, { set }]) => ({
+        updateOne: { filter: { userId, date }, update: { $set: set, $setOnInsert: { _id: new ObjectId(), userId, date } }, upsert: true },
+      })),
+      { ordered: false },
+    );
+  }
+  const docs = await c.healthDays.find({ userId, date: { $in: [...byDate.keys()] } }).sort({ date: 1 }).toArray();
+  // New days can move activity badges up; never throws.
+  await checkAchievements(c, push, userId);
+  return { docs, counts: [...byDate].map(([date, { count }]) => ({ date, count })) };
+}
+
+/**
+ * Days brought in by Claude count as Apple Health being connected, so Activity shows them. An
+ * account that never made a Shortcut key gets one nobody knows; making a key in Settings replaces it.
+ */
+export async function markHealthImported(c: Collections, user: UserDoc): Promise<void> {
+  const now = new Date();
+  if (user.appleHealth) {
+    await c.users.updateOne({ _id: user._id }, { $set: { "appleHealth.lastSyncAt": now } });
+  } else {
+    await c.users.updateOne({ _id: user._id }, { $set: { appleHealth: { keyHash: hashSecret(newSecret()), since: now, lastSyncAt: now } } });
+  }
 }

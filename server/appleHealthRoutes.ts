@@ -1,5 +1,4 @@
 import express, { type Request, type RequestHandler } from "express";
-import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { localDay } from "../shared/achievements.ts";
 import {
@@ -11,11 +10,12 @@ import {
   readHealthSend,
   shortcutVersionOf,
 } from "../shared/health.ts";
-import { checkAchievements, DEFAULT_TIME_ZONE } from "./achievementCheck.ts";
+import { DEFAULT_TIME_ZONE } from "./achievementCheck.ts";
 import type { PushSender } from "./push.ts";
 import { hashSecret, newSecret } from "./auth.ts";
 import type { Collections, HealthDayDoc, UserDoc } from "./db.ts";
 import { asyncRoute, clientIp, hitRateLimit, peekRateLimit, sendRateLimited } from "./http.ts";
+import { saveHealthDays } from "./services.ts";
 
 interface Context {
   collections: () => Collections;
@@ -115,36 +115,10 @@ export function appleHealthRoutes({ collections, withUser, push }: Context) {
         return res.status(400).json({ error: "invalid", fields: problems });
       }
       const today = new Date(localDay(Date.now(), user.timeZone ?? DEFAULT_TIME_ZONE) * 86_400_000).toISOString().slice(0, 10);
-      const counts: HealthAttempt["saved"] = [];
-      // Values without a date go to today, which may also have come with its date: one write per day.
-      const byDate = new Map<string, { set: Record<string, unknown>; count: number }>();
-      for (const day of days) {
-        const date = day.date ?? today;
-        const entry = byDate.get(date) ?? { set: { updatedAt: now }, count: 0 };
-        // Only what was sent is written, so separate Shortcuts can each send their own part.
-        Object.assign(entry.set, day.values);
-        if (day.sleep !== undefined) entry.set.sleep = day.sleep;
-        for (const [symptom, value] of Object.entries(day.symptoms)) entry.set[`symptoms.${symptom}`] = value;
-        entry.count += Object.values(day.values).filter((v) => v !== null).length + (day.sleep ? 1 : 0) + Object.keys(day.symptoms).length;
-        byDate.set(date, entry);
-      }
-      // One write for every day (a year-long send has hundreds), then the days as they are now.
-      await c.healthDays.bulkWrite(
-        [...byDate].map(([date, { set }]) => ({
-          updateOne: {
-            filter: { userId: user._id, date },
-            update: { $set: set, $setOnInsert: { _id: new ObjectId(), userId: user._id, date } },
-            upsert: true,
-          },
-        })),
-        { ordered: false },
-      );
-      const docs = await c.healthDays.find({ userId: user._id, date: { $in: [...byDate.keys()] } }).sort({ date: 1 }).toArray();
+      // Values without a date go to today.
+      const { docs, counts } = await saveHealthDays(c, push, user._id, days.map((d) => ({ ...d, date: d.date ?? today })));
       const saved: HealthDayDto[] = docs.map(toHealthDayDto);
-      for (const [date, { count }] of byDate) counts.push({ date, count });
       await record({ ok: true, saved: counts, problems });
-      // New days can move activity badges up; never throws.
-      await checkAchievements(c, push, user._id);
       res.json({ ok: true, saved, problems });
     }),
   );

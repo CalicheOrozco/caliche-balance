@@ -1,0 +1,5 @@
+User-agent: *
+# Only the public pages; the API and the connector are personal data.
+Disallow: /api/
+Disallow: /mcp
+Allow: /

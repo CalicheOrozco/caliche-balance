@@ -136,6 +136,35 @@ describe("Claude connector (MCP)", () => {
     expect(lab.data.results.find((r: { key: string }) => r.key === "hdl").explanation).toContain("40 mg/dL");
     expect((await agent.get("/api/labs")).body).toHaveLength(1);
 
+    // Apple Health days from Claude, like the Shortcut sends them; a bad day is skipped, not the rest.
+    const health = await tool(access, "add_health_days", {
+      days: [
+        {
+          date: "2026-11-06",
+          steps: 9500,
+          restingHr: 61,
+          hrvMs: 42,
+          sleep: [
+            { start: "2026-11-05T23:30:00-04:00", end: "2026-11-06T03:00:00-04:00", stage: "core" },
+            { start: "2026-11-06T03:00:00-04:00", end: "2026-11-06T04:00:00-04:00", stage: "deep" },
+            { start: "2026-11-06T04:00:00-04:00", end: "2026-11-06T06:30:00-04:00", stage: "rem" },
+          ],
+          symptoms: { fatigue: "Mild" },
+        },
+        { date: "2026-11-07", steps: 12000, activeKcal: 640 },
+        { date: "2026-11-08" },
+      ],
+    });
+    expect(health.isError).toBe(false);
+    expect(health.data).toMatchObject({ savedDays: 2, from: "2026-11-06", to: "2026-11-07" });
+    expect(health.data.skipped).toHaveLength(1);
+    const days = await tool(access, "list_health_days");
+    const night = days.data.find((d: { date: string }) => d.date === "2026-11-06");
+    expect(night.steps).toBe(9500);
+    expect(night.symptoms.fatigue).toBeTruthy();
+    expect(night.sleep.asleepMin).toBe(420);
+    expect((await agent.get("/api/me")).body.appleHealth).toBeTruthy();
+
     const bad = await tool(access, "get_weigh_in", { id: "not-an-id" });
     expect(bad.isError).toBe(true);
 

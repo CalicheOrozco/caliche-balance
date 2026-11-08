@@ -3,6 +3,7 @@ import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { metabolicAge } from "../../shared/bodyAge.ts";
+import { HEALTH_METRIC_SPECS, HEALTH_METRICS, HEALTH_SYMPTOM_KEYS, type HealthDayInput, healthDaySchema, symptomField } from "../../shared/health.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
 import { dailyTrend, estimateEta, goalProgress } from "../../shared/goals.ts";
 import { assess as assessLab, egfr, identify, type LabResult, labStudyInputSchema, labTest, nextStudyDue, nonHdl } from "../../shared/labs.ts";
@@ -16,7 +17,7 @@ import { toHealthDayDto } from "../appleHealthRoutes.ts";
 import type { Collections, LabStudyDoc, UserDoc } from "../db.ts";
 import { toMeasurementDto } from "../http.ts";
 import type { PushSender } from "../push.ts";
-import { createMeasurement, saveGoals, saveLabStudy, setNote, setWaist } from "../services.ts";
+import { createMeasurement, markHealthImported, saveGoals, saveHealthDays, saveLabStudy, setNote, setWaist } from "../services.ts";
 
 /*
  * The tools Claude can use, signed in as the person (see oauth.ts). Reads return the same numbers
@@ -192,6 +193,37 @@ const labResultInput = z.object({
   group: z.enum(["blood", "urine"]).optional().describe("urine for the urinalysis (examen general de orina); defaults to blood"),
 });
 
+/** Every Apple Health metric the app keeps, with its unit and whether a day is a total or an average. */
+const healthMetricShape = Object.fromEntries(
+  HEALTH_METRICS.map((m) => {
+    const spec = HEALTH_METRIC_SPECS[m];
+    const per = spec.kind === "sum" ? "total of the day" : "average of the day";
+    return [m, z.number().min(spec.min).max(spec.max).optional().describe(`Apple Health "${spec.type}", ${spec.unit}, ${per}`)];
+  }),
+) as Record<(typeof HEALTH_METRICS)[number], z.ZodOptional<z.ZodNumber>>;
+
+const SLEEP_STAGE_TEXT = { inBed: "In Bed", awake: "Awake", core: "Core", deep: "Deep", rem: "REM", asleep: "Asleep" } as const;
+
+const healthDayInput = z.object({
+  date: isoDate.describe("The local day, YYYY-MM-DD. A night goes on the day the person woke up"),
+  ...healthMetricShape,
+  sleep: z
+    .array(
+      z.object({
+        start: z.string().describe("ISO 8601 with offset"),
+        end: z.string().describe("ISO 8601 with offset"),
+        stage: z.enum(["inBed", "awake", "core", "deep", "rem", "asleep"]).describe("asleep when the source has no stages (older iPhones)"),
+      }),
+    )
+    .max(400)
+    .optional()
+    .describe("The night's sleep samples (HKCategoryTypeIdentifierSleepAnalysis), every source; overlaps between iPhone and Watch are counted once"),
+  symptoms: z
+    .object(Object.fromEntries(HEALTH_SYMPTOM_KEYS.map((s) => [s, z.string().max(40).optional()])) as Record<(typeof HEALTH_SYMPTOM_KEYS)[number], z.ZodOptional<z.ZodString>>)
+    .optional()
+    .describe("Symptoms logged that day, with their severity as Health shows it"),
+});
+
 export function registerTools(server: McpServer, auth: AuthInfo | undefined, collections: () => Promise<Collections>, push: PushSender | undefined) {
   async function context(): Promise<Context> {
     const userId = auth?.extra?.userId;
@@ -364,7 +396,7 @@ export function registerTools(server: McpServer, auth: AuthInfo | undefined, col
     "list_health_days",
     {
       title: "Apple Health days",
-      description: "Days of Apple Health data sent by the Shortcut, newest first: steps, distance, exercise and stand minutes, active and resting kcal, resting heart rate, HRV, sleep (stages and times) and symptoms.",
+      description: "Days of Apple Health data (sent by the iOS Shortcut or saved with add_health_days), newest first: steps, distance, exercise and stand minutes, active and resting kcal, resting heart rate, HRV, sleep (stages and times) and symptoms.",
       inputSchema: { days: z.number().int().min(1).max(400).optional().describe("How many days, default 30") },
       annotations: READ,
     },
@@ -531,6 +563,40 @@ export function registerTools(server: McpServer, auth: AuthInfo | undefined, col
         maintain: args.maintain,
       });
       return goals;
+    },
+  );
+
+  tool(
+    "add_health_days",
+    {
+      title: "Add Apple Health days",
+      description:
+        "Saves days of Apple Health data, the same way the iOS Shortcut does (for example from the person's Health export): activity, energy, heart, walking, sleep with its stages and symptoms. Only the values sent are written, so a day can be sent in parts and a day sent again keeps the newer values. Up to 400 days per call; send a long history in several calls. Activity then shows them, and badges are checked.",
+      inputSchema: { days: z.array(healthDayInput).min(1).max(400) },
+      annotations: WRITE,
+    },
+    async (args, ctx) => {
+      const parsed: (HealthDayInput & { date: string })[] = [];
+      const skipped: { date: string; reason: string }[] = [];
+      for (const day of args.days) {
+        const raw: Record<string, unknown> = { date: day.date };
+        for (const m of HEALTH_METRICS) if (day[m] !== undefined) raw[m] = day[m];
+        if (day.sleep?.length) raw.sleep = day.sleep.map((s) => `${s.start}|${s.end}|${SLEEP_STAGE_TEXT[s.stage]}`).join("\n");
+        for (const s of HEALTH_SYMPTOM_KEYS) if (day.symptoms?.[s]) raw[symptomField(s)] = day.symptoms[s];
+        const result = healthDaySchema.safeParse(raw);
+        if (result.success) parsed.push({ ...result.data, date: day.date });
+        else skipped.push({ date: day.date, reason: result.error.issues.map((i) => `${i.path.join(".") || "day"}: ${i.message}`).join("; ") });
+      }
+      if (parsed.length === 0) throw new ToolProblem(`Nothing to save: ${skipped.map((s) => `${s.date} (${s.reason})`).join(", ")}`);
+      const { counts } = await saveHealthDays(ctx.c, push, ctx.user._id, parsed);
+      await markHealthImported(ctx.c, ctx.user);
+      return {
+        savedDays: counts.length,
+        values: counts.reduce((sum, d) => sum + d.count, 0),
+        from: counts[0]?.date,
+        to: counts.at(-1)?.date,
+        skipped,
+      };
     },
   );
 
