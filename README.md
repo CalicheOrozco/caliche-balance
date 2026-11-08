@@ -193,6 +193,18 @@ Entre esos puntos la puntuación baja en línea recta. Las referencias son publi
 
 En **Hoy > Comida de hoy** (`/comida`) registras lo que comes: qué, cuánto, a qué comida del día pertenece, la hora, las calorías y, si los sabes, proteína, carbohidratos, grasa y fibra (sin calorías se calculan con 4/4/9 kcal por gramo). Las comidas recientes llenan el formulario con un toque. Cada día compara lo comido con lo gastado según Apple Salud (energía activa más en reposo) y muestra el déficit o superávit, la proteína contra ~1.6 g por kg de peso (ISSN) y la fibra contra 38 g (hombres) o 25 g (mujeres). Con el conector, Claude estima y guarda las comidas que le describes o le mandas en foto (`add_food`), y las marca como suyas. Todo vive en `foodEntries` (`shared/food.ts`, `server/services.ts`, `src/pages/Food.tsx`).
 
+## Dieta
+
+La pestaña **Comida** tiene tres secciones: **Registro** (lo que comes), **Dieta** y **Súper**. Logros salió de la barra y se abre desde tu perfil y desde Hoy.
+
+- **Planes** (`dietPlans`): de Claude, de tu nutriólogo o tuyos, con su mes y su meta de calorías. Cada plan define sus comidas del día (cuántas y con qué nombre) y en cada una 2 o 3 opciones de receta. Solo uno está activo; al activar otro, el anterior se archiva y se puede reactivar.
+- **Recetas** (`recipes`): foto por enlace https (o un emoji si no hay o no carga), porciones que rinde, calorías y macros por porción, tiempos, etiquetas, ingredientes con cantidad, unidad e ingrediente por separado, pasos y nota. Se pueden marcar como favoritas para usarlas en otro plan, duplicar y editar.
+- **La semana** (`dietWeeks`): una opción por comida del día para toda la semana (de lunes a domingo). Una semana sin elección empieza con la de la semana anterior. En Registro, "Tu plan de hoy" muestra lo que toca con un botón "Lo comí" que lo registra con las porciones elegidas.
+- **Súper**: suma los ingredientes de lo elegido (`shoppingList` en `shared/diet.ts`), escalados a los días y porciones al día (7 y 1 por defecto), juntando unidades (g/kg, ml/l, pz, taza, cda, cdita), con palomitas que se guardan por semana.
+- **Mis gustos** (`users.dietPrefs`): lo que te gusta, lo que no comes, alergias, tiempo para cocinar y presupuesto; Claude lo lee antes de proponer recetas.
+
+La lógica vive en `server/diet.ts`, compartida por la API (`/api/diet/...`) y el conector, así que las reglas son las mismas en los dos.
+
 ## Apple Salud (con un Atajo)
 
 Apple Salud no tiene una conexión web: solo una app en el iPhone puede leerlo. Por eso Caliche Balance usa un **Atajo de iOS** que cada noche lee los totales del día y los manda con una llave personal.
@@ -298,6 +310,7 @@ La app tiene un servidor MCP en `/mcp` para que Claude (claude.ai, las apps de C
 |---|---|
 | Leer | `get_profile`, `get_body_summary`, `list_weigh_ins`, `get_weigh_in`, `get_trends`, `list_health_days`, `get_achievements`, `list_lab_studies`, `get_lab_study`, `list_food` |
 | Guardar | `add_weigh_in`, `set_weigh_in_waist`, `set_weigh_in_note`, `set_goals`, `add_lab_study`, `add_health_days`, `add_food`, `update_food_entry` |
+| Dieta | `get_diet`, `get_recipe`, `set_diet_preferences`, `save_recipe`, `set_recipe_favorite`, `delete_recipe`, `create_diet_plan`, `update_diet_plan`, `set_diet_plan_status`, `delete_diet_plan`, `choose_week`, `get_shopping_list` |
 | Borrar | `delete_weigh_in`, `delete_lab_study` (Claude pide confirmación) |
 
 Los números son los mismos que muestra la app (grasa con la ecuación de pie a pie, edad metabólica, reporte de cada pesada, evaluación de estudios), porque salen de `shared/`. Lo que Claude guarda pasa por `server/services.ts`, igual que la API de la app, así que revisa metas y logros de la misma forma. Puedes compartirle a Claude el PDF de un estudio y pedirle que lo guarde con `add_lab_study` (sangre, orina y electrocardiograma; con `merge` un ECG se une al estudio del mismo día sin borrar lo demás), y pasarle datos de tu exportación de Apple Salud para que los guarde con `add_health_days` (los mismos datos que manda el Atajo, hasta 400 días por llamada).

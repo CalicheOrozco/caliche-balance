@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { DietDto, DietPrefs, PlanDto, PlanInput, RecipeDto, RecipeInput } from "../shared/diet.ts";
 import type { FoodEntryDto, FoodEntryInput } from "../shared/food.ts";
 import type { LabStudyDto, LabStudyInput } from "../shared/labs.ts";
 import type { Achievements } from "../shared/achievements.ts";
@@ -65,6 +66,19 @@ export const api = {
   addFood: (entries: FoodEntryInput[]) => call<FoodEntryDto[]>("POST", "/food", entries),
   updateFood: (id: string, entry: FoodEntryInput) => call<FoodEntryDto>("PUT", `/food/${id}`, entry),
   deleteFood: (id: string) => call<void>("DELETE", `/food/${id}`),
+  diet: (week: string) => call<DietDto>("GET", `/diet?week=${week}`),
+  saveDietPrefs: (prefs: DietPrefs) => call<DietPrefs>("PUT", "/diet/prefs", prefs),
+  addRecipe: (recipe: RecipeInput) => call<RecipeDto>("POST", "/diet/recipes", recipe),
+  updateRecipe: (id: string, recipe: RecipeInput) => call<RecipeDto>("PUT", `/diet/recipes/${id}`, recipe),
+  setFavorite: (id: string, favorite: boolean) => call<RecipeDto>("PUT", `/diet/recipes/${id}/favorite`, { favorite }),
+  deleteRecipe: (id: string) => call<void>("DELETE", `/diet/recipes/${id}`),
+  addPlan: (plan: PlanInput & { activate?: boolean }) => call<PlanDto>("POST", "/diet/plans", plan),
+  updatePlan: (id: string, plan: PlanInput) => call<PlanDto>("PUT", `/diet/plans/${id}`, plan),
+  activatePlan: (id: string) => call<void>("POST", `/diet/plans/${id}/activate`),
+  archivePlan: (id: string) => call<void>("POST", `/diet/plans/${id}/archive`),
+  deletePlan: (id: string) => call<void>("DELETE", `/diet/plans/${id}`),
+  chooseWeek: (week: string, planId: string, choices: Record<string, string>) => call<void>("PUT", `/diet/weeks/${week}`, { planId, choices }),
+  saveShopping: (week: string, shopping: { days: number; servings: number; checked: string[] }) => call<void>("PUT", `/diet/weeks/${week}/shopping`, shopping),
   saveLab: (study: LabStudyInput & { merge?: boolean }) => call<LabStudyDto>("POST", "/labs", study),
   deleteLab: (id: string) => call<void>("DELETE", `/labs/${id}`),
   zeppStatus: () => call<ZeppStatusDto>("GET", "/zepp"),

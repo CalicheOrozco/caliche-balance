@@ -4,6 +4,7 @@ import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { localDay } from "../../shared/achievements.ts";
 import { metabolicAge } from "../../shared/bodyAge.ts";
+import { mondayOf, recipeInputSchema, shoppingList } from "../../shared/diet.ts";
 import { foodTotals, MEALS } from "../../shared/food.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
 import { dailyTrend, estimateEta, goalProgress } from "../../shared/goals.ts";
@@ -19,6 +20,22 @@ import type { Collections, LabStudyDoc, UserDoc } from "../db.ts";
 import { toMeasurementDto } from "../http.ts";
 import type { PushSender } from "../push.ts";
 import { healthDayInput, readHealthDaysInput } from "../healthDays.ts";
+import {
+  activatePlan,
+  archivePlan,
+  chooseWeek,
+  deletePlan,
+  deleteRecipe,
+  DietProblem,
+  dietOf,
+  savePlan,
+  saveRecipe,
+  setDietPrefs,
+  setFavorite,
+  toPlanDto,
+  toRecipeDto,
+  weekOf,
+} from "../diet.ts";
 import {
   addFoodEntries,
   createMeasurement,
@@ -227,6 +244,40 @@ const foodInput = z.object({
   note: z.string().max(280).optional().describe("Anything worth keeping: how it was cooked, a brand, what the estimate assumed"),
 });
 
+const DIET_PROBLEMS: Record<string, string> = {
+  "unknown-recipe": "One of the options is not one of the person's recipes: use ids from get_diet, or pass the recipe itself to create it.",
+  "unknown-plan": "No diet plan with that id.",
+  "not-an-option": "That recipe is not one of the options of that meal in the active plan.",
+};
+
+const recipeOrId = z
+  .object({
+    recipeId: z.string().regex(/^[0-9a-f]{24}$/).optional().describe("An existing recipe (from get_diet)"),
+    recipe: recipeInputSchema.optional().describe("A new recipe to create for this option"),
+  })
+  .describe("Either recipeId or recipe");
+
+const planShape = {
+  name: z.string().min(1).max(80).describe("e.g. 'Plan noviembre' or the nutritionist's plan name"),
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional().describe("YYYY-MM the plan is for"),
+  author: z.enum(["claude", "nutritionist", "me"]).describe("claude when you made it, nutritionist when it comes from the person's nutritionist"),
+  source: z.string().max(80).optional().describe("The nutritionist's name or where it came from"),
+  kcalTarget: z.number().min(500).max(10_000).optional().describe("Calories a day the plan aims for"),
+  note: z.string().max(1_000).optional(),
+  slots: z
+    .array(
+      z.object({
+        id: z.string().optional().describe("Keep a meal's id (from get_diet) when editing, so the week's choice stays"),
+        name: z.string().min(1).max(40).describe("The meal of the day as the plan calls it: 'Desayuno', 'Colación 1', 'Comida', 'Colación 2', 'Cena'"),
+        time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().describe("Usual time, HH:MM"),
+        meal: z.enum(MEALS).optional().describe("How it is logged when eaten; guessed from the name when left out"),
+        options: z.array(recipeOrId).min(1).max(8).describe("Usually 2 or 3 options to choose from for the week"),
+      }),
+    )
+    .min(1)
+    .max(10),
+};
+
 export function registerTools(server: McpServer, auth: AuthInfo | undefined, collections: () => Promise<Collections>, push: PushSender | undefined) {
   async function context(): Promise<Context> {
     const userId = auth?.extra?.userId;
@@ -251,10 +302,12 @@ export function registerTools(server: McpServer, auth: AuthInfo | undefined, col
         const message =
           error instanceof ToolProblem
             ? error.message
+            : error instanceof DietProblem
+              ? (DIET_PROBLEMS[error.message] ?? error.message)
             : error instanceof z.ZodError
               ? `Invalid input: ${error.issues.map((i) => `${i.path.join(".") || "value"} ${i.message}`).join("; ")}`
               : "Something went wrong saving or reading the data. Try again.";
-        if (!(error instanceof ToolProblem) && !(error instanceof z.ZodError)) console.error(`MCP tool ${name} failed:`, error);
+        if (!(error instanceof ToolProblem) && !(error instanceof DietProblem) && !(error instanceof z.ZodError)) console.error(`MCP tool ${name} failed:`, error);
         return { isError: true, content: [{ type: "text" as const, text: message }] };
       }
     }) as never);
@@ -720,6 +773,246 @@ export function registerTools(server: McpServer, auth: AuthInfo | undefined, col
       const result = await ctx.c.foodEntries.deleteOne({ _id: new ObjectId(args.id), userId: ctx.user._id });
       if (!result.deletedCount) throw new ToolProblem("No food entry with that id.");
       return { deleted: args.id };
+    },
+  );
+
+  // ------------------------------------------------------------------- Diet
+
+  /** The Monday of the person's current week. */
+  const thisWeek = (ctx: Context) => mondayOf(todayOf(ctx));
+
+  /** Creates the recipes given inline and returns the plan input with ids only. */
+  async function planInput(ctx: Context, args: z.infer<z.ZodObject<typeof planShape>>) {
+    const slots = [];
+    for (const slot of args.slots) {
+      const options: string[] = [];
+      for (const o of slot.options) {
+        if (o.recipeId) options.push(o.recipeId);
+        else if (o.recipe) options.push((await saveRecipe(ctx.c, ctx.user._id, o.recipe))!._id.toHexString());
+        else throw new ToolProblem(`An option of "${slot.name}" needs recipeId or recipe.`);
+      }
+      slots.push({ id: slot.id, name: slot.name, time: slot.time, meal: slot.meal, options });
+    }
+    return { name: args.name, month: args.month, author: args.author, source: args.source, kcalTarget: args.kcalTarget, note: args.note, slots };
+  }
+
+  tool(
+    "get_diet",
+    {
+      title: "Diet: likes, plans, recipes and the week",
+      description:
+        "The person's diet: their likes and limits (read them before suggesting recipes), every plan (the active one first) with its meals of the day and recipe options, a short list of every recipe (favorites marked), and the active plan's choice for the week (one option per meal, carried over from earlier weeks until changed) with that day's calories against the plan's target. Use get_recipe for ingredients and steps.",
+      inputSchema: { week: isoDate.optional().describe("Any day of the week to look at; default this week") },
+      annotations: READ,
+    },
+    async (args, ctx) => {
+      const diet = await dietOf(ctx.c, ctx.user, args.week ?? thisWeek(ctx));
+      const byId = new Map(diet.recipes.map((r) => [r.id, r]));
+      const brief = (id: string) => {
+        const r = byId.get(id);
+        return r ? { id, title: r.title, kcal: r.kcal, proteinG: r.proteinG, favorite: r.favorite } : { id, missing: true };
+      };
+      const active = diet.plans.find((p) => p.active);
+      const chosen = Object.values(diet.week.choices).map((id) => byId.get(id)?.kcal ?? 0);
+      return {
+        preferences: diet.prefs,
+        plans: diet.plans.map((p) => ({ ...p, slots: p.slots.map((s) => ({ ...s, options: s.options.map(brief) })) })),
+        recipes: diet.recipes.map((r) => ({ id: r.id, title: r.title, kcal: r.kcal, servings: r.servings, tags: r.tags, favorite: r.favorite })),
+        week: {
+          ...diet.week,
+          chosen: active?.slots.map((s) => ({ slotId: s.id, meal: s.name, recipe: diet.week.choices[s.id] ? brief(diet.week.choices[s.id]!) : null })) ?? [],
+          kcalChosen: chosen.reduce((a, b) => a + b, 0),
+          kcalTarget: active?.kcalTarget ?? null,
+        },
+      };
+    },
+  );
+
+  tool(
+    "get_recipe",
+    {
+      title: "A recipe",
+      description: "One recipe with everything: picture, servings, calories and macros per serving, times, ingredients, steps, tags and note.",
+      inputSchema: { id: objectId },
+      annotations: READ,
+    },
+    async (args, ctx) => {
+      const doc = await ctx.c.recipes.findOne({ _id: new ObjectId(args.id), userId: ctx.user._id });
+      if (!doc) throw new ToolProblem("No recipe with that id.");
+      return toRecipeDto(doc);
+    },
+  );
+
+  tool(
+    "set_diet_preferences",
+    {
+      title: "Save diet likes and limits",
+      description: "Replaces the person's likes and limits for the diet (send every field you want to keep). Update it when they tell you something new about what they like or cannot eat.",
+      inputSchema: {
+        likes: z.string().max(1_000).optional().describe("Foods, cuisines and flavors they like"),
+        dislikes: z.string().max(1_000).optional().describe("What they do not eat or do not like"),
+        allergies: z.string().max(500).optional().describe("Allergies and intolerances"),
+        cookingTime: z.string().max(200).optional().describe("Time they have to cook, by meal or day"),
+        budget: z.string().max(200).optional(),
+        notes: z.string().max(1_000).optional().describe("Anything else: schedule, equipment, who else eats"),
+      },
+      annotations: WRITE,
+    },
+    async (args, ctx) => setDietPrefs(ctx.c, ctx.user._id, args),
+  );
+
+  tool(
+    "save_recipe",
+    {
+      title: "Save a recipe",
+      description:
+        "Creates a recipe, or replaces one when id is given (send every field). Calories and macros are per serving. Ingredients go with quantity, unit and item apart ('200', 'g', 'pechuga de pollo'; no quantity for 'sal al gusto') so the shopping list can add them up; use g, kg, ml, l, pz, taza, cda or cdita. imageUrl must be an https link to a picture; emoji is shown when there is none.",
+      inputSchema: { id: objectId.optional(), recipe: recipeInputSchema },
+      annotations: WRITE,
+    },
+    async (args, ctx) => {
+      const saved = await saveRecipe(ctx.c, ctx.user._id, args.recipe, args.id ? new ObjectId(args.id) : undefined);
+      if (!saved) throw new ToolProblem("No recipe with that id.");
+      return toRecipeDto(saved);
+    },
+  );
+
+  tool(
+    "set_recipe_favorite",
+    {
+      title: "Mark a recipe as favorite",
+      description: "Marks or unmarks a recipe as one of the person's favorites, to use it again in later plans.",
+      inputSchema: { id: objectId, favorite: z.boolean() },
+      annotations: WRITE,
+    },
+    async (args, ctx) => {
+      const saved = await setFavorite(ctx.c, ctx.user._id, new ObjectId(args.id), args.favorite);
+      if (!saved) throw new ToolProblem("No recipe with that id.");
+      return { id: args.id, favorite: saved.favorite };
+    },
+  );
+
+  tool(
+    "delete_recipe",
+    {
+      title: "Delete a recipe",
+      description: "Deletes a recipe for good and takes it out of every plan. Confirm with the person first.",
+      inputSchema: { id: objectId },
+      annotations: DESTROY,
+    },
+    async (args, ctx) => {
+      if (!(await deleteRecipe(ctx.c, ctx.user._id, new ObjectId(args.id)))) throw new ToolProblem("No recipe with that id.");
+      return { deleted: args.id };
+    },
+  );
+
+  tool(
+    "create_diet_plan",
+    {
+      title: "Create a diet plan",
+      description:
+        "Creates a diet plan with its meals of the day and 2 or 3 recipe options for each, from what you suggest (read get_diet's preferences first) or from the person's nutritionist plan (a PDF or photo they share). Each option is an existing recipe id or a new recipe, created on the way. By default it becomes the active plan and the previous one is archived (kept). The person then picks one option per meal for the week, or you do it with choose_week.",
+      inputSchema: { ...planShape, activate: z.boolean().optional().describe("Default true") },
+      annotations: WRITE,
+    },
+    async (args, ctx) => {
+      const saved = await savePlan(ctx.c, ctx.user._id, await planInput(ctx, args), { activate: args.activate ?? true });
+      return toPlanDto(saved!);
+    },
+  );
+
+  tool(
+    "update_diet_plan",
+    {
+      title: "Change a diet plan",
+      description: "Replaces a plan's name, target and meals of the day with their options (send them all; keep each meal's id so the week's choice stays). New options can be new recipes.",
+      inputSchema: { id: objectId, ...planShape },
+      annotations: WRITE,
+    },
+    async (args, ctx) => {
+      const saved = await savePlan(ctx.c, ctx.user._id, await planInput(ctx, args), { id: new ObjectId(args.id) });
+      if (!saved) throw new ToolProblem("No diet plan with that id.");
+      return toPlanDto(saved);
+    },
+  );
+
+  tool(
+    "set_diet_plan_status",
+    {
+      title: "Activate or archive a diet plan",
+      description: "Makes a plan the active one (the others are archived) or archives it. Archived plans are kept and can come back.",
+      inputSchema: { id: objectId, status: z.enum(["active", "archived"]) },
+      annotations: WRITE,
+    },
+    async (args, ctx) => {
+      const id = new ObjectId(args.id);
+      const ok = args.status === "active" ? await activatePlan(ctx.c, ctx.user._id, id) : await archivePlan(ctx.c, ctx.user._id, id);
+      if (!ok) throw new ToolProblem("No diet plan with that id.");
+      return { id: args.id, status: args.status };
+    },
+  );
+
+  tool(
+    "delete_diet_plan",
+    {
+      title: "Delete a diet plan",
+      description: "Deletes a plan for good; its recipes stay. Confirm with the person first; archiving keeps it instead.",
+      inputSchema: { id: objectId },
+      annotations: DESTROY,
+    },
+    async (args, ctx) => {
+      if (!(await deletePlan(ctx.c, ctx.user._id, new ObjectId(args.id)))) throw new ToolProblem("No diet plan with that id.");
+      return { deleted: args.id };
+    },
+  );
+
+  tool(
+    "choose_week",
+    {
+      title: "Choose the week's meals",
+      description: "Sets which option of the active plan the person eats this week (or another week) for each meal of the day: one recipe per meal, the same every day. Meals left out keep no choice.",
+      inputSchema: {
+        week: isoDate.optional().describe("Any day of that week; default this week"),
+        choices: z.array(z.object({ slotId: z.string().describe("The meal's id from get_diet"), recipeId: objectId })).max(10),
+      },
+      annotations: WRITE,
+    },
+    async (args, ctx) => {
+      const active = await ctx.c.dietPlans.findOne({ userId: ctx.user._id, active: true });
+      if (!active) throw new ToolProblem("There is no active diet plan.");
+      const week = args.week ?? thisWeek(ctx);
+      await chooseWeek(ctx.c, ctx.user._id, week, { planId: active._id.toHexString(), choices: Object.fromEntries(args.choices.map((x) => [x.slotId, x.recipeId])) });
+      return weekOf(ctx.c, ctx.user._id, week, active);
+    },
+  );
+
+  tool(
+    "get_shopping_list",
+    {
+      title: "Shopping list",
+      description: "What to buy for the week's chosen meals: every ingredient added up across recipes, scaled to the days and servings a day (7 days and 1 serving unless the person set others), and whether it is already checked off.",
+      inputSchema: {
+        week: isoDate.optional().describe("Any day of that week; default this week"),
+        days: z.number().int().min(1).max(14).optional(),
+        servings: z.number().min(0.5).max(10).optional().describe("Servings a day of each meal"),
+      },
+      annotations: READ,
+    },
+    async (args, ctx) => {
+      const active = await ctx.c.dietPlans.findOne({ userId: ctx.user._id, active: true });
+      const week = await weekOf(ctx.c, ctx.user._id, args.week ?? thisWeek(ctx), active);
+      const ids = Object.values(week.choices).map((id) => new ObjectId(id));
+      const recipes = (await ctx.c.recipes.find({ userId: ctx.user._id, _id: { $in: ids } }).toArray()).map(toRecipeDto);
+      const days = args.days ?? week.shopping.days;
+      const servings = args.servings ?? week.shopping.servings;
+      const checked = new Set(week.shopping.checked);
+      return {
+        week: week.week,
+        days,
+        servings,
+        recipes: recipes.map((r) => r.title),
+        items: shoppingList(recipes, days, servings).map((i) => ({ ...i, checked: checked.has(i.key) })),
+      };
     },
   );
 }

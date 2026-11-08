@@ -5,7 +5,7 @@ import type { UserDto } from "../shared/schemas.ts";
 import { useMe, useMeasurements } from "./api.ts";
 import { useRememberPage } from "./backTo.ts";
 import { Controls } from "./Controls.tsx";
-import { MedalIcon, ScaleIcon } from "./icons.tsx";
+import { ForkKnifeIcon, ScaleIcon } from "./icons.tsx";
 import { useOnline } from "./offline.ts";
 import { type MessageKey, useI18n } from "./i18n.tsx";
 import { AddPage } from "./pages/Add.tsx";
@@ -28,6 +28,11 @@ const AddLabPage = lazy(() => import("./pages/Labs.tsx").then((m) => ({ default:
 const HistoryPage = lazy(() => import("./pages/History.tsx").then((m) => ({ default: m.HistoryPage })));
 const ActivityPage = lazy(() => import("./pages/Activity.tsx").then((m) => ({ default: m.ActivityPage })));
 const FoodPage = lazy(() => import("./pages/Food.tsx").then((m) => ({ default: m.FoodPage })));
+const DietPage = lazy(() => import("./pages/Diet.tsx").then((m) => ({ default: m.DietPage })));
+const ShoppingPage = lazy(() => import("./pages/Diet.tsx").then((m) => ({ default: m.ShoppingPage })));
+const RecipePage = lazy(() => import("./pages/Diet.tsx").then((m) => ({ default: m.RecipePage })));
+const RecipeFormPage = lazy(() => import("./pages/Diet.tsx").then((m) => ({ default: m.RecipeFormPage })));
+const PlanFormPage = lazy(() => import("./pages/Diet.tsx").then((m) => ({ default: m.PlanFormPage })));
 const StepsHistoryPage = lazy(() => import("./pages/Activity.tsx").then((m) => ({ default: m.StepsHistoryPage })));
 
 type Tab = { to: string; key: MessageKey; Icon: (props: { size?: number; strokeWidth?: number }) => ReactNode };
@@ -39,12 +44,12 @@ const TABS_LEFT: Tab[] = [
   { to: "/cuerpo", key: "nav.body", Icon: ScaleIcon },
 ];
 const TABS_RIGHT: Tab[] = [
+  { to: "/comida", key: "nav.food", Icon: ForkKnifeIcon },
   { to: "/actividad", key: "nav.activity", Icon: FiActivity },
-  { to: "/logros", key: "nav.achievements", Icon: MedalIcon },
 ];
 
 /** Pages opened from somewhere else: they have a way back instead of the tab bar. */
-const PUSHED = ["/agregar", "/medicion/", "/yo", "/ajustes", "/actividad/pasos", "/historial", "/estudios/", "/comida"];
+const PUSHED = ["/agregar", "/medicion/", "/yo", "/ajustes", "/actividad/pasos", "/historial", "/estudios/", "/comida/receta", "/comida/plan"];
 
 function TabLink({ tab }: { tab: Tab }) {
   const { t } = useI18n();
@@ -222,6 +227,19 @@ function SignedIn({ user }: { user: UserDto }) {
               </Suspense>
             }
           />
+          {(
+            [
+              ["/comida/dieta", <DietPage />],
+              ["/comida/super", <ShoppingPage />],
+              ["/comida/receta/nueva", <RecipeFormPage />],
+              ["/comida/receta/:id", <RecipePage />],
+              ["/comida/receta/:id/editar", <RecipeFormPage />],
+              ["/comida/plan/nuevo", <PlanFormPage />],
+              ["/comida/plan/:id/editar", <PlanFormPage />],
+            ] as const
+          ).map(([path, page]) => (
+            <Route key={path} path={path} element={<Suspense fallback={<p className="py-10 text-center text-muted">…</p>}>{page}</Suspense>} />
+          ))}
           <Route
             path="/actividad/pasos"
             element={

@@ -7,7 +7,8 @@ import { api } from "../api.ts";
 import { localIso, shiftDay, spentOf, useFood } from "../foodData.ts";
 import { useHealthDays } from "../appleHealth.tsx";
 import { type MessageKey, useI18n } from "../i18n.tsx";
-import { BackLink, Button, Callout, Card, Field, Modal, Progress, Segmented, useFormat } from "../ui.tsx";
+import { Button, Callout, Card, Field, Modal, Progress, Segmented, useFormat } from "../ui.tsx";
+import { FoodTabs, TodayPlan } from "./Diet.tsx";
 
 /** Recommended protein: 1.6 g per kg (ISSN position stand, losing fat while keeping muscle). */
 const proteinTarget = (weightKg: number) => Math.round(weightKg * 1.6);
@@ -58,11 +59,7 @@ export function FoodPage({ user, profile, measurements }: { user: UserDto; profi
 
   return (
     <div className="flex flex-col gap-3.5">
-      <BackLink to="/" label={t("food.back")} />
-      <div className="flex flex-col gap-0.5 px-1">
-        <h1 className="text-[28px] leading-8.5 font-extrabold tracking-[-0.02em]">{t("food.title")}</h1>
-        <p className="text-[13px] font-semibold text-muted">{t("food.subtitle")}</p>
-      </div>
+      <FoodTabs />
 
       <div className="flex items-center gap-2 rounded-[22px] bg-surface-2 p-1.5">
         <button
@@ -127,6 +124,8 @@ export function FoodPage({ user, profile, measurements }: { user: UserDto; profi
           </div>
         )}
       </Card>
+
+      {date === today && <TodayPlan />}
 
       <Button className="flex items-center justify-center gap-2" onClick={() => setEditing("new")}>
         <FiPlus size={18} strokeWidth={2.6} aria-hidden /> {t("food.add")}

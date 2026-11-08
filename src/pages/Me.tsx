@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, type ReactNode, useState } from "react";
 import type { IconType } from "react-icons";
-import { FiActivity, FiBarChart2, FiCalendar, FiChevronDown, FiClock, FiDroplet, FiMoon, FiPieChart, FiTarget, FiTrendingDown } from "react-icons/fi";
+import { FiActivity, FiBarChart2, FiCalendar, FiChevronDown, FiChevronRight, FiClock, FiDroplet, FiMoon, FiPieChart, FiTarget, FiTrendingDown } from "react-icons/fi";
 import { Link } from "react-router";
 import { type AgeGroup, type BodyFatAge, metabolicAge } from "../../shared/bodyAge.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
@@ -13,6 +13,7 @@ import { scoreOf } from "../../shared/score.ts";
 import { assessWaist, WHTR_BANDS } from "../../shared/waist.ts";
 import { api, useMe } from "../api.ts";
 import { useCompareXiaomi } from "../compare.ts";
+import { MedalIcon } from "../icons.tsx";
 import { type MessageKey, useI18n } from "../i18n.tsx";
 import { Avatar, BackLink, Button, Callout, Card, Field, Progress, RangeBar, Rings, SectionHeader, StatusBadge, signed, useFormat } from "../ui.tsx";
 import { convertWaist, useWaistUnit, WaistUnitToggle } from "../units.tsx";
@@ -505,6 +506,16 @@ export function MePage({ profile, measurements, goals }: { profile: ProfileDto; 
   const f = useFormat();
   const [compare] = useCompareXiaomi();
   const latest = measurements[0];
+  // Badges left the tab bar for Food; they open from here and from Today.
+  const awards = (
+    <Link to="/logros" className="flex min-h-14 items-center gap-3 rounded-3xl border border-line bg-surface px-4 py-3 text-ink shadow-card">
+      <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-soft text-brand-text">
+        <MedalIcon size={20} />
+      </span>
+      <span className="flex-1 text-[15px] font-extrabold">{t("nav.achievements")}</span>
+      <FiChevronRight size={18} className="text-muted" aria-hidden />
+    </Link>
+  );
   const top = (
     <BackLink to="/" label={t("nav.home")}>
       <Link to="/ajustes" className="inline-flex min-h-11 items-center pl-3 text-base font-bold text-brand-text">
@@ -517,6 +528,7 @@ export function MePage({ profile, measurements, goals }: { profile: ProfileDto; 
       <div className="flex flex-col gap-3.5">
         {top}
         <Identity profile={profile} measurements={measurements} />
+        {awards}
         <Card>
           <p className="font-semibold text-ink-2">{t("noMeasurementsBody")}</p>
         </Card>
@@ -556,6 +568,7 @@ export function MePage({ profile, measurements, goals }: { profile: ProfileDto; 
     <div className="flex flex-col gap-3.5">
       {top}
       <Identity profile={profile} measurements={measurements} />
+      {awards}
       {compNote && <p className="px-1 text-[13px] font-semibold text-muted">{compNote}</p>}
 
       {comp && <BodyAgeCard profile={profile} reading={comp} />}

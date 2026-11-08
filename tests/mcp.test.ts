@@ -195,6 +195,35 @@ describe("Claude connector (MCP)", () => {
     expect(day.spentKcal).toBeNull();
     expect((await agent.get("/api/food").query({ from: "2026-11-06", to: "2026-11-06" })).body).toHaveLength(2);
 
+    // A diet plan made by Claude with new recipes, the week chosen, and its shopping list.
+    await tool(access, "set_diet_preferences", { likes: "Comida mexicana", dislikes: "Hígado" });
+    const dietPlan = await tool(access, "create_diet_plan", {
+      name: "Plan de prueba",
+      author: "claude",
+      kcalTarget: 1_900,
+      slots: [
+        {
+          name: "Desayuno",
+          options: [
+            { recipe: { title: "Chilaquiles verdes", emoji: "🌶️", servings: 2, kcal: 520, ingredients: [{ qty: 200, unit: "g", item: "Totopos" }], steps: ["Hierve la salsa."] } },
+            { recipe: { title: "Molletes", servings: 1, kcal: 430, ingredients: [{ qty: 1, unit: "pz", item: "Bolillo" }] } },
+          ],
+        },
+      ],
+    });
+    expect(dietPlan.isError).toBe(false);
+    expect(dietPlan.data.active).toBe(true);
+    const slot = dietPlan.data.slots[0];
+    const chosen = await tool(access, "choose_week", { choices: [{ slotId: slot.id, recipeId: slot.options[0] }] });
+    expect(chosen.data.choices).toEqual({ [slot.id]: slot.options[0] });
+    const diet = await tool(access, "get_diet");
+    expect(diet.data.preferences.dislikes).toBe("Hígado");
+    expect(diet.data.week.kcalChosen).toBe(520);
+    const shopping = await tool(access, "get_shopping_list", {});
+    // 200 g for 2 servings, one serving a day for 7 days.
+    expect(shopping.data.items).toEqual([{ key: "totopos|g", item: "Totopos", qty: 700, unit: "g", recipes: ["Chilaquiles verdes"], checked: false }]);
+    expect((await tool(access, "choose_week", { choices: [{ slotId: slot.id, recipeId: "0123456789abcdef01234567" }] })).isError).toBe(true);
+
     const bad = await tool(access, "get_weigh_in", { id: "not-an-id" });
     expect(bad.isError).toBe(true);
 

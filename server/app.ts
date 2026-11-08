@@ -36,6 +36,7 @@ import { messages, notifyUser, type PushSender } from "./push.ts";
 import { asyncRoute, clientIp, fieldProblems, hitRateLimit, isCronRequest, peekRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
 import { type ZeppClient, ZeppError, zeppClient } from "./zepp.ts";
 import { deleteZeppDataFor, zeppRoutes } from "./zeppRoutes.ts";
+import { dietRoutes } from "./diet.ts";
 
 export interface AppOptions {
   /** Resolves the database lazily so a cold serverless start connects on first request. */
@@ -262,6 +263,9 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
         collections.healthDays.deleteMany({ userId }),
         collections.labStudies.deleteMany({ userId }),
         collections.foodEntries.deleteMany({ userId }),
+        collections.recipes.deleteMany({ userId }),
+        collections.dietPlans.deleteMany({ userId }),
+        collections.dietWeeks.deleteMany({ userId }),
         collections.oauthTokens.deleteMany({ userId }),
         collections.oauthCodes.deleteMany({ userId }),
       ]);
@@ -520,6 +524,7 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
 
   router.use(zeppRoutes({ collections: () => collections, withUser, zepp, cronSecret, push }));
   router.use(appleHealthRoutes({ collections: () => collections, withUser, push }));
+  router.use(dietRoutes({ collections: () => collections, withUser }));
 
   app.use("/api", router);
 

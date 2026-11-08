@@ -33,6 +33,16 @@ export function MedalIcon(props: IconProps) {
   );
 }
 
+/** A fork and knife: the Food tab. */
+export function ForkKnifeIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M7 3v8M4.5 3v5a2.5 2.5 0 0 0 5 0V3M7 11v10" />
+      <path d="M17 21V3c-2 1.5-3 4-3 7v3h3" />
+    </Svg>
+  );
+}
+
 /** A flame: streaks. */
 export function FlameIcon(props: IconProps) {
   return (

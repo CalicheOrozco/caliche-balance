@@ -1,4 +1,5 @@
 import { type Collection, type Db, MongoClient, type ObjectId } from "mongodb";
+import type { DietPrefs, Ingredient, PlanAuthor, PlanSlot } from "../shared/diet.ts";
 import type { FoodSource, Meal } from "../shared/food.ts";
 import type { LabResult } from "../shared/labs.ts";
 import type { HealthAttempt, HealthMetric, HealthSymptom, SleepSummary } from "../shared/health.ts";
@@ -32,6 +33,8 @@ export interface UserDoc {
   badgeLevels?: Record<string, number>;
   /** Every goal reached, appended once when it happens; missing means none yet. */
   goalHistory?: { kind: "weight" | "bodyFat"; target: number; setAt: Date; reachedAt: Date }[];
+  /** Likes and limits for the diet, read by Claude before suggesting recipes. */
+  dietPrefs?: DietPrefs;
   createdAt: Date;
 }
 
@@ -152,6 +155,57 @@ export interface FoodEntryDoc {
   createdAt: Date;
 }
 
+/** A recipe of the diet; plans point to it, so a favorite can go into a later plan. */
+export interface RecipeDoc {
+  _id: ObjectId;
+  userId: ObjectId;
+  title: string;
+  emoji: string | null;
+  imageUrl: string | null;
+  servings: number;
+  kcal: number;
+  proteinG: number | null;
+  carbsG: number | null;
+  fatG: number | null;
+  fiberG: number | null;
+  prepMin: number | null;
+  cookMin: number | null;
+  tags: string[];
+  ingredients: { qty: number | null; unit: string | null; item: Ingredient["item"] }[];
+  steps: string[];
+  note: string | null;
+  favorite: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** A diet plan: its meals of the day, each with a few recipe options. One is active at a time. */
+export interface DietPlanDoc {
+  _id: ObjectId;
+  userId: ObjectId;
+  name: string;
+  month: string | null;
+  author: PlanAuthor;
+  source: string | null;
+  kcalTarget: number | null;
+  note: string | null;
+  active: boolean;
+  slots: PlanSlot[];
+  createdAt: Date;
+}
+
+/** One week's choice (a recipe per meal of the day) and the state of its shopping list. */
+export interface DietWeekDoc {
+  _id: ObjectId;
+  userId: ObjectId;
+  /** Its Monday, YYYY-MM-DD. */
+  week: string;
+  planId: ObjectId | null;
+  choices: Record<string, string>;
+  shopping: { days: number; servings: number; checked: string[] };
+  updatedAt: Date;
+}
+
 /** A client Claude registered for the MCP connector (OAuth Dynamic Client Registration). */
 export interface OAuthClientDoc {
   client_id: string;
@@ -199,6 +253,9 @@ export interface Collections {
   healthDays: Collection<HealthDayDoc>;
   labStudies: Collection<LabStudyDoc>;
   foodEntries: Collection<FoodEntryDoc>;
+  recipes: Collection<RecipeDoc>;
+  dietPlans: Collection<DietPlanDoc>;
+  dietWeeks: Collection<DietWeekDoc>;
   oauthClients: Collection<OAuthClientDoc>;
   oauthCodes: Collection<OAuthCodeDoc>;
   oauthTokens: Collection<OAuthTokenDoc>;
@@ -216,6 +273,9 @@ export function collections(db: Db): Collections {
     healthDays: db.collection("healthDays"),
     labStudies: db.collection("labStudies"),
     foodEntries: db.collection("foodEntries"),
+    recipes: db.collection("recipes"),
+    dietPlans: db.collection("dietPlans"),
+    dietWeeks: db.collection("dietWeeks"),
     oauthClients: db.collection("oauthClients"),
     oauthCodes: db.collection("oauthCodes"),
     oauthTokens: db.collection("oauthTokens"),
@@ -244,6 +304,9 @@ export async function ensureIndexes(c: Collections): Promise<void> {
     c.healthDays.createIndex({ userId: 1, date: 1 }, { unique: true }),
     c.labStudies.createIndex({ userId: 1, takenAt: -1 }),
     c.foodEntries.createIndex({ userId: 1, date: -1, time: 1 }),
+    c.recipes.createIndex({ userId: 1, updatedAt: -1 }),
+    c.dietPlans.createIndex({ userId: 1, createdAt: -1 }),
+    c.dietWeeks.createIndex({ userId: 1, week: -1 }, { unique: true }),
     // The MCP connector's sign-in: everything expires on its own.
     c.oauthClients.createIndex({ client_id: 1 }, { unique: true }),
     c.oauthClients.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
