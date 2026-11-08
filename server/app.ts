@@ -184,6 +184,31 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
     }),
   );
 
+  router.put(
+    "/me/password",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const body = z
+        .object({ currentPassword: z.string().min(1).max(200), newPassword: credentialsSchema.shape.password })
+        .parse(req.body);
+      const user = req.user!;
+      // Same lock as signing in: someone with the phone unlocked cannot guess the password forever.
+      const key = `password:${user._id.toHexString()}`;
+      const current = await peekRateLimit(collections, key, LOGIN_ATTEMPTS);
+      if (current?.limited) return sendRateLimited(res, current);
+      if (!(await verifyPassword(user.passwordHash, body.currentPassword))) {
+        const limit = await hitRateLimit(collections, key, LOGIN_ATTEMPTS, LOGIN_WINDOW_MS);
+        if (limit.limited) return sendRateLimited(res, limit);
+        return res.status(401).json({ error: "wrong-password", attemptsLeft: limit.remaining });
+      }
+      await collections.users.updateOne({ _id: user._id }, { $set: { passwordHash: await hashPassword(body.newPassword) } });
+      // Every other device signs out, in case the old password was known to someone; this one stays.
+      await collections.sessions.deleteMany({ userId: user._id });
+      await startSession(collections, res, user._id, secureCookies);
+      res.json(toUserDto(user));
+    }),
+  );
+
   router.post(
     "/auth/logout",
     asyncRoute(async (req, res) => {

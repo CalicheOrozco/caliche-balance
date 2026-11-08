@@ -226,6 +226,28 @@ describe("Caliche Balance API", () => {
     expect((await other.patch(`/api/measurements/${plain.body.id}/waist`).send({ waist: 80 })).status).toBe(404);
   });
 
+  it("changes the password with the current one and signs out other devices", async () => {
+    const phone = request.agent(app);
+    const laptop = request.agent(app);
+    await phone.post("/api/auth/register").send({ username: "pablo", password: "contraseña-vieja" });
+    await laptop.post("/api/auth/login").send({ username: "pablo", password: "contraseña-vieja" });
+
+    const wrong = await phone.put("/api/me/password").send({ currentPassword: "no-es-esta", newPassword: "contraseña-nueva" });
+    expect(wrong.status).toBe(401);
+    expect(wrong.body.error).toBe("wrong-password");
+    expect((await phone.put("/api/me/password").send({ currentPassword: "contraseña-vieja", newPassword: "corta" })).status).toBe(400);
+
+    const changed = await phone.put("/api/me/password").send({ currentPassword: "contraseña-vieja", newPassword: "contraseña-nueva" });
+    expect(changed.status).toBe(200);
+    // This device stays signed in; the other one is signed out.
+    expect((await phone.get("/api/me")).status).toBe(200);
+    expect((await laptop.get("/api/me")).status).toBe(401);
+
+    expect((await request(app).post("/api/auth/login").send({ username: "pablo", password: "contraseña-vieja" })).status).toBe(401);
+    expect((await request(app).post("/api/auth/login").send({ username: "pablo", password: "contraseña-nueva" })).status).toBe(200);
+    expect((await request(app).put("/api/me/password").send({ currentPassword: "x", newPassword: "contraseña-otra" })).status).toBe(401);
+  });
+
   it("stores, trims and removes a note on a reading", async () => {
     const agent = request.agent(app);
     await agent.post("/api/auth/register").send({ username: "nora", password: "contraseña-nora" });

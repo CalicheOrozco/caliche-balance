@@ -21,7 +21,7 @@ import { type MessageKey, useI18n } from "../i18n.tsx";
 import { DatePicker } from "../DatePicker.tsx";
 import { type ThemeChoice, useTheme } from "../theme.ts";
 import { useZeppStatus, ZeppHouseholdCard, ZeppScaleCard } from "./Zepp.tsx";
-import { AppVersion, Avatar, BackLink, Button, Card, Field, Segmented, Toggle, useFormat } from "../ui.tsx";
+import { AppVersion, Avatar, BackLink, Button, Card, Field, PasswordField, Segmented, Toggle, useFormat } from "../ui.tsx";
 
 /** Profile form; also the first screen after registering, when the profile is still empty. */
 export function ProfileForm({ user, onSaved }: { user: UserDto; onSaved?: () => void }) {
@@ -676,13 +676,79 @@ function Appearance() {
   );
 }
 
-type View = "perfil" | "metas" | "zepp" | "salud" | "casa";
-const VIEWS: View[] = ["perfil", "metas", "zepp", "salud", "casa"];
+/** The account: for now, changing the password. */
+function AccountRows() {
+  const { t } = useI18n();
+  return (
+    <Group title={t("set.account")}>
+      <Row icon={FiLock} tone="gray" label={t("set.password")} sub={t("set.passwordSub")} to="#contrasena" />
+    </Group>
+  );
+}
+
+/**
+ * Changes the password with the current one. The server signs out every other device and keeps
+ * this one signed in; the recovery code does not change.
+ */
+function PasswordForm() {
+  const { t, te } = useI18n();
+  const queryClient = useQueryClient();
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [repeat, setRepeat] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const save = useMutation({
+    mutationFn: () => api.changePassword(current, next),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(["me"], saved);
+      setCurrent("");
+      setNext("");
+      setRepeat("");
+      setDone(true);
+    },
+    onError: (e) => setProblem(te(e)),
+  });
+  return (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(e: FormEvent) => {
+        e.preventDefault();
+        setDone(false);
+        if (next !== repeat) return setProblem(t("set.passwordMismatch"));
+        if (next === current) return setProblem(t("set.passwordSame"));
+        setProblem(null);
+        save.mutate();
+      }}
+    >
+      <p className="text-sm font-semibold text-ink-2">{t("set.passwordIntro")}</p>
+      <PasswordField label={t("set.passwordCurrent")} autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
+      <PasswordField
+        label={t("set.passwordNew")}
+        autoComplete="new-password"
+        help={t("passwordHelp")}
+        minLength={8}
+        value={next}
+        onChange={(e) => setNext(e.target.value)}
+        required
+      />
+      <PasswordField label={t("set.passwordConfirm")} autoComplete="new-password" minLength={8} value={repeat} onChange={(e) => setRepeat(e.target.value)} required />
+      {problem && <p className="text-sm font-semibold text-bad-text">{problem}</p>}
+      {done && <p className="rounded-2xl bg-good-soft px-4 py-3 text-sm font-semibold text-good-text">{t("set.passwordDone")}</p>}
+      <Button type="submit" disabled={save.isPending || !current || !next || !repeat}>
+        {t("set.passwordSave")}
+      </Button>
+    </form>
+  );
+}
+
+type View = "perfil" | "metas" | "zepp" | "salud" | "casa" | "contrasena";
+const VIEWS: View[] = ["perfil", "metas", "zepp", "salud", "casa", "contrasena"];
 
 /** One setting opened from the list: a way back to Settings and the full editor. */
 function SubView({ view, user }: { view: View; user: UserDto }) {
   const { t } = useI18n();
-  const title: Record<View, MessageKey> = { perfil: "profileTitle", metas: "goalsTitle", zepp: "zeppTitle", salud: "ahTitle", casa: "household" };
+  const title: Record<View, MessageKey> = { perfil: "profileTitle", metas: "goalsTitle", zepp: "zeppTitle", salud: "ahTitle", casa: "household", contrasena: "set.passwordTitle" };
   return (
     <div className="flex flex-col gap-3.5">
       <BackLink to="/ajustes" label={t("nav.settings")} />
@@ -705,6 +771,11 @@ function SubView({ view, user }: { view: View; user: UserDto }) {
       {view === "zepp" && <ZeppScaleCard />}
       {view === "salud" && <AppleHealthCard user={user} />}
       {view === "casa" && <ZeppHouseholdCard />}
+      {view === "contrasena" && (
+        <Card>
+          <PasswordForm />
+        </Card>
+      )}
     </div>
   );
 }
@@ -758,6 +829,7 @@ export function SettingsPage({ user }: { user: UserDto }) {
       <NotificationRows user={user} />
       <PreferenceRows user={user} />
       <Appearance />
+      <AccountRows />
 
       <section className="mt-4.5 overflow-hidden rounded-[22px] border border-line bg-surface">
         <button type="button" onClick={() => signOut(api.logout)} className="min-h-14 w-full text-[15px] font-bold text-ink">

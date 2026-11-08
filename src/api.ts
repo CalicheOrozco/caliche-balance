@@ -44,6 +44,7 @@ export const api = {
   pushSubscribe: (subscription: PushSubscriptionJSON) => call<void>("POST", "/push/subscribe", subscription),
   pushUnsubscribe: (endpoint: string) => call<void>("DELETE", "/push/subscribe", { endpoint }),
   pushTest: () => call<{ sent: number }>("POST", "/push/test"),
+  changePassword: (currentPassword: string, newPassword: string) => call<UserDto>("PUT", "/me/password", { currentPassword, newPassword }),
   deleteAccount: () => call<void>("DELETE", "/me"),
   measurements: () => call<MeasurementDto[]>("GET", "/measurements?limit=1000"),
   createHealthKey: () => call<{ key: string; status: AppleHealthStatus }>("POST", "/me/apple-health/key"),
