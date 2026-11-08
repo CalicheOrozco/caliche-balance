@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { FiAlertCircle, FiCheck, FiChevronDown, FiChevronRight, FiCopy, FiDownload, FiHeart, FiInfo, FiMoon } from "react-icons/fi";
 import { Link } from "react-router";
 import { healthTargets, type PersonFacts } from "../shared/healthReference.ts";
@@ -463,24 +463,70 @@ const CHART_ROWS = ["awake", "rem", "core", "deep"] as const;
 
 /**
  * The night stage by stage over time, like Apple Health's: a row per stage, a bar for each stretch,
- * and the hours underneath.
+ * and the hours underneath. Touching, dragging or hovering over it shows, as in Apple Health, the
+ * stage at that moment with its stretch and how long it lasted; arrow keys step from one stretch
+ * to the next.
  */
 function SleepChart({ segments }: { segments: SleepSegment[] }) {
   const { t, tf, locale } = useI18n();
+  const [at, setAt] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const clock = (ms: number) => new Date(ms).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
   if (segments.length === 0) return null;
-  const from = Date.parse(segments[0]!.start);
-  const to = Math.max(...segments.map((x) => Date.parse(x.end)));
+  const spans = segments.map((seg) => ({ stage: seg.stage === "asleep" ? ("core" as const) : seg.stage, s: Date.parse(seg.start), e: Date.parse(seg.end) }));
+  const from = spans[0]!.s;
+  const to = Math.max(...spans.map((x) => x.e));
   const W = 280;
   const ROW = 24;
   const BAR = 16;
   const H = ROW * CHART_ROWS.length - (ROW - BAR);
   const x = (ms: number) => ((ms - from) / (to - from)) * W;
-  const rowOf = (stage: SleepSegment["stage"]) => CHART_ROWS.indexOf(stage === "asleep" ? "core" : stage);
+  const rowOf = (stage: (typeof spans)[number]["stage"]) => CHART_ROWS.indexOf(stage);
   // Start, end and two times in between.
   const marks = [0, 1 / 3, 2 / 3, 1].map((k) => from + k * (to - from));
+  const current = at === null ? -1 : spans.findIndex((sp) => at >= sp.s && at < sp.e);
+  const picked = current >= 0 ? spans[current]! : null;
+
+  const timeAt = (clientX: number) => {
+    const box = svgRef.current?.getBoundingClientRect();
+    if (!box || box.width === 0) return null;
+    const k = Math.min(1, Math.max(0, (clientX - box.left) / box.width));
+    return from + k * (to - from);
+  };
+  const follow = (e: React.PointerEvent) => {
+    // A mouse follows on hover; a finger on touch and while dragging.
+    if (e.pointerType === "mouse" || e.buttons > 0 || e.type === "pointerdown") setAt(timeAt(e.clientX));
+  };
+  const step = (e: React.KeyboardEvent) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft" && e.key !== "Escape") return;
+    e.preventDefault();
+    if (e.key === "Escape") return setAt(null);
+    const next = current < 0 ? (e.key === "ArrowRight" ? 0 : spans.length - 1) : Math.min(spans.length - 1, Math.max(0, current + (e.key === "ArrowRight" ? 1 : -1)));
+    setAt(spans[next]!.s);
+  };
+
   return (
     <div className="flex flex-col gap-2">
+      {/* Fixed height, so the chart does not jump while reading it. */}
+      <div className="flex min-h-10 flex-col justify-center pl-16.5" aria-live="polite">
+        {at === null ? (
+          <span className="text-xs font-semibold text-muted">{t("act.sleepChartHint")}</span>
+        ) : picked ? (
+          <>
+            <span className="flex items-center gap-1.5 text-sm font-extrabold">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ background: STAGE_FILL[picked.stage] }} aria-hidden />
+              {t(`sleepStage.${picked.stage}` as MessageKey)} · {clock(at)}
+            </span>
+            <span className="text-xs font-semibold text-muted">
+              {tf("act.sleepChartSpan", { start: clock(picked.s), end: clock(picked.e), duration: hoursText((picked.e - picked.s) / 60_000) })}
+            </span>
+          </>
+        ) : (
+          <span className="text-sm font-extrabold">
+            {clock(at)} · <span className="text-muted">{t("act.sleepChartGap")}</span>
+          </span>
+        )}
+      </div>
       <div className="flex gap-2">
         <div className="flex w-14.5 shrink-0 flex-col justify-between text-[10px] font-bold text-muted" style={{ height: H }} aria-hidden>
           {CHART_ROWS.map((r) => (
@@ -489,22 +535,36 @@ function SleepChart({ segments }: { segments: SleepSegment[] }) {
             </span>
           ))}
         </div>
-        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="min-w-0 flex-1" style={{ height: H }} role="img" aria-label={t("act.sleepChartRows")}>
-          {segments.map((seg, i) => {
-            const s = Date.parse(seg.start);
-            const e = Date.parse(seg.end);
-            return (
-              <rect key={i} x={x(s)} y={rowOf(seg.stage) * ROW} width={Math.max(x(e) - x(s) - 1, 2)} height={BAR} rx={4} fill={STAGE_FILL[seg.stage]}>
-                <title>
-                  {tf("sleepSegmentSpan", {
-                    stage: t(`sleepStage.${seg.stage === "asleep" ? "core" : seg.stage}` as MessageKey),
-                    start: clock(s),
-                    end: clock(e),
-                  })}
-                </title>
-              </rect>
-            );
-          })}
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          preserveAspectRatio="none"
+          className="min-w-0 flex-1 cursor-crosshair touch-pan-y outline-none"
+          style={{ height: H }}
+          role="img"
+          tabIndex={0}
+          aria-label={t("act.sleepChartRows")}
+          onPointerDown={follow}
+          onPointerMove={follow}
+          onPointerLeave={(e) => e.pointerType === "mouse" && setAt(null)}
+          onKeyDown={step}
+          onBlur={() => setAt(null)}
+        >
+          {spans.map((sp, i) => (
+            <rect
+              key={i}
+              x={x(sp.s)}
+              y={rowOf(sp.stage) * ROW}
+              width={Math.max(x(sp.e) - x(sp.s) - 1, 2)}
+              height={BAR}
+              rx={4}
+              fill={STAGE_FILL[sp.stage]}
+              opacity={current < 0 || i === current ? 1 : 0.35}
+            >
+              <title>{tf("sleepSegmentSpan", { stage: t(`sleepStage.${sp.stage}` as MessageKey), start: clock(sp.s), end: clock(sp.e) })}</title>
+            </rect>
+          ))}
+          {at !== null && <line x1={x(at)} x2={x(at)} y1={0} y2={H} stroke="var(--ink)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" opacity={0.8} />}
         </svg>
       </div>
       <div className="flex justify-between pl-16.5 text-[11px] font-semibold text-muted" aria-hidden>
