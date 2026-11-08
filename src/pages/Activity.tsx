@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
 import { FiCheck, FiChevronDown, FiChevronLeft, FiChevronRight, FiSettings } from "react-icons/fi";
 import { Link } from "react-router";
 import type { HealthDayDto } from "../../shared/health.ts";
@@ -554,11 +554,10 @@ export function ActivityPage({ user }: { user: UserDto }) {
   );
 }
 
-/** Days kept by the server, a little over a year. */
 /** Every day the app has, back to the oldest brought in from the Health export (about ten years). */
 const HISTORY_DAYS = 3_700;
 
-type StepsView = "days" | "weeks" | "months";
+type StepsView = "days" | "weeks" | "months" | "years";
 
 /** Monday of a "yyyy-MM-dd" day, as "yyyy-MM-dd". */
 function mondayOf(date: string): string {
@@ -612,12 +611,18 @@ export function StepsHistoryPage({ user }: { user: UserDto }) {
           return { key: w.key, axis: label, name: tf("act.stepsWeekAvg", { date: label }), value: Math.round(w.avg) };
         });
     }
-    return groupSteps(days, (d) => d.slice(0, 7)).map((m) => ({
-      key: m.key,
-      axis: new Date(`${m.key}-15T12:00:00`).toLocaleDateString(locale, { month: "narrow" }),
-      name: tf("act.stepsMonthAvg", { month: monthName(m.key) }),
-      value: Math.round(m.avg),
-    }));
+    if (view === "years") {
+      return groupSteps(days, (d) => d.slice(0, 4)).map((y) => ({ key: y.key, axis: y.key, name: tf("act.stepsYearAvg", { year: y.key }), value: Math.round(y.avg) }));
+    }
+    // The last 12 months; older ones are in the list below and in the years view.
+    return groupSteps(days, (d) => d.slice(0, 7))
+      .slice(-12)
+      .map((m) => ({
+        key: m.key,
+        axis: new Date(`${m.key}-15T12:00:00`).toLocaleDateString(locale, { month: "narrow" }),
+        name: tf("act.stepsMonthAvg", { month: monthName(m.key) }),
+        value: Math.round(m.avg),
+      }));
   }, [view, days, locale]);
 
   const header = (
@@ -666,21 +671,28 @@ export function StepsHistoryPage({ user }: { user: UserDto }) {
           { value: "days", label: t("act.stepsViewDays") },
           { value: "weeks", label: t("act.stepsViewWeeks") },
           { value: "months", label: t("act.stepsViewMonths") },
+          { value: "years", label: t("act.stepsViewYears") },
         ]}
       />
       <StepBars
         bars={bars}
         goal={goal}
         title={t("act.stepsTitle")}
-        aside={view === "days" ? t("act.stepsLast30") : view === "weeks" ? t("act.stepsViewWeeks") : t("act.stepsViewMonths")}
+        aside={view === "days" ? t("act.stepsLast30") : view === "weeks" ? t("act.stepsViewWeeks") : view === "months" ? t("act.stepsLast12") : t("act.stepsViewYears")}
         alwaysName
         pickedTitle={(b) => (view === "days" ? tf("act.stepsOn", { day: b.name }) : b.name)}
-        hint={view === "days" ? t("act.stepsHint") : view === "weeks" ? t("act.stepsHintWeeks") : t("act.stepsHintMonths")}
+        hint={view === "days" ? t("act.stepsHint") : view === "weeks" ? t("act.stepsHintWeeks") : view === "months" ? t("act.stepsHintMonths") : t("act.stepsHintYears")}
         labelEvery={view === "days" ? 5 : view === "weeks" ? 4 : 1}
       />
       <div className="grid grid-cols-2 gap-3">
         {stat(t("act.stepsStatAvg"), f.number(total / days.length, 0))}
-        {stat(t("act.stepsStatBest"), f.number(best.steps!, 0), dayName(best.date))}
+        {stat(
+          t("act.stepsStatBest"),
+          f.number(best.steps!, 0),
+          best.date.slice(0, 4) === todayIso.slice(0, 4)
+            ? dayName(best.date)
+            : new Date(`${best.date}T12:00:00`).toLocaleDateString(locale, { weekday: "long", day: "numeric", month: "short", year: "numeric" }),
+        )}
         {stat(t("act.stepsStatGoal"), tf("act.stepsStatGoalValue", { n: f.number(atGoal, 0), total: f.number(days.length, 0) }), `${Math.round((atGoal / days.length) * 100)} %`)}
         {stat(t("act.stepsStatTotal"), f.number(total, 0))}
       </div>
@@ -690,35 +702,52 @@ export function StepsHistoryPage({ user }: { user: UserDto }) {
         {months.map((m, i) => {
           const monthDays = days.filter((d) => d.date.startsWith(m.key)).reverse();
           const hits = monthDays.filter((d) => d.steps! >= goal).length;
+          const year = m.key.slice(0, 4);
+          // Each year opens with its own summary.
+          const yearDays = i === 0 || months[i - 1]!.key.slice(0, 4) !== year ? days.filter((d) => d.date.startsWith(year)) : null;
           return (
-            <details key={m.key} open={i === 0} className="group overflow-hidden rounded-3xl border border-line bg-surface shadow-card">
-              <summary className="flex min-h-16 cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="text-[15px] font-extrabold first-letter:uppercase">{monthName(m.key)}</span>
+            <Fragment key={m.key}>
+              {yearDays && (
+                <div className="flex items-baseline justify-between gap-3 px-1 pt-2">
+                  <span className="text-lg font-extrabold">{year}</span>
                   <span className="text-xs font-semibold text-muted">
-                    {tf("act.stepsMonthSummary", { avg: f.number(m.avg, 0), n: hits, total: monthDays.length })}
+                    {tf("act.stepsMonthSummary", {
+                      avg: f.number(yearDays.reduce((s, d) => s + d.steps!, 0) / yearDays.length, 0),
+                      n: f.number(yearDays.filter((d) => d.steps! >= goal).length, 0),
+                      total: f.number(yearDays.length, 0),
+                    })}
                   </span>
-                </span>
-                <FiChevronDown size={18} strokeWidth={2.4} className="shrink-0 text-muted transition group-open:rotate-180" aria-hidden />
-              </summary>
-              <ul>
-                {monthDays.map((d) => {
-                  const hit = d.steps! >= goal;
-                  return (
-                    <li key={d.date} className="flex min-h-12 items-center gap-3 border-t border-line px-4 py-2">
-                      <span className="min-w-0 flex-1 text-sm font-semibold text-ink-2 first-letter:uppercase">{dayName(d.date)}</span>
-                      <span className="text-[15px] font-extrabold">{f.number(d.steps!, 0)}</span>
-                      <span
-                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${hit ? "bg-good-soft text-good-text" : ""}`}
-                        title={hit ? t("act.stepsAtGoal") : undefined}
-                      >
-                        {hit && <FiCheck size={13} strokeWidth={3} aria-label={t("act.stepsAtGoal")} />}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </details>
+                </div>
+              )}
+              <details open={i === 0} className="group overflow-hidden rounded-3xl border border-line bg-surface shadow-card">
+                <summary className="flex min-h-16 cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="text-[15px] font-extrabold first-letter:uppercase">{monthName(m.key)}</span>
+                    <span className="text-xs font-semibold text-muted">
+                      {tf("act.stepsMonthSummary", { avg: f.number(m.avg, 0), n: hits, total: monthDays.length })}
+                    </span>
+                  </span>
+                  <FiChevronDown size={18} strokeWidth={2.4} className="shrink-0 text-muted transition group-open:rotate-180" aria-hidden />
+                </summary>
+                <ul>
+                  {monthDays.map((d) => {
+                    const hit = d.steps! >= goal;
+                    return (
+                      <li key={d.date} className="flex min-h-12 items-center gap-3 border-t border-line px-4 py-2">
+                        <span className="min-w-0 flex-1 text-sm font-semibold text-ink-2 first-letter:uppercase">{dayName(d.date)}</span>
+                        <span className="text-[15px] font-extrabold">{f.number(d.steps!, 0)}</span>
+                        <span
+                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${hit ? "bg-good-soft text-good-text" : ""}`}
+                          title={hit ? t("act.stepsAtGoal") : undefined}
+                        >
+                          {hit && <FiCheck size={13} strokeWidth={3} aria-label={t("act.stepsAtGoal")} />}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </details>
+            </Fragment>
           );
         })}
       </div>

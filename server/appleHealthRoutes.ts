@@ -79,7 +79,8 @@ export function appleHealthRoutes({ collections, withUser, push }: Context) {
     "/me/apple-health/days",
     withUser(),
     asyncRoute(async (req, res) => {
-      const days = z.coerce.number().int().min(1).max(MAX_DAYS).catch(90).parse(req.query.days);
+      // More than the server keeps gets all it keeps, not the default.
+      const days = Math.min(z.coerce.number().int().min(1).catch(90).parse(req.query.days), MAX_DAYS);
       const docs = await collections().healthDays.find({ userId: req.user!._id }).sort({ date: -1 }).limit(days).toArray();
       res.json(docs.reverse().map(toHealthDayDto));
     }),
