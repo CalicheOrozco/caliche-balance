@@ -373,7 +373,7 @@ export function AchievementsPage({ user, profile }: { user: UserDto; profile: Pr
       )}
 
       <SectionHeader title={t("aw.yourBadges")} />
-      <div role="radiogroup" aria-label={t("aw.categories")} className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
+      <div role="radiogroup" aria-label={t("aw.categories")} className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 mask-[linear-gradient(to_right,black_calc(100%-40px),transparent)] after:w-6 after:shrink-0 after:content-['']">
         {(["all", ...groups] as const).map((g) => {
           const on = category === g;
           return (
