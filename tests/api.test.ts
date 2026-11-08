@@ -248,6 +248,33 @@ describe("Caliche Balance API", () => {
     expect((await request(app).put("/api/me/password").send({ currentPassword: "x", newPassword: "contraseña-otra" })).status).toBe(401);
   });
 
+  it("saves, lists, replaces and deletes lab studies, only for their owner", async () => {
+    const agent = request.agent(app);
+    await agent.post("/api/auth/register").send({ username: "lucia", password: "contraseña-lucia" });
+    const study = {
+      takenAt: "2026-03-15",
+      lab: "Salud Digna",
+      results: [{ key: "glucose", name: "Glucosa", group: "blood", value: 95, text: null, unit: "mg/dL", ref: "74.0 - 106.0", flagged: false }],
+    };
+    const saved = await agent.post("/api/labs").send(study);
+    expect(saved.status).toBe(201);
+    // Reading the same PDF again replaces the study instead of adding a copy.
+    const again = await agent.post("/api/labs").send({ ...study, results: [{ ...study.results[0], value: 96 }] });
+    expect(again.body.id).toBe(saved.body.id);
+    const list = await agent.get("/api/labs");
+    expect(list.body).toHaveLength(1);
+    expect(list.body[0].results[0].value).toBe(96);
+
+    expect((await agent.post("/api/labs").send({ ...study, results: [] })).status).toBe(400);
+
+    const other = request.agent(app);
+    await other.post("/api/auth/register").send({ username: "mateo", password: "contraseña-mateo" });
+    expect((await other.get("/api/labs")).body).toHaveLength(0);
+    expect((await other.delete(`/api/labs/${saved.body.id}`)).status).toBe(404);
+    expect((await agent.delete(`/api/labs/${saved.body.id}`)).status).toBe(204);
+    expect((await agent.get("/api/labs")).body).toHaveLength(0);
+  });
+
   it("stores, trims and removes a note on a reading", async () => {
     const agent = request.agent(app);
     await agent.post("/api/auth/register").send({ username: "nora", password: "contraseña-nora" });

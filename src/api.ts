@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { LabStudyDto, LabStudyInput } from "../shared/labs.ts";
 import type { Achievements } from "../shared/achievements.ts";
 import type { AppleHealthStatus, HealthDayDto } from "../shared/health.ts";
 import type { RewardKind } from "../shared/schemas.ts";
@@ -58,6 +59,9 @@ export const api = {
   setWaist: (id: string, waist: string | null, waistUnit: "cm" | "in") =>
     call<MeasurementDto>("PATCH", `/measurements/${id}/waist`, { waist, waistUnit }),
   setNote: (id: string, note: string | null) => call<MeasurementDto>("PATCH", `/measurements/${id}/note`, { note }),
+  labs: () => call<LabStudyDto[]>("GET", "/labs"),
+  saveLab: (study: LabStudyInput) => call<LabStudyDto>("POST", "/labs", study),
+  deleteLab: (id: string) => call<void>("DELETE", `/labs/${id}`),
   zeppStatus: () => call<ZeppStatusDto>("GET", "/zepp"),
   zeppConnect: (appToken: string, zeppUserId: string) =>
     call<ZeppStatusDto & { imported: number }>("POST", "/zepp/connect", { appToken, zeppUserId }),

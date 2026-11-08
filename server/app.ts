@@ -27,7 +27,8 @@ import {
   startSession,
   verifyPassword,
 } from "./auth.ts";
-import type { Collections, UserDoc } from "./db.ts";
+import type { Collections, LabStudyDoc, UserDoc } from "./db.ts";
+import { type LabStudyDto, labStudyInputSchema } from "../shared/labs.ts";
 import { bodyFatOf } from "../shared/composition.ts";
 import { isTimeZone } from "../shared/achievements.ts";
 import { maintainRange } from "../shared/goals.ts";
@@ -57,6 +58,10 @@ export interface AppOptions {
 const MAX_MEASUREMENTS_PAGE = 1000;
 const LOGIN_ATTEMPTS = 10;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+
+function toLabStudyDto(doc: LabStudyDoc): LabStudyDto {
+  return { id: doc._id.toHexString(), takenAt: doc.takenAt, lab: doc.lab, results: doc.results };
+}
 
 function toUserDto(user: UserDoc): UserDto {
   const g = user.goals;
@@ -288,6 +293,7 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
         collections.sessions.deleteMany({ userId }),
         collections.pushSubscriptions.deleteMany({ userId }),
         collections.healthDays.deleteMany({ userId }),
+        collections.labStudies.deleteMany({ userId }),
       ]);
       await collections.users.deleteOne({ _id: userId });
       res.clearCookie("cb_session", { path: "/" });
@@ -378,6 +384,40 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
     asyncRoute(async (req, res) => {
       const id = z.string().regex(/^[0-9a-f]{24}$/).parse(req.params.id);
       const result = await collections.measurements.deleteOne({ _id: new ObjectId(id), userId: req.user!._id });
+      res.status(result.deletedCount ? 204 : 404).end();
+    }),
+  );
+
+  router.get(
+    "/labs",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const docs = await collections.labStudies.find({ userId: req.user!._id }).sort({ takenAt: -1, createdAt: -1 }).limit(100).toArray();
+      res.json(docs.map(toLabStudyDto));
+    }),
+  );
+
+  router.post(
+    "/labs",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const input = labStudyInputSchema.parse(req.body);
+      // The same study saved twice (the same PDF read again) replaces the first copy.
+      const saved = await collections.labStudies.findOneAndUpdate(
+        { userId: req.user!._id, takenAt: input.takenAt, lab: input.lab },
+        { $set: { results: input.results }, $setOnInsert: { _id: new ObjectId(), userId: req.user!._id, takenAt: input.takenAt, lab: input.lab, createdAt: new Date() } },
+        { upsert: true, returnDocument: "after" },
+      );
+      res.status(201).json(toLabStudyDto(saved!));
+    }),
+  );
+
+  router.delete(
+    "/labs/:id",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const id = z.string().regex(/^[0-9a-f]{24}$/).parse(req.params.id);
+      const result = await collections.labStudies.deleteOne({ _id: new ObjectId(id), userId: req.user!._id });
       res.status(result.deletedCount ? 204 : 404).end();
     }),
   );

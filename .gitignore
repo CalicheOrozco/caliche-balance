@@ -9,3 +9,6 @@ dist/
 
 # Design exports from Claude Design (large, not part of the app)
 *rediseño.html
+
+# Personal documents dropped in the project folder (lab results, etc.)
+/*.pdf

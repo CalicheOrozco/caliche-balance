@@ -1,4 +1,5 @@
 import { type Collection, type Db, MongoClient, type ObjectId } from "mongodb";
+import type { LabResult } from "../shared/labs.ts";
 import type { HealthAttempt, HealthMetric, HealthSymptom, SleepSummary } from "../shared/health.ts";
 import type { BodyFatGoal, MaintainGoal, ProfileDto, RewardKind, WeightGoal } from "../shared/schemas.ts";
 
@@ -119,6 +120,17 @@ export type HealthDayDoc = {
   updatedAt: Date;
 } & Partial<Record<HealthMetric, number | null>>;
 
+/** One lab study (blood and urine tests) with every result as the lab printed it. */
+export interface LabStudyDoc {
+  _id: ObjectId;
+  userId: ObjectId;
+  /** The day the samples were taken, YYYY-MM-DD. */
+  takenAt: string;
+  lab: string;
+  results: LabResult[];
+  createdAt: Date;
+}
+
 export interface Collections {
   users: Collection<UserDoc>;
   sessions: Collection<SessionDoc>;
@@ -128,6 +140,7 @@ export interface Collections {
   zeppMembers: Collection<ZeppMemberDoc>;
   pushSubscriptions: Collection<PushSubscriptionDoc>;
   healthDays: Collection<HealthDayDoc>;
+  labStudies: Collection<LabStudyDoc>;
 }
 
 export function collections(db: Db): Collections {
@@ -140,6 +153,7 @@ export function collections(db: Db): Collections {
     zeppMembers: db.collection("zeppMembers"),
     pushSubscriptions: db.collection("pushSubscriptions"),
     healthDays: db.collection("healthDays"),
+    labStudies: db.collection("labStudies"),
   };
 }
 
@@ -163,6 +177,7 @@ export async function ensureIndexes(c: Collections): Promise<void> {
     c.pushSubscriptions.createIndex({ userId: 1 }),
     // One row per person per local day; the Shortcut's key is looked up by its hash.
     c.healthDays.createIndex({ userId: 1, date: 1 }, { unique: true }),
+    c.labStudies.createIndex({ userId: 1, takenAt: -1 }),
     c.users.createIndex({ "appleHealth.keyHash": 1 }, { unique: true, partialFilterExpression: { "appleHealth.keyHash": { $type: "string" } } }),
   ]);
 }

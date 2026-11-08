@@ -15,7 +15,7 @@ const KEY = "caliche-balance-offline";
 /** Bump when the shape of stored data changes; older copies are discarded. */
 export const OFFLINE_VERSION = "2"; // 2: the user now carries goals
 export const OFFLINE_MAX_AGE_MS = OFFLINE_DAYS * 24 * 60 * 60 * 1000;
-export const PERSISTED_QUERIES = new Set(["me", "measurements"]);
+export const PERSISTED_QUERIES = new Set(["me", "measurements", "labs"]);
 
 /**
  * Keeps the last three months, plus the newest weigh-in and the newest one with body composition

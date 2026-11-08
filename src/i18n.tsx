@@ -3,6 +3,7 @@ import { describeError } from "./api.ts";
 import { activityCopy } from "./copy/activity.ts";
 import { bodyCopy } from "./copy/body.ts";
 import { homeCopy } from "./copy/home.ts";
+import { labsCopy } from "./copy/labs.ts";
 import { meCopy } from "./copy/me.ts";
 import { shellCopy } from "./copy/shell.ts";
 
@@ -805,7 +806,7 @@ const baseEs = {
  * Text added with the 2026 redesign lives in src/copy, one file per area of the app, each with
  * both languages side by side.
  */
-const es = { ...baseEs, ...shellCopy.es, ...homeCopy.es, ...bodyCopy.es, ...activityCopy.es, ...meCopy.es };
+const es = { ...baseEs, ...shellCopy.es, ...homeCopy.es, ...bodyCopy.es, ...activityCopy.es, ...meCopy.es, ...labsCopy.es };
 
 type Messages = typeof es;
 export type MessageKey = { [K in keyof Messages]: Messages[K] extends string ? K : never }[keyof Messages];
@@ -1587,7 +1588,7 @@ const baseEn: typeof baseEs = {
   appVersionLocal: "App version: local (development, with your current changes)",
 };
 
-const en: Messages = { ...baseEn, ...shellCopy.en, ...homeCopy.en, ...bodyCopy.en, ...activityCopy.en, ...meCopy.en };
+const en: Messages = { ...baseEn, ...shellCopy.en, ...homeCopy.en, ...bodyCopy.en, ...activityCopy.en, ...meCopy.en, ...labsCopy.en };
 
 const messages: Record<Language, Messages> = { es, en };
 

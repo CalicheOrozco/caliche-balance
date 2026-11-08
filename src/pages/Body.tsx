@@ -61,6 +61,7 @@ export function BodyTop({ subtitle, children }: { subtitle?: ReactNode; children
           { to: "/cuerpo", label: t("body.tabSummary") },
           { to: "/cuerpo/tendencias", label: t("body.tabTrends") },
           { to: "/cuerpo/pesadas", label: t("body.tabWeighIns") },
+          { to: "/cuerpo/estudios", label: t("labs.tab") },
         ]}
       />
     </>
