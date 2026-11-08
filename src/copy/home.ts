@@ -78,6 +78,7 @@ const es = {
   "home.section.news": "Logros nuevos y premio",
   "home.section.weekly": "Resumen semanal",
   "home.section.goals": "Detalle de tus metas",
+  "home.history": "Ver historial completo",
 };
 
 export const homeCopy = {
@@ -161,5 +162,6 @@ export const homeCopy = {
     "home.section.news": "New badges and reward",
     "home.section.weekly": "Weekly summary",
     "home.section.goals": "Your goals in detail",
+    "home.history": "See the full history",
   } satisfies Record<keyof typeof es, string>,
 };

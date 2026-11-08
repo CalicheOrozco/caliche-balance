@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { FiChevronRight, FiInfo } from "react-icons/fi";
+import { FiBarChart2, FiChevronRight, FiInfo } from "react-icons/fi";
 import { Link } from "react-router";
 import { STREAK_UNLOCKS } from "../../shared/achievements.ts";
 import { metabolicAge } from "../../shared/bodyAge.ts";
@@ -12,13 +12,14 @@ import { exerciseFatPattern, type HabitPattern, sleepWeightPattern } from "../..
 import { scoreOf } from "../../shared/score.ts";
 import { weightTrend } from "../../shared/trend.ts";
 import { api, useMe } from "../api.ts";
+import { backFromHistory } from "../backTo.ts";
 import { useAdvice } from "../advice.ts";
 import { type LinePoint, LineChartSvg, type Row, type Series, Spark, TrendChart } from "../charts.tsx";
 import { useCompareXiaomi } from "../compare.ts";
 import { BulbIcon } from "../icons.tsx";
 import { type MessageKey, useI18n } from "../i18n.tsx";
 import { ReportCard, useBestStreak } from "../reports.tsx";
-import { Button, Callout, Card, DeltaPill, Segmented, SectionHeader, Switch, signed, useFormat } from "../ui.tsx";
+import { BackLink, Button, Callout, Card, DeltaPill, Segmented, SectionHeader, Switch, signed, useFormat } from "../ui.tsx";
 import { BodyTop, isFull, useCountSince, ExportButton } from "./Body.tsx";
 
 type RangeKey = "30" | "90" | "180" | "365" | "all";
@@ -101,13 +102,18 @@ function PatternRow({ pattern, text, digits }: { pattern: HabitPattern; text: st
   );
 }
 
-export function TrendsPage({ profile, measurements, goals }: Props) {
+/**
+ * Body > Trends and the full History share every number: Trends shows the redesign's cards and
+ * patterns; History is the page with every chart, what each measure means and the advice for it.
+ */
+function BodyCharts({ profile, measurements, goals, mode }: Props & { mode: "trends" | "history" }) {
   const { t, tf, locale } = useI18n();
   const f = useFormat();
   const [range, setRange] = useState<RangeKey>("90");
   const [compare, setCompare] = useCompareXiaomi();
   const period = usePeriodText(range);
   const subtitle = useCountSince(measurements);
+  const back = backFromHistory();
 
   const cutoff = range === "all" ? -Infinity : Date.now() - Number(range) * DAY;
   const visible = useMemo(() => measurements.filter((m) => new Date(m.measuredAt).getTime() >= cutoff), [measurements, cutoff]);
@@ -254,6 +260,146 @@ export function TrendsPage({ profile, measurements, goals }: Props) {
     mini("bmi", t("bmi"), "", 1, latest && latest.weightKg > healthy.max ? "down" : latest && latest.weightKg < healthy.min ? "up" : null),
     mini("bmr.c", t("bmr"), "kcal", 0, null),
   ].filter((m) => m !== null);
+
+  if (mode === "history") {
+    return (
+      <div className="flex flex-col gap-3.5">
+        <BackLink to={back.to} label={t(back.label)} />
+        <h1 className="mx-1 text-[28px] leading-8.5 font-extrabold tracking-[-0.02em]">{t("historyTitle")}</h1>
+        <Segmented
+          label={t("range")}
+          value={range}
+          onChange={setRange}
+          options={(["30", "90", "365", "all"] as const).map((r) => ({ value: r, label: t(`range.${r}` as MessageKey) }))}
+        />
+        <Card className="flex flex-col gap-1 py-3!">
+          <Switch label={t("compareXiaomi")} checked={compare} onChange={setCompare} />
+          <p className="text-sm font-medium text-muted">{t("compareHint")}</p>
+        </Card>
+        <ReportCard profile={profile} measurements={measurements} days={30} unlock="monthly" title={t("monthlyTitle")} intro={t("monthlyIntro")} />
+        <TrendChart
+          title={`${t("bodyScoreTitle")} (0-100)`}
+          rows={rows}
+          series={paired("score.c", "score.x")}
+          formatTick={(n) => f.number(n, 0)}
+          formatValue={(n) => f.number(n, 0)}
+          about={t("about.score")}
+          now={report ? tf("now.score", { score: report.score.score }) : null}
+        />
+        <TrendChart
+          title={`${t("weight")} (${unit})`}
+          rows={rows}
+          series={trendUnlocked ? [caliche("weight", t("weight")), { key: "trend", label: t("trendTitle"), kind: "trend" }] : one("weight", t("weight"))}
+          band={{ min: fromKilograms(healthy.min, unit), max: fromKilograms(healthy.max, unit) }}
+          goal={goals.weight ? fromKilograms(goals.weight.targetKg, unit) : null}
+          unit={` ${unit}`}
+          about={t("about.weight")}
+          now={weightNow}
+          {...plain}
+        />
+        <TrendChart
+          title={`${t("bodyFat")} (%)`}
+          rows={rows}
+          series={paired("fat.c", "fat.x")}
+          band={{ min: fatHealthy.min!, max: fatHealthy.max! }}
+          goal={goals.bodyFat?.targetPct ?? null}
+          unit=" %"
+          about={t("about.bodyFat")}
+          now={adviceFor("bodyFat")}
+          {...plain}
+        />
+        <TrendChart
+          title={`${t("fatFreeMass")} (${unit})`}
+          rows={rows}
+          series={paired("ffm.c", "ffm.x")}
+          unit={` ${unit}`}
+          about={t("about.ffm")}
+          now={na ? tf("now.value", { value: f.weight(na.fatFreeMassKg, unit) }) : null}
+          {...plain}
+        />
+        <TrendChart
+          title={`${t("skeletalMuscle")} (${unit})`}
+          rows={rows}
+          series={one("skeletalMuscle", t("skeletalMuscle"))}
+          unit={` ${unit}`}
+          about={t("about.skeletalMuscle")}
+          now={adviceFor("muscleIndex")}
+          {...plain}
+        />
+        <TrendChart
+          title={`${t("leanSoftVsXiaomi")} (${unit})`}
+          rows={rows}
+          series={paired("lean.c", "lean.x")}
+          unit={` ${unit}`}
+          about={t("about.lean")}
+          now={na ? tf("now.value", { value: f.weight(na.leanSoftKg, unit) }) : null}
+          {...plain}
+        />
+        <TrendChart
+          title={`${t("bodyWater")} (%)`}
+          rows={rows}
+          series={paired("water.c", "water.x")}
+          unit=" %"
+          about={t("about.water")}
+          now={na ? tf("now.value", { value: `${f.number(na.bodyWaterPct)} %` }) : null}
+          {...plain}
+        />
+        <TrendChart
+          title={`${t("bmr")} (kcal)`}
+          rows={rows}
+          series={paired("bmr.c", "bmr.x")}
+          formatTick={(n) => f.number(n, 0)}
+          formatValue={(n) => f.number(n, 0)}
+          unit=" kcal"
+          about={t("about.bmr")}
+          now={na ? tf("now.value", { value: `${f.number(na.bmrKcal, 0)} ${t("kcalDay")}` }) : null}
+        />
+        <TrendChart
+          title={`${t("proteinExperimental")} (%)`}
+          rows={rows}
+          series={paired("protein.c", "protein.x")}
+          unit=" %"
+          about={t("proteinNote")}
+          now={na?.proteinPct != null ? tf("now.value", { value: `${f.number(na.proteinPct)} %` }) : null}
+          {...plain}
+        />
+        <TrendChart
+          title={t("bodyAgeTitle")}
+          rows={rows}
+          series={paired("age.c", "age.x")}
+          formatTick={(n) => f.number(n, 0)}
+          formatValue={(n) => f.number(n, 0)}
+          about={t("about.bodyAge")}
+          // "70 or older" readings chart at the peak age, so the change over the period would read as 0.
+          showChange={false}
+          now={fatAgeText && report ? tf("now.bodyAge", { value: fatAgeText, age: report.age }) : null}
+        />
+        <TrendChart
+          title={`${t("waist")} (${waistUnit})`}
+          rows={rows}
+          series={one("waist", t("waist"))}
+          unit={` ${waistUnit}`}
+          about={t("about.waist")}
+          now={adviceFor("waist")}
+          empty={waistCount === 0 ? t("body.waistNone") : waistCount === 1 ? t("now.waistOne") : undefined}
+          {...plain}
+        />
+        {compare && (
+          <>
+            <SectionHeader title={t("xiaomiOnlyTitle")} />
+            <TrendChart
+              title={t("visceral")}
+              rows={rows}
+              series={[xiaomi("visceral")]}
+              formatTick={(n) => f.number(n, 0)}
+              formatValue={(n) => f.number(n, 0)}
+              about={t("about.visceral")}
+            />
+          </>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3.5">
@@ -404,109 +550,30 @@ export function TrendsPage({ profile, measurements, goals }: Props) {
 
       {minis.length > 0 && <div className="grid grid-cols-2 gap-3">{minis}</div>}
 
-      <ReportCard profile={profile} measurements={measurements} days={30} unlock="monthly" title={t("monthlyTitle")} intro={t("monthlyIntro")} />
-
-      <SectionHeader title={t("body.moreCharts")} />
-      <TrendChart
-        title={`${t("bodyScoreTitle")} (0-100)`}
-        rows={rows}
-        series={paired("score.c", "score.x")}
-        formatTick={(n) => f.number(n, 0)}
-        formatValue={(n) => f.number(n, 0)}
-        about={t("about.score")}
-        now={report ? tf("now.score", { score: report.score.score }) : null}
-      />
-      <TrendChart
-        title={`${t("fatFreeMass")} (${unit})`}
-        rows={rows}
-        series={paired("ffm.c", "ffm.x")}
-        unit={` ${unit}`}
-        about={t("about.ffm")}
-        now={na ? tf("now.value", { value: f.weight(na.fatFreeMassKg, unit) }) : null}
-        {...plain}
-      />
-      <TrendChart
-        title={`${t("skeletalMuscle")} (${unit})`}
-        rows={rows}
-        series={one("skeletalMuscle", t("skeletalMuscle"))}
-        unit={` ${unit}`}
-        about={t("about.skeletalMuscle")}
-        now={adviceFor("muscleIndex")}
-        {...plain}
-      />
-      <TrendChart
-        title={`${t("leanSoftVsXiaomi")} (${unit})`}
-        rows={rows}
-        series={paired("lean.c", "lean.x")}
-        unit={` ${unit}`}
-        about={t("about.lean")}
-        now={na ? tf("now.value", { value: f.weight(na.leanSoftKg, unit) }) : null}
-        {...plain}
-      />
-      <TrendChart
-        title={`${t("bodyWater")} (%)`}
-        rows={rows}
-        series={paired("water.c", "water.x")}
-        unit=" %"
-        about={t("about.water")}
-        now={na ? tf("now.value", { value: `${f.number(na.bodyWaterPct)} %` }) : null}
-        {...plain}
-      />
-      <TrendChart
-        title={`${t("bmr")} (kcal)`}
-        rows={rows}
-        series={paired("bmr.c", "bmr.x")}
-        formatTick={(n) => f.number(n, 0)}
-        formatValue={(n) => f.number(n, 0)}
-        unit=" kcal"
-        about={t("about.bmr")}
-        now={na ? tf("now.value", { value: `${f.number(na.bmrKcal, 0)} ${t("kcalDay")}` }) : null}
-      />
-      <TrendChart
-        title={`${t("proteinExperimental")} (%)`}
-        rows={rows}
-        series={paired("protein.c", "protein.x")}
-        unit=" %"
-        about={t("proteinNote")}
-        now={na?.proteinPct != null ? tf("now.value", { value: `${f.number(na.proteinPct)} %` }) : null}
-        {...plain}
-      />
-      <TrendChart
-        title={t("bodyAgeTitle")}
-        rows={rows}
-        series={paired("age.c", "age.x")}
-        formatTick={(n) => f.number(n, 0)}
-        formatValue={(n) => f.number(n, 0)}
-        about={t("about.bodyAge")}
-        // "70 or older" readings chart at the peak age, so the change over the period would read as 0.
-        showChange={false}
-        now={fatAgeText && report ? tf("now.bodyAge", { value: fatAgeText, age: report.age }) : null}
-      />
-      <TrendChart
-        title={`${t("waist")} (${waistUnit})`}
-        rows={rows}
-        series={one("waist", t("waist"))}
-        unit={` ${waistUnit}`}
-        about={t("about.waist")}
-        now={adviceFor("waist")}
-        empty={waistCount === 0 ? t("body.waistNone") : waistCount === 1 ? t("now.waistOne") : undefined}
-        {...plain}
-      />
-      {compare && (
-        <>
-          <SectionHeader title={t("xiaomiOnlyTitle")} />
-          <TrendChart
-            title={t("visceral")}
-            rows={rows}
-            series={[xiaomi("visceral")]}
-            formatTick={(n) => f.number(n, 0)}
-            formatValue={(n) => f.number(n, 0)}
-            about={t("about.visceral")}
-          />
-        </>
-      )}
+      <Link
+        to="/historial"
+        className="flex items-center gap-3.5 rounded-3xl border border-line bg-surface p-4 text-ink shadow-card"
+      >
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand-soft text-brand-text">
+          <FiBarChart2 size={22} aria-hidden />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="text-[15px] font-extrabold">{t("body.historyLink")}</span>
+          <span className="text-[13px] font-semibold text-muted">{t("body.historyLinkHint")}</span>
+        </span>
+        <FiChevronRight size={18} strokeWidth={2.4} className="shrink-0 text-muted" aria-hidden />
+      </Link>
     </div>
   );
+}
+
+export function TrendsPage(props: Props) {
+  return <BodyCharts {...props} mode="trends" />;
+}
+
+/** Every chart with what it means and the advice for it, over the period picked (the History page). */
+export function HistoryPage(props: Props) {
+  return <BodyCharts {...props} mode="history" />;
 }
 
 /** How many weeks the weigh-ins list shows at first, and how many more each tap adds. */

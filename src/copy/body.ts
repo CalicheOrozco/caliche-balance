@@ -119,6 +119,8 @@ const es = {
   "body.patternExerciseLess": "puntos de grasa más por semana pierdes en las semanas con 3 o más días de 30 min de ejercicio ({n} de {total} semanas).",
   "body.patternExerciseMore": "puntos de grasa más por semana subes en las semanas con 3 o más días de 30 min de ejercicio ({n} de {total} semanas).",
   "body.patternsHealthNote": "Comparamos tus propias semanas con datos de Apple Salud. Es una relación, no una causa: otras cosas cambian también esas semanas.",
+  "body.historyLink": "Historial completo",
+  "body.historyLinkHint": "Todas las gráficas, qué significa cada medida y consejos",
 };
 
 export const bodyCopy = {
@@ -243,5 +245,7 @@ export const bodyCopy = {
     "body.patternExerciseLess": "body fat points more a week you lose in weeks with 3 or more days of 30 min of exercise ({n} of {total} weeks).",
     "body.patternExerciseMore": "body fat points more a week you gain in weeks with 3 or more days of 30 min of exercise ({n} of {total} weeks).",
     "body.patternsHealthNote": "We compare your own weeks with data from Apple Health. It is a relationship, not a cause: other things change in those weeks too.",
+    "body.historyLink": "Full history",
+    "body.historyLinkHint": "Every chart, what each measure means and advice",
   } satisfies Record<keyof typeof es, string>,
 };

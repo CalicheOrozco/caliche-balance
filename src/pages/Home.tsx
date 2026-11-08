@@ -421,6 +421,10 @@ function WeightCard({ profile, measurements, goals, trendUnlocked }: { profile: 
           </Callout>
         </div>
       )}
+      {/* The full History, with every chart and its advice, without a tab of its own. */}
+      <Link to="/historial" className="mt-3 flex min-h-11 items-center justify-center gap-1 rounded-2xl bg-surface-2 text-sm font-bold text-ink">
+        {t("home.history")} <FiChevronRight size={16} strokeWidth={2.4} aria-hidden />
+      </Link>
     </Card>
   );
 }

@@ -22,6 +22,7 @@ import { Card, Logo } from "./ui.tsx";
 // The chart library is large, so the pages with charts load only when they are opened.
 const TrendsPage = lazy(() => import("./pages/History.tsx").then((m) => ({ default: m.TrendsPage })));
 const WeighInsPage = lazy(() => import("./pages/History.tsx").then((m) => ({ default: m.WeighInsPage })));
+const HistoryPage = lazy(() => import("./pages/History.tsx").then((m) => ({ default: m.HistoryPage })));
 const ActivityPage = lazy(() => import("./pages/Activity.tsx").then((m) => ({ default: m.ActivityPage })));
 const StepsHistoryPage = lazy(() => import("./pages/Activity.tsx").then((m) => ({ default: m.StepsHistoryPage })));
 
@@ -39,7 +40,7 @@ const TABS_RIGHT: Tab[] = [
 ];
 
 /** Pages opened from somewhere else: they have a way back instead of the tab bar. */
-const PUSHED = ["/agregar", "/medicion/", "/yo", "/ajustes", "/actividad/pasos"];
+const PUSHED = ["/agregar", "/medicion/", "/yo", "/ajustes", "/actividad/pasos", "/historial"];
 
 function TabLink({ tab }: { tab: Tab }) {
   const { t } = useI18n();
@@ -169,7 +170,14 @@ function SignedIn({ user }: { user: UserDto }) {
               </Suspense>
             }
           />
-          <Route path="/historial" element={<Navigate to="/cuerpo/tendencias" replace />} />
+          <Route
+            path="/historial"
+            element={
+              <Suspense fallback={<p className="py-10 text-center text-muted">…</p>}>
+                <HistoryPage profile={profile} measurements={list} goals={user.goals} />
+              </Suspense>
+            }
+          />
           <Route
             path="/actividad"
             element={
