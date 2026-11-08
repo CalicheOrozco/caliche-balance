@@ -9,6 +9,7 @@ import { healthyWeightRange, type Status } from "../../shared/reference.ts";
 import { CM_PER_IN, fromKilograms, type MeasurementDto, NOTE_MAX_LENGTH, type ProfileDto } from "../../shared/schemas.ts";
 import { scoreOf } from "../../shared/score.ts";
 import { api } from "../api.ts";
+import { convertWaist, useWaistUnit, WaistUnitToggle } from "../units.tsx";
 import { useAdvice } from "../advice.ts";
 import { Spark } from "../charts.tsx";
 import { useCompareXiaomi } from "../compare.ts";
@@ -132,7 +133,7 @@ export function ReadingPage({ profile, measurements }: { profile: ProfileDto; me
   }, [id]);
   const reading = measurements[index];
   const unit = profile.unit;
-  const waistUnit = unit === "lb" ? "in" : "cm";
+  const [waistUnit, setWaistUnit] = useWaistUnit(unit);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["measurements"] });
   const leave = () => {
@@ -336,8 +337,17 @@ export function ReadingPage({ profile, measurements }: { profile: ProfileDto; me
               saveWaist.mutate({ id: reading.id, value: waistValue });
             }}
           >
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <Field label={`${t("waist")} (${waistUnit})`} inputMode="decimal" value={waistValue} onChange={(e) => setWaistValue(e.target.value)} autoFocus />
+            </div>
+            <div className="pb-1.5">
+              <WaistUnitToggle
+                unit={waistUnit}
+                onChange={(u) => {
+                  setWaistValue(convertWaist(waistValue, waistUnit, u));
+                  setWaistUnit(u);
+                }}
+              />
             </div>
             <Button type="submit" disabled={saveWaist.isPending} className="min-h-13.5">
               {t("save")}

@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router";
 import { CM_PER_IN, fromKilograms, NOTE_MAX_LENGTH, parseDecimal, type ProfileDto, toKilograms } from "../../shared/schemas.ts";
 import { api, useMeasurements } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
+import { convertWaist, convertWeight, useWaistUnit, useWeightUnit, WaistUnitToggle, WeightUnitToggle } from "../units.tsx";
 import { DatePicker } from "../DatePicker.tsx";
 import { Button, Field, Segmented, useFormat } from "../ui.tsx";
 
@@ -18,7 +19,7 @@ function nowLocal(): { date: string; time: string } {
 
 const optional = (s: string) => (s.trim() === "" ? null : s);
 
-/** Mass fields are typed in the profile unit and sent in kilograms. */
+/** Mass fields are typed in the unit picked for the weigh-in and sent in kilograms. */
 function massInKg(s: string, unit: "kg" | "lb"): unknown {
   const n = parseDecimal(optional(s));
   return typeof n === "number" ? toKilograms(n, unit) : n;
@@ -75,6 +76,10 @@ function ValueDial({
     const steps = Math.round((drag.current.x - e.clientX) / TICK_GAP);
     set(Math.round((drag.current.start + steps * step) / step) * step);
   };
+  // The number gets smaller as it gets longer ("96.0", "100.7", "250.5"), so it always fits next to
+  // the buttons on a phone, and the field is exactly as wide as what is typed.
+  const chars = Math.max(value.length, (0).toFixed(digits).length);
+  const fontSize = chars <= 4 ? 64 : chars === 5 ? 52 : 44;
   const center = RULER_WIDTH / 2;
   const base = valid ? Math.round(n / step) : 0;
   const ticks = valid
@@ -89,7 +94,7 @@ function ValueDial({
       <label htmlFor={id} className="text-sm font-bold text-ink-2">
         {label}
       </label>
-      <div className="flex items-center gap-3.5">
+      <div className="flex max-w-full items-center gap-2.5">
         <button
           type="button"
           aria-label={tf("add.minus", { step: f.number(step, digits), unit })}
@@ -98,7 +103,7 @@ function ValueDial({
         >
           <FiMinus size={22} strokeWidth={2.6} aria-hidden />
         </button>
-        <div className="flex items-baseline gap-1">
+        <div className="flex min-w-0 items-baseline gap-1">
           <input
             id={id}
             value={value}
@@ -107,7 +112,8 @@ function ValueDial({
             autoComplete="off"
             required
             placeholder={(0).toLocaleString(locale, { minimumFractionDigits: digits })}
-            className="w-37.5 min-w-0 bg-transparent p-0 text-right text-[64px] leading-17.5 font-extrabold tracking-[-0.04em] text-ink outline-none placeholder:text-track"
+            style={{ width: `${chars * 0.62 + 0.1}em`, fontSize, lineHeight: "70px" }}
+            className="min-w-0 bg-transparent p-0 text-center font-extrabold tracking-[-0.04em] text-ink outline-none placeholder:text-track"
           />
           <span className="text-[22px] font-bold text-muted">{unit}</span>
         </div>
@@ -188,8 +194,10 @@ function WeighInForm({ profile }: { profile: ProfileDto }) {
   const latest = useMeasurements().data?.[0];
   const [date, setDate] = useState(() => nowLocal().date);
   const [time, setTime] = useState(() => nowLocal().time);
+  // Typed in kg or lb, whichever the scale shows; starts in the profile's unit.
+  const [unit, setUnit] = useWeightUnit(profile.unit);
   // Starts at the last weigh-in, so a small change is a tap or two on minus and plus.
-  const [weight, setWeight] = useState(() => (latest ? fromKilograms(latest.weightKg, profile.unit).toFixed(1) : ""));
+  const [weight, setWeight] = useState(() => (latest ? fromKilograms(latest.weightKg, unit).toFixed(1) : ""));
   const [bodyFat, setBodyFat] = useState("");
   const [muscle, setMuscle] = useState("");
   const [water, setWater] = useState("");
@@ -197,8 +205,7 @@ function WeighInForm({ profile }: { profile: ProfileDto }) {
   const [visceral, setVisceral] = useState("");
   const [waist, setWaist] = useState("");
   const [more, setMore] = useState(false);
-  // Waist goes in inches for people who weigh in pounds, centimeters otherwise.
-  const waistUnit = profile.unit === "lb" ? "in" : "cm";
+  const [waistUnit, setWaistUnit] = useWaistUnit(profile.unit);
   const [error, setError] = useState<string | null>(null);
 
   const save = useMutation({
@@ -207,11 +214,11 @@ function WeighInForm({ profile }: { profile: ProfileDto }) {
       api.addMeasurement({
         measuredAt: new Date(`${date}T${time}`).toISOString(),
         weight,
-        weightUnit: profile.unit,
+        weightUnit: unit,
         bodyFatPct: optional(bodyFat),
-        muscleKg: massInKg(muscle, profile.unit),
+        muscleKg: massInKg(muscle, unit),
         waterPct: optional(water),
-        boneKg: massInKg(bone, profile.unit),
+        boneKg: massInKg(bone, unit),
         visceralFat: optional(visceral),
         waist: optional(waist),
         waistUnit,
@@ -223,7 +230,7 @@ function WeighInForm({ profile }: { profile: ProfileDto }) {
     onError: (e) => setError(te(e)),
   });
 
-  const hint = [latest ? tf("add.last", { weight: f.weight(latest.weightKg, profile.unit), when: f.dateTime(latest.measuredAt) }) : null, t("add.commaHint")]
+  const hint = [latest ? tf("add.last", { weight: f.weight(latest.weightKg, unit), when: f.dateTime(latest.measuredAt) }) : null, t("add.commaHint")]
     .filter(Boolean)
     .join(" · ");
 
@@ -237,9 +244,21 @@ function WeighInForm({ profile }: { profile: ProfileDto }) {
         save.mutate();
       }}
     >
-      <ValueDial id="add-weight" label={t("weight")} value={weight} onChange={setWeight} unit={profile.unit} step={0.1} digits={1} hint={hint} />
+      <div className="flex justify-center">
+        <WeightUnitToggle
+          unit={unit}
+          onChange={(u) => {
+            // Everything already typed moves to the new unit, so nothing is saved in the wrong one.
+            setWeight(convertWeight(weight, unit, u));
+            setMuscle(convertWeight(muscle, unit, u));
+            setBone(convertWeight(bone, unit, u));
+            setUnit(u);
+          }}
+        />
+      </div>
+      <ValueDial id="add-weight" label={t("weight")} value={weight} onChange={setWeight} unit={unit} step={0.1} digits={1} hint={hint} />
       {/* Fixed shares: an "auto" column grows to iOS Safari's wide native time input and overflows. */}
-      <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-2.5">
+      <div className="grid grid-cols-2 gap-2.5">
         <DatePicker label={t("measuredAt")} value={date} onChange={setDate} maxDate={new Date()} required />
         <Field label={t("time")} type="time" value={time} onChange={(e) => setTime(e.target.value)} required />
       </div>
@@ -259,11 +278,24 @@ function WeighInForm({ profile }: { profile: ProfileDto }) {
         {more && (
           <div className="mt-3.5 grid grid-cols-2 gap-2.5">
             <Field label={`${t("bodyFat")} (%)`} inputMode="decimal" value={bodyFat} onChange={(e) => setBodyFat(e.target.value)} />
-            <Field label={`${t("muscle")} (${profile.unit})`} inputMode="decimal" value={muscle} onChange={(e) => setMuscle(e.target.value)} />
+            <Field label={`${t("muscle")} (${unit})`} inputMode="decimal" value={muscle} onChange={(e) => setMuscle(e.target.value)} />
             <Field label={`${t("water")} (%)`} inputMode="decimal" value={water} onChange={(e) => setWater(e.target.value)} />
-            <Field label={`${t("bone")} (${profile.unit})`} inputMode="decimal" value={bone} onChange={(e) => setBone(e.target.value)} />
+            <Field label={`${t("bone")} (${unit})`} inputMode="decimal" value={bone} onChange={(e) => setBone(e.target.value)} />
             <Field label={t("visceral")} inputMode="decimal" value={visceral} onChange={(e) => setVisceral(e.target.value)} />
-            <Field label={`${t("waist")} (${waistUnit})`} inputMode="decimal" value={waist} onChange={(e) => setWaist(e.target.value)} />
+            <div className="col-span-2 flex items-end gap-2">
+              <div className="min-w-0 flex-1">
+                <Field label={`${t("waist")} (${waistUnit})`} inputMode="decimal" value={waist} onChange={(e) => setWaist(e.target.value)} />
+              </div>
+              <div className="pb-1.5">
+                <WaistUnitToggle
+                  unit={waistUnit}
+                  onChange={(u) => {
+                    setWaist(convertWaist(waist, waistUnit, u));
+                    setWaistUnit(u);
+                  }}
+                />
+              </div>
+            </div>
             <p className="col-span-2 text-[13px] font-semibold text-muted">{t("waistHowTo")}</p>
           </div>
         )}
@@ -282,7 +314,7 @@ function WaistForm({ profile }: { profile: ProfileDto }) {
   const queryClient = useQueryClient();
   const measurements = useMeasurements().data ?? [];
   const latest = measurements[0];
-  const unit = profile.unit === "lb" ? "in" : "cm";
+  const [unit, setUnit] = useWaistUnit(profile.unit);
   const lastWaist = measurements.find((m) => m.waistCm !== null)?.waistCm ?? null;
   const [value, setValue] = useState(() => (lastWaist === null ? "" : (unit === "in" ? lastWaist / CM_PER_IN : lastWaist).toFixed(1)));
   const [error, setError] = useState<string | null>(null);
@@ -308,6 +340,15 @@ function WaistForm({ profile }: { profile: ProfileDto }) {
         save.mutate();
       }}
     >
+      <div className="flex justify-center">
+        <WaistUnitToggle
+          unit={unit}
+          onChange={(u) => {
+            setValue(convertWaist(value, unit, u));
+            setUnit(u);
+          }}
+        />
+      </div>
       <ValueDial
         id="add-waist-value"
         label={t("waist")}

@@ -15,6 +15,7 @@ import { api, useMe } from "../api.ts";
 import { useCompareXiaomi } from "../compare.ts";
 import { type MessageKey, useI18n } from "../i18n.tsx";
 import { Avatar, BackLink, Button, Callout, Card, Field, Progress, RangeBar, Rings, SectionHeader, StatusBadge, signed, useFormat } from "../ui.tsx";
+import { convertWaist, useWaistUnit, WaistUnitToggle } from "../units.tsx";
 
 const TIPS: { key: string; Icon: IconType }[] = [
   { key: "calories", Icon: FiBarChart2 },
@@ -222,13 +223,15 @@ function WaistCard({ profile, measurements }: { profile: ProfileDto; measurement
   const { t, tf, te } = useI18n();
   const f = useFormat();
   const queryClient = useQueryClient();
+  // How waists are shown follows the profile; the one being typed can use either unit.
   const unit = profile.unit === "lb" ? "in" : "cm";
+  const [inputUnit, setInputUnit] = useWaistUnit(profile.unit);
   const [value, setValue] = useState("");
   const [editing, setEditing] = useState(false);
   const withWaist = measurements.find((m) => m.waistCm !== null);
   const latest = measurements[0]!;
   const save = useMutation({
-    mutationFn: () => api.setWaist(latest.id, value, unit),
+    mutationFn: () => api.setWaist(latest.id, value, inputUnit),
     onSuccess: () => {
       setValue("");
       setEditing(false);
@@ -246,8 +249,17 @@ function WaistCard({ profile, measurements }: { profile: ProfileDto; measurement
         save.mutate();
       }}
     >
-      <div className="flex-1">
-        <Field label={`${t("waist")} (${unit})`} inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} required />
+      <div className="min-w-0 flex-1">
+        <Field label={`${t("waist")} (${inputUnit})`} inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} required />
+      </div>
+      <div className="pb-1.5">
+        <WaistUnitToggle
+          unit={inputUnit}
+          onChange={(u) => {
+            setValue(convertWaist(value, inputUnit, u));
+            setInputUnit(u);
+          }}
+        />
       </div>
       <Button type="submit" disabled={save.isPending} className="min-h-13.5">
         {t("save")}

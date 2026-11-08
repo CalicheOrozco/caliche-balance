@@ -93,6 +93,8 @@ const es = {
   "set.passwordSame": "La contraseña nueva es igual a la actual.",
   "set.passwordSave": "Cambiar contraseña",
   "set.passwordDone": "Listo: tu contraseña cambió. Tu código de recuperación sigue siendo el mismo.",
+  "add.waistUnit": "Unidad de la cintura",
+  "add.weightUnit": "Unidad del peso",
 };
 
 export const meCopy = {
@@ -187,5 +189,7 @@ export const meCopy = {
     "set.passwordSame": "The new password is the same as the current one.",
     "set.passwordSave": "Change password",
     "set.passwordDone": "Done: your password changed. Your recovery code is still the same.",
+    "add.waistUnit": "Waist unit",
+    "add.weightUnit": "Weight unit",
   } satisfies Record<keyof typeof es, string>,
 };
