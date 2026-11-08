@@ -27,6 +27,8 @@ export interface HealthMetricSpec {
    * their source, and the server picks the sources itself (dedupeSources).
    */
   sources?: boolean;
+  // Those come one sample at a time, hundreds a day (energy almost every minute): a week of them
+  // made the Shortcut run out of memory, so they look back 2 days, enough for a nightly run.
   /** Days back the Shortcut looks; fewer for types with hundreds of readings a day. Defaults to 7. */
   days?: number;
   min: number;
@@ -45,9 +47,9 @@ export interface HealthMetricSpec {
  * "sum" metrics are a day's total; "mean" metrics are readings averaged per day.
  */
 export const HEALTH_METRIC_SPECS = {
-  steps: { type: "Steps", unit: "count", kind: "sum", sources: true, min: 0, max: 200_000, group: "activity" },
-  distanceKm: { type: "Walking + Running Distance", unit: "km", kind: "sum", sources: true, min: 0, max: 500, group: "activity" },
-  flightsClimbed: { type: "Flights Climbed", unit: "count", kind: "sum", sources: true, min: 0, max: 2_000, group: "activity" },
+  steps: { type: "Steps", unit: "count", kind: "sum", sources: true, days: 2, min: 0, max: 200_000, group: "activity" },
+  distanceKm: { type: "Walking + Running Distance", unit: "km", kind: "sum", sources: true, days: 2, min: 0, max: 500, group: "activity" },
+  flightsClimbed: { type: "Flights Climbed", unit: "count", kind: "sum", sources: true, days: 2, min: 0, max: 2_000, group: "activity" },
   exerciseMin: { type: "Exercise Time", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity" },
   standMin: { type: "Stand Time", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity" },
   walkingSpeedKmh: { type: "Walking Speed", unit: "km/h", kind: "mean", min: 0.5, max: 15, group: "activity" },
@@ -55,7 +57,7 @@ export const HEALTH_METRIC_SPECS = {
   walkingAsymmetryPct: { type: "Walking Asymmetry", unit: "%", kind: "mean", min: 0, max: 100, group: "activity" },
   stairSpeedUpMs: { type: "Stair Speed: Up", unit: "m/s", kind: "mean", min: 0.05, max: 3, group: "activity" },
   stairSpeedDownMs: { type: "Stair Speed: Down", unit: "m/s", kind: "mean", min: 0.05, max: 3, group: "activity" },
-  activeKcal: { type: "Active Calories", unit: "kcal", kind: "sum", sources: true, days: 3, min: 0, max: 20_000, group: "energy" },
+  activeKcal: { type: "Active Calories", unit: "kcal", kind: "sum", sources: true, days: 2, min: 0, max: 20_000, group: "energy" },
   restingKcal: { type: "Resting Calories", unit: "kcal", kind: "sum", min: 0, max: 10_000, group: "energy" },
   restingHr: { type: "Resting Heart Rate", unit: "count/min", kind: "mean", min: 20, max: 250, group: "heart" },
   hrvMs: { type: "Heart Rate Variability", unit: "ms", kind: "mean", min: 1, max: 500, group: "heart" },
@@ -594,7 +596,7 @@ export type HealthDayDto = { date: string; sleep: SleepSummary | null; symptoms:
  * from the current one. Bump it whenever scripts/build-health-shortcut.ts changes what it sends.
  * Copies from before versions existed send none.
  */
-export const HEALTH_SHORTCUT_VERSION = 15;
+export const HEALTH_SHORTCUT_VERSION = 16;
 
 /** A problem with one field of a run, with what the Shortcut sent for it. */
 export interface HealthProblem {
