@@ -28,7 +28,7 @@ const KEY_PREFIX = "cbh_";
 /** Wrong keys allowed per address before it has to wait (a key is 32 random bytes; this stops noise, not guessing). */
 const BAD_KEY_LIMIT = 20;
 const BAD_KEY_WINDOW_MS = 60 * 60 * 1000;
-const MAX_DAYS = 400;
+const MAX_DAYS = 3_700;
 /** Characters of the last send kept for Settings; one run of the Shortcut is about 3,000. */
 const RECEIVED_MAX = 20_000;
 

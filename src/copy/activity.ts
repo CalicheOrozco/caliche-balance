@@ -102,7 +102,7 @@ const es = {
   "act.stepsMonthSummary": "Promedio {avg} · {n} de {total} días en tu meta",
   "act.stepsAtGoal": "En tu meta",
   "act.stepsNone": "Todavía no llegan pasos de Apple Salud.",
-  "act.stepsYearNote": "Ves hasta poco más de un año: lo que guarda la app. Para traer el año completo, usa los Atajos del año en Ajustes > Apple Salud.",
+  "act.stepsYearNote": "El Atajo trae la última semana cada día. Para traer tu historial completo, pásale a Claude tu exportación de Apple Salud con el conector de Caliche Balance.",
 };
 
 export const activityCopy = {
@@ -208,6 +208,6 @@ export const activityCopy = {
     "act.stepsMonthSummary": "Average {avg} · {n} of {total} days at your goal",
     "act.stepsAtGoal": "At your goal",
     "act.stepsNone": "No steps from Apple Health yet.",
-    "act.stepsYearNote": "You see up to a little over a year: what the app keeps. To bring in the whole year, use the year Shortcuts in Settings > Apple Health.",
+    "act.stepsYearNote": "The Shortcut brings in the last week every day. To bring in your whole history, give Claude your Apple Health export through the Caliche Balance connector.",
   } satisfies Record<keyof typeof es, string>,
 };

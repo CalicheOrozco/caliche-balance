@@ -555,7 +555,8 @@ export function ActivityPage({ user }: { user: UserDto }) {
 }
 
 /** Days kept by the server, a little over a year. */
-const HISTORY_DAYS = 400;
+/** Every day the app has, back to the oldest brought in from the Health export (about ten years). */
+const HISTORY_DAYS = 3_700;
 
 type StepsView = "days" | "weeks" | "months";
 
