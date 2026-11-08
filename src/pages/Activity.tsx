@@ -1,17 +1,18 @@
-import { useMemo, useState } from "react";
-import { FiChevronLeft, FiChevronRight, FiSettings } from "react-icons/fi";
+import { useQuery } from "@tanstack/react-query";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { FiCheck, FiChevronDown, FiChevronLeft, FiChevronRight, FiSettings } from "react-icons/fi";
 import { Link } from "react-router";
 import type { HealthDayDto } from "../../shared/health.ts";
 import { healthTargets, type PersonFacts } from "../../shared/healthReference.ts";
 import { ageAt } from "../../shared/reference.ts";
 import { fromKilograms, type MeasurementDto, type UserDto } from "../../shared/schemas.ts";
-import { useMeasurements } from "../api.ts";
+import { api, useMeasurements } from "../api.ts";
 import { AppleHealthCard, HealthTodayCard, lastActiveIndex, nightScore, SleepCard, useHealthDays } from "../appleHealth.tsx";
 import { type Row, type Series, TrendChart } from "../charts.tsx";
 import { type MessageKey, useI18n } from "../i18n.tsx";
 import { DatePicker } from "../DatePicker.tsx";
 import { BulbIcon } from "../icons.tsx";
-import { Avatar, Card, PageHeader, Rings, SectionHeader, Segmented, signed, useFormat } from "../ui.tsx";
+import { Avatar, BackLink, Card, PageHeader, Rings, SectionHeader, Segmented, signed, useFormat } from "../ui.tsx";
 
 type RangeKey = "30" | "90" | "365";
 
@@ -89,41 +90,127 @@ function RingsCard({ day, targets }: { day: HealthDayDto; targets: { kcal: numbe
   );
 }
 
-/** Steps on the 7 days up to the one shown, with the goal as a dashed line. */
-function StepsCard({ days, goal, todayIso }: { days: HealthDayDto[]; goal: number; todayIso: string }) {
-  const { t, tf, locale } = useI18n();
+/** One bar of a steps chart: its axis label, its name when picked, and the steps (null: no data). */
+interface StepBar {
+  key: string;
+  axis: string;
+  name: string;
+  value: number | null;
+}
+
+/**
+ * Tappable step bars with the goal as a dashed line. Tapping a bar shows its steps in the big
+ * number (a tap works on a phone, where there is no hover); tapping it again goes back to the
+ * default bar. Long charts label only some bars so the letters do not run together.
+ */
+function StepBars({
+  bars,
+  goal,
+  title,
+  pickedTitle,
+  aside,
+  hint,
+  footer,
+  labelEvery = 1,
+  alwaysName = false,
+}: {
+  bars: StepBar[];
+  goal: number;
+  title: string;
+  pickedTitle: (bar: StepBar) => string;
+  aside?: string;
+  hint: string;
+  footer?: ReactNode;
+  labelEvery?: number;
+  /** Name the bar behind the big number even before a tap (charts where the default is not obvious). */
+  alwaysName?: boolean;
+}) {
+  const { tf } = useI18n();
   const f = useFormat();
-  const shown = days[days.length - 1];
-  const withSteps = days.filter((d) => d.steps !== null);
-  if (!shown || withSteps.length === 0) return null;
-  const avg = withSteps.reduce((s, d) => s + d.steps!, 0) / withSteps.length;
+  // Until a bar is tapped, the big number is the newest bar with steps (today may have none yet).
+  const fallback = [...bars].reverse().find((b) => b.value !== null) ?? bars[bars.length - 1];
+  const [picked, setPicked] = useState<string | null>(null);
+  // New bars (another day with the arrows, another view) start the chart fresh.
+  const first = bars[0]?.key;
+  useEffect(() => setPicked(null), [fallback?.key, first, bars.length]);
+  const values = bars.flatMap((b) => (b.value === null ? [] : [b.value]));
+  if (!fallback || values.length === 0) return null;
+  const current = bars.find((b) => b.key === picked) ?? fallback;
   const BARS = 90;
-  const top = Math.max(goal * 1.375, ...withSteps.map((d) => d.steps!));
+  const top = Math.max(goal * 1.375, ...values);
   const h = (v: number) => Math.max(Math.round((v / top) * BARS), 4);
+  const dense = bars.length > 12;
   return (
     <Card className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-3">
-        <div className="flex flex-col">
-          <span className="text-[13px] font-bold text-ink-2">{t("act.stepsTitle")}</span>
-          <span className="text-[28px] leading-8 font-extrabold">{shown.steps === null ? "-" : f.number(shown.steps, 0)}</span>
+        <div className="flex min-w-0 flex-col">
+          <span className="text-[13px] font-bold text-ink-2 first-letter:uppercase" aria-live="polite">
+            {picked || alwaysName ? pickedTitle(current) : title}
+          </span>
+          <span className="text-[28px] leading-8 font-extrabold">{current.value === null ? "-" : f.number(current.value, 0)}</span>
         </div>
-        <span className="text-[13px] font-bold text-muted">{tf("act.stepsAvg", { n: f.number(avg, 0) })}</span>
+        {aside && <span className="shrink-0 text-[13px] font-bold text-muted">{aside}</span>}
       </div>
-      <div className="relative flex h-27.5 items-end gap-2" role="img" aria-label={tf("act.stepsChart", { goal: f.number(goal, 0) })}>
-        <div className="absolute inset-x-0 border-t-2 border-dashed border-line-strong" style={{ bottom: h(goal) + 22 }} aria-hidden />
-        <span className="absolute right-0 text-[10px] font-extrabold text-muted" style={{ bottom: h(goal) + 26 }} aria-hidden>
+      <div className={`relative flex h-27.5 items-end ${dense ? "gap-0.5" : "gap-2"}`} role="group" aria-label={tf("act.stepsChart", { goal: f.number(goal, 0) })}>
+        <div className="pointer-events-none absolute inset-x-0 border-t-2 border-dashed border-line-strong" style={{ bottom: h(goal) + 22 }} aria-hidden />
+        <span className="pointer-events-none absolute right-0 text-[10px] font-extrabold text-muted" style={{ bottom: h(goal) + 26 }} aria-hidden>
           {f.number(goal, 0)}
         </span>
-        {days.map((d) => (
-          <div key={d.date} className="flex flex-1 flex-col items-center gap-1.5" aria-hidden>
-            <span className={`w-full rounded-lg ${(d.steps ?? 0) >= goal ? "bg-brand" : "bg-good-band"}`} style={{ height: d.steps === null ? 0 : h(d.steps) }} />
-            <span className={`text-[11px] font-bold ${d.date === shown.date ? "text-ink" : "text-muted"}`}>
-              {d.date === todayIso ? t("dayToday") : new Date(`${d.date}T12:00:00`).toLocaleDateString(locale, { weekday: "narrow" })}
-            </span>
-          </div>
-        ))}
+        {bars.map((b, i) => {
+          const active = b.key === current.key;
+          // Count from the newest bar so the latest always has its label.
+          const labeled = (bars.length - 1 - i) % labelEvery === 0;
+          return (
+            <button
+              key={b.key}
+              type="button"
+              onClick={() => setPicked(b.key === picked || b.key === fallback.key ? null : b.key)}
+              aria-pressed={active}
+              aria-label={b.value === null ? tf("act.stepsBarNone", { day: b.name }) : tf("act.stepsBar", { day: b.name, n: f.number(b.value, 0) })}
+              className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1.5 rounded-lg outline-offset-2 transition active:scale-95"
+            >
+              <span
+                className={`w-full transition-opacity ${dense ? "rounded-sm" : "rounded-lg"} ${(b.value ?? 0) >= goal ? "bg-brand" : "bg-good-band"} ${picked && !active ? "opacity-45" : ""}`}
+                style={{ height: b.value === null ? 0 : h(b.value) }}
+              />
+              <span className={`h-4 text-[11px] font-bold whitespace-nowrap ${active ? "text-ink" : "text-muted"}`}>{labeled || active ? b.axis : ""}</span>
+            </button>
+          );
+        })}
       </div>
+      <p className="text-xs font-semibold text-muted">{hint}</p>
+      {footer}
     </Card>
+  );
+}
+
+/** Steps on the 7 days up to the one shown, with a way to the full history. */
+function StepsCard({ days, goal, todayIso }: { days: HealthDayDto[]; goal: number; todayIso: string }) {
+  const { t, tf, locale } = useI18n();
+  const f = useFormat();
+  const withSteps = days.filter((d) => d.steps !== null);
+  if (withSteps.length === 0) return null;
+  const avg = withSteps.reduce((s, d) => s + d.steps!, 0) / withSteps.length;
+  const dayName = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(locale, { weekday: "long", day: "numeric", month: "short" });
+  return (
+    <StepBars
+      goal={goal}
+      title={t("act.stepsTitle")}
+      pickedTitle={(b) => tf("act.stepsOn", { day: b.name })}
+      aside={tf("act.stepsAvg", { n: f.number(avg, 0) })}
+      hint={t("act.stepsHint")}
+      bars={days.map((d) => ({
+        key: d.date,
+        axis: d.date === todayIso ? t("dayToday") : new Date(`${d.date}T12:00:00`).toLocaleDateString(locale, { weekday: "narrow" }),
+        name: dayName(d.date),
+        value: d.steps,
+      }))}
+      footer={
+        <Link to="/actividad/pasos" className="-mb-1 flex min-h-11 items-center justify-center gap-1 rounded-2xl bg-surface-2 text-sm font-bold text-ink">
+          {t("act.stepsHistory")} <FiChevronRight size={16} strokeWidth={2.4} aria-hidden />
+        </Link>
+      }
+    />
   );
 }
 
@@ -235,14 +322,8 @@ function InsightCard({ title, children }: { title: string; children: string }) {
   );
 }
 
-/** Everything from Apple Health: last night, the day's rings and steps, the heart, and how each measure moves. */
-export function ActivityPage({ user }: { user: UserDto }) {
-  const { t, tf, locale } = useI18n();
-  const f = useFormat();
-  const ago = useAgo();
-  const connected = user.appleHealth != null;
-  const [picked, setPicked] = useState<string | null>(null);
-  // Who the recommendations are for: the profile and the latest weigh-in.
+/** The person's own daily targets for active calories and steps, from the profile and the latest weigh-in. */
+function useActivityGoals(user: UserDto) {
   const measurements = useMeasurements().data ?? [];
   const latestWeight = measurements[0]?.weightKg;
   const profile = user.profile;
@@ -251,7 +332,19 @@ export function ActivityPage({ user }: { user: UserDto }) {
       ? { sex: profile.sex, age: ageAt(new Date(`${profile.birthDate}T00:00:00Z`), new Date()), heightCm: profile.heightCm, weightKg: latestWeight }
       : undefined;
   const targets = person ? healthTargets(person) : null;
-  const goals = { kcal: targets?.activeDayKcal ?? DEFAULT_ACTIVE_KCAL, steps: targets?.steps[0] ?? DEFAULT_STEPS };
+  return { measurements, person, targets, goals: { kcal: targets?.activeDayKcal ?? DEFAULT_ACTIVE_KCAL, steps: targets?.steps[0] ?? DEFAULT_STEPS } };
+}
+
+/** Everything from Apple Health: last night, the day's rings and steps, the heart, and how each measure moves. */
+export function ActivityPage({ user }: { user: UserDto }) {
+  const { t, tf, locale } = useI18n();
+  const f = useFormat();
+  const ago = useAgo();
+  const connected = user.appleHealth != null;
+  const [picked, setPicked] = useState<string | null>(null);
+  // Who the recommendations are for: the profile and the latest weigh-in.
+  const { measurements, person, targets, goals } = useActivityGoals(user);
+  const profile = user.profile;
   const [range, setRange] = useState<RangeKey>("30");
   const cutoff = Date.now() - Number(range) * 24 * 60 * 60 * 1000;
   // Days at local noon so each sits on its own day.
@@ -457,6 +550,178 @@ export function ActivityPage({ user }: { user: UserDto }) {
       <Link to="/ajustes" className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-surface-2 px-4 py-2.5 font-bold text-ink">
         <FiSettings aria-hidden /> {t("activitySettings")}
       </Link>
+    </div>
+  );
+}
+
+/** Days kept by the server, a little over a year. */
+const HISTORY_DAYS = 400;
+
+type StepsView = "days" | "weeks" | "months";
+
+/** Monday of a "yyyy-MM-dd" day, as "yyyy-MM-dd". */
+function mondayOf(date: string): string {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+/** Days with steps grouped by a key, with their daily average. */
+function groupSteps(days: HealthDayDto[], keyOf: (date: string) => string) {
+  const groups = new Map<string, number[]>();
+  for (const d of days) if (d.steps !== null) groups.set(keyOf(d.date), [...(groups.get(keyOf(d.date)) ?? []), d.steps]);
+  return [...groups].map(([key, steps]) => ({ key, steps, avg: steps.reduce((a, b) => a + b, 0) / steps.length }));
+}
+
+/** Every day of steps Apple Health has sent: by day, week or month, totals, and month by month. */
+export function StepsHistoryPage({ user }: { user: UserDto }) {
+  const { t, tf, locale } = useI18n();
+  const f = useFormat();
+  const connected = user.appleHealth != null;
+  const { goals } = useActivityGoals(user);
+  const goal = goals.steps;
+  const [view, setView] = useState<StepsView>("days");
+  const query = useQuery({ queryKey: ["apple-health", "days", HISTORY_DAYS], queryFn: () => api.healthDays(HISTORY_DAYS), enabled: connected });
+  // Oldest first, only days with steps.
+  const days = useMemo(() => (query.data ?? []).filter((d) => d.steps !== null).sort((a, b) => a.date.localeCompare(b.date)), [query.data]);
+  const todayIso = localIso(Date.now());
+  const dayName = (date: string, month: "short" | "long" = "short") =>
+    new Date(`${date}T12:00:00`).toLocaleDateString(locale, { weekday: "long", day: "numeric", month });
+  const monthName = (key: string) => new Date(`${key}-15T12:00:00`).toLocaleDateString(locale, { month: "long", year: "numeric" });
+
+  const bars = useMemo<StepBar[]>(() => {
+    if (view === "days") {
+      // The last 30 calendar days, with gaps where nothing arrived.
+      const byDate = new Map(days.map((d) => [d.date, d.steps]));
+      return Array.from({ length: 30 }, (_, i) => {
+        const date = localIso(Date.now() - (29 - i) * 86_400_000);
+        return {
+          key: date,
+          axis: date === todayIso ? t("dayToday") : String(Number(date.slice(8))),
+          name: dayName(date),
+          value: byDate.get(date) ?? null,
+        };
+      });
+    }
+    if (view === "weeks") {
+      return groupSteps(days, mondayOf)
+        .slice(-26)
+        .map((w) => {
+          const label = new Date(`${w.key}T12:00:00`).toLocaleDateString(locale, { day: "numeric", month: "short" });
+          return { key: w.key, axis: label, name: tf("act.stepsWeekAvg", { date: label }), value: Math.round(w.avg) };
+        });
+    }
+    return groupSteps(days, (d) => d.slice(0, 7)).map((m) => ({
+      key: m.key,
+      axis: new Date(`${m.key}-15T12:00:00`).toLocaleDateString(locale, { month: "narrow" }),
+      name: tf("act.stepsMonthAvg", { month: monthName(m.key) }),
+      value: Math.round(m.avg),
+    }));
+  }, [view, days, locale]);
+
+  const header = (
+    <>
+      <BackLink to="/actividad" label={t("nav.activity")} />
+      <div className="flex flex-col gap-0.5 px-1">
+        <h1 className="text-[28px] leading-8.5 font-extrabold tracking-[-0.02em]">{t("act.stepsHistoryTitle")}</h1>
+        {days[0] && (
+          <p className="text-[13px] font-semibold text-muted">
+            {tf("act.stepsHistorySince", { n: f.number(days.length, 0), date: new Date(`${days[0].date}T12:00:00`).toLocaleDateString(locale, { day: "numeric", month: "long", year: "numeric" }) })}
+          </p>
+        )}
+      </div>
+    </>
+  );
+  if (query.isPending && connected) return <div className="flex flex-col gap-3.5">{header}<p className="py-10 text-center text-muted">…</p></div>;
+  if (days.length === 0) {
+    return (
+      <div className="flex flex-col gap-3.5">
+        {header}
+        <Card className="text-center text-[15px] font-semibold text-ink-2">{t("act.stepsNone")}</Card>
+      </div>
+    );
+  }
+
+  const total = days.reduce((s, d) => s + d.steps!, 0);
+  const best = days.reduce((a, b) => (b.steps! > a.steps! ? b : a));
+  const atGoal = days.filter((d) => d.steps! >= goal).length;
+  const months = groupSteps(days, (d) => d.slice(0, 7)).reverse();
+  const stat = (label: string, value: string, sub?: string) => (
+    <div className="flex flex-col gap-0.5 rounded-[20px] border border-line bg-surface p-4 shadow-card">
+      <span className="text-[13px] font-bold text-ink-2">{label}</span>
+      <span className="text-[22px] leading-7 font-extrabold">{value}</span>
+      {sub && <span className="text-xs font-semibold text-muted first-letter:uppercase">{sub}</span>}
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-3.5">
+      {header}
+      <Segmented
+        label={t("act.stepsView")}
+        value={view}
+        onChange={setView}
+        options={[
+          { value: "days", label: t("act.stepsViewDays") },
+          { value: "weeks", label: t("act.stepsViewWeeks") },
+          { value: "months", label: t("act.stepsViewMonths") },
+        ]}
+      />
+      <StepBars
+        bars={bars}
+        goal={goal}
+        title={t("act.stepsTitle")}
+        aside={view === "days" ? t("act.stepsLast30") : view === "weeks" ? t("act.stepsViewWeeks") : t("act.stepsViewMonths")}
+        alwaysName
+        pickedTitle={(b) => (view === "days" ? tf("act.stepsOn", { day: b.name }) : b.name)}
+        hint={view === "days" ? t("act.stepsHint") : view === "weeks" ? t("act.stepsHintWeeks") : t("act.stepsHintMonths")}
+        labelEvery={view === "days" ? 5 : view === "weeks" ? 4 : 1}
+      />
+      <div className="grid grid-cols-2 gap-3">
+        {stat(t("act.stepsStatAvg"), f.number(total / days.length, 0))}
+        {stat(t("act.stepsStatBest"), f.number(best.steps!, 0), dayName(best.date))}
+        {stat(t("act.stepsStatGoal"), tf("act.stepsStatGoalValue", { n: f.number(atGoal, 0), total: f.number(days.length, 0) }), `${Math.round((atGoal / days.length) * 100)} %`)}
+        {stat(t("act.stepsStatTotal"), f.number(total, 0))}
+      </div>
+
+      <SectionHeader title={t("act.stepsByMonth")} />
+      <div className="flex flex-col gap-2.5">
+        {months.map((m, i) => {
+          const monthDays = days.filter((d) => d.date.startsWith(m.key)).reverse();
+          const hits = monthDays.filter((d) => d.steps! >= goal).length;
+          return (
+            <details key={m.key} open={i === 0} className="group overflow-hidden rounded-3xl border border-line bg-surface shadow-card">
+              <summary className="flex min-h-16 cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="text-[15px] font-extrabold first-letter:uppercase">{monthName(m.key)}</span>
+                  <span className="text-xs font-semibold text-muted">
+                    {tf("act.stepsMonthSummary", { avg: f.number(m.avg, 0), n: hits, total: monthDays.length })}
+                  </span>
+                </span>
+                <FiChevronDown size={18} strokeWidth={2.4} className="shrink-0 text-muted transition group-open:rotate-180" aria-hidden />
+              </summary>
+              <ul>
+                {monthDays.map((d) => {
+                  const hit = d.steps! >= goal;
+                  return (
+                    <li key={d.date} className="flex min-h-12 items-center gap-3 border-t border-line px-4 py-2">
+                      <span className="min-w-0 flex-1 text-sm font-semibold text-ink-2 first-letter:uppercase">{dayName(d.date)}</span>
+                      <span className="text-[15px] font-extrabold">{f.number(d.steps!, 0)}</span>
+                      <span
+                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${hit ? "bg-good-soft text-good-text" : ""}`}
+                        title={hit ? t("act.stepsAtGoal") : undefined}
+                      >
+                        {hit && <FiCheck size={13} strokeWidth={3} aria-label={t("act.stepsAtGoal")} />}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
+          );
+        })}
+      </div>
+      <p className="px-1 text-xs font-semibold text-muted">{t("act.stepsYearNote")}</p>
     </div>
   );
 }

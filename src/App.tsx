@@ -23,6 +23,7 @@ import { Card, Logo } from "./ui.tsx";
 const TrendsPage = lazy(() => import("./pages/History.tsx").then((m) => ({ default: m.TrendsPage })));
 const WeighInsPage = lazy(() => import("./pages/History.tsx").then((m) => ({ default: m.WeighInsPage })));
 const ActivityPage = lazy(() => import("./pages/Activity.tsx").then((m) => ({ default: m.ActivityPage })));
+const StepsHistoryPage = lazy(() => import("./pages/Activity.tsx").then((m) => ({ default: m.StepsHistoryPage })));
 
 type Tab = { to: string; key: MessageKey; Icon: (props: { size?: number; strokeWidth?: number }) => ReactNode };
 
@@ -38,7 +39,7 @@ const TABS_RIGHT: Tab[] = [
 ];
 
 /** Pages opened from somewhere else: they have a way back instead of the tab bar. */
-const PUSHED = ["/agregar", "/medicion/", "/yo", "/ajustes"];
+const PUSHED = ["/agregar", "/medicion/", "/yo", "/ajustes", "/actividad/pasos"];
 
 function TabLink({ tab }: { tab: Tab }) {
   const { t } = useI18n();
@@ -174,6 +175,14 @@ function SignedIn({ user }: { user: UserDto }) {
             element={
               <Suspense fallback={<p className="py-10 text-center text-muted">…</p>}>
                 <ActivityPage user={user} />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/actividad/pasos"
+            element={
+              <Suspense fallback={<p className="py-10 text-center text-muted">…</p>}>
+                <StepsHistoryPage user={user} />
               </Suspense>
             }
           />
