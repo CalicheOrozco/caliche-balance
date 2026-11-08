@@ -342,7 +342,9 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
     withUser(),
     asyncRoute(async (req, res) => {
       const input = labStudyInputSchema.parse(req.body);
-      const saved = await saveLabStudy(collections, req.user!._id, input);
+      // An electrocardiogram joins the study of the same day and lab instead of replacing it.
+      const merge = z.boolean().optional().parse(req.body?.merge);
+      const saved = await saveLabStudy(collections, req.user!._id, input, { merge });
       res.status(201).json(toLabStudyDto(saved));
     }),
   );

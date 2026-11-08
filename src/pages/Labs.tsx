@@ -11,6 +11,7 @@ import {
   type LabResult,
   type LabStatus,
   type LabStudyDto,
+  LAB_GROUPS,
   labTest,
   nextStudyDue,
   nonHdl,
@@ -46,6 +47,9 @@ function useLabValue() {
     return withUnit && r.unit && r.value !== null ? `${value} ${r.unit}` : value;
   };
 }
+
+/** A result in words too long to sit beside its name, like a cardiologist's written findings. */
+const isLong = (r: Pick<LabResult, "text">) => (r.text?.length ?? 0) > 24;
 
 function useStudyDate() {
   const { locale } = useI18n();
@@ -199,7 +203,7 @@ function ResultCard({ j, before, beforeDate }: { j: Judged; before: LabResult | 
         <span className="text-[15px] font-extrabold">{name(result)}</span>
         <StatusPill status={a.status}>{t(`labs.status.${a.status}` as MessageKey)}</StatusPill>
       </div>
-      <span className="text-[28px] leading-8 font-extrabold">{value(result)}</span>
+      <span className={isLong(result) ? "text-[15px] leading-5 font-bold" : "text-[28px] leading-8 font-extrabold"}>{value(result)}</span>
       {a.note && <p className="text-[13px] leading-4.75 font-semibold text-ink-2">{tf(`lab.note.${a.note}` as MessageKey, a.vars)}</p>}
       <p className="text-xs font-semibold text-muted">
         {[
@@ -249,8 +253,17 @@ function ResultRow({ j, before }: { j: Judged; before: LabResult | null }) {
   return (
     <details className="group border-t border-line first:border-t-0">
       <summary className={`flex min-h-13 list-none items-center gap-3 px-4 py-2.5 [&::-webkit-details-marker]:hidden ${hasMore ? "cursor-pointer" : ""}`}>
-        <span className="min-w-0 flex-1 text-sm font-semibold text-ink-2">{name(result)}</span>
-        <span className="text-[15px] font-extrabold">{value(result)}</span>
+        {isLong(result) ? (
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="text-sm font-semibold text-ink-2">{name(result)}</span>
+            <span className="text-sm font-bold">{value(result)}</span>
+          </span>
+        ) : (
+          <>
+            <span className="min-w-0 flex-1 text-sm font-semibold text-ink-2">{name(result)}</span>
+            <span className="text-[15px] font-extrabold">{value(result)}</span>
+          </>
+        )}
         {a.status !== "good" ? (
           <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${a.status === "bad" ? "bg-bad" : "bg-warn"}`} aria-label={t(`labs.status.${a.status}` as MessageKey)} />
         ) : (
@@ -324,7 +337,7 @@ export function LabStudyPage({ profile, measurements }: { profile: ProfileDto; m
         return b && b.value !== null && b.value !== r.value ? [{ r, b }] : [];
       })
     : [];
-  const groups = (["blood", "urine"] as const).filter((g) => judged.some((j) => j.result.group === g));
+  const groups = LAB_GROUPS.filter((g) => judged.some((j) => j.result.group === g));
   const isLatest = index === 0;
 
   return (
@@ -420,7 +433,7 @@ export function LabStudyPage({ profile, measurements }: { profile: ProfileDto; m
 
       {groups.map((g) => (
         <div key={g} className="flex flex-col gap-2">
-          <SectionHeader title={t(g === "blood" ? "labs.blood" : "labs.urine")} />
+          <SectionHeader title={t(`labs.${g}`)} />
           <Card padded={false}>
             {judged
               .filter((j) => j.result.group === g)
@@ -528,7 +541,9 @@ export function AddLabPage({ profile }: { profile: ProfileDto }) {
 
   const save = useMutation({
     mutationFn: async () => {
-      const main = await api.saveLab({ takenAt, lab: lab.trim() || "Salud Digna", results: toSave });
+      // An electrocardiogram is often done the same day as the blood tests: it joins that study.
+      const merge = toSave.length > 0 && toSave.every((r) => r.group === "ecg");
+      const main = await api.saveLab({ takenAt, lab: lab.trim() || "Salud Digna", results: toSave, merge });
       // The older study from the comparison page goes in as its own study.
       if (!manual && parsed && savePrevious) {
         for (const p of parsed.previous) if (p.takenAt !== takenAt) await api.saveLab({ takenAt: p.takenAt, lab: lab.trim() || "Salud Digna", results: p.results });
@@ -598,18 +613,27 @@ export function AddLabPage({ profile }: { profile: ProfileDto }) {
               </span>
             </label>
           ))}
-          {(["blood", "urine"] as const).map((g) => {
+          {LAB_GROUPS.map((g) => {
             const list = results.filter((r) => r.group === g);
             if (list.length === 0) return null;
             return (
               <Card key={g} padded={false}>
-                <p className="px-4 pt-3.5 pb-1 text-[13px] font-extrabold tracking-[0.06em] text-muted uppercase">{t(g === "blood" ? "labs.blood" : "labs.urine")}</p>
+                <p className="px-4 pt-3.5 pb-1 text-[13px] font-extrabold tracking-[0.06em] text-muted uppercase">{t(`labs.${g}`)}</p>
                 {list.map((r) => {
                   const a = assess(r, person);
                   return (
                     <div key={r.key} className="flex min-h-12 items-center gap-2 border-t border-line py-1.5 pr-1.5 pl-4 text-sm">
-                      <span className="min-w-0 flex-1 font-semibold text-ink-2">{name(r)}</span>
-                      <span className="font-extrabold">{value(r)}</span>
+                      {isLong(r) ? (
+                        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                          <span className="font-semibold text-ink-2">{name(r)}</span>
+                          <span className="font-bold">{value(r)}</span>
+                        </span>
+                      ) : (
+                        <>
+                          <span className="min-w-0 flex-1 font-semibold text-ink-2">{name(r)}</span>
+                          <span className="font-extrabold">{value(r)}</span>
+                        </>
+                      )}
                       <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${a.status === "good" ? "" : a.status === "bad" ? "bg-bad" : "bg-warn"}`} aria-hidden />
                       <button
                         type="button"

@@ -186,11 +186,16 @@ const goalWeight = z.object({ value: z.number().min(30).max(660), unit: z.enum([
 const labResultInput = z.object({
   name: z.string().min(1).max(100).describe("Test name as the lab printed it, e.g. 'COLESTEROL HDL'"),
   value: z.number().optional().describe("Numeric result"),
-  text: z.string().max(60).optional().describe("Result in words when it is not a number (Negativo, Normal, Ausentes...)"),
+  text: z.string().max(400).optional().describe("Result in words when it is not a number (Negativo, Normal, Ausentes, Sinusal, the cardiologist's written findings...)"),
   unit: z.string().max(30).optional(),
   ref: z.string().max(80).optional().describe("The lab's reference range exactly as printed: '74.0 - 106.0', '<200.0', '>55.0', 'Negativo'"),
   flagged: z.boolean().optional().describe("True when the lab marked it out of range (an asterisk)"),
-  group: z.enum(["blood", "urine"]).optional().describe("urine for the urinalysis (examen general de orina); defaults to blood"),
+  group: z
+    .enum(["blood", "urine", "ecg"])
+    .optional()
+    .describe(
+      "urine for the urinalysis (examen general de orina); ecg for an electrocardiogram: RITMO (text), FRECUENCIA CARDIACA (lpm), ONDA P, INTERVALO PR, COMPLEJO QRS, INTERVALO QT, QTC (ms), EJE ELECTRICO (°), SOKOLOW-LYON (mV), HIPERTROFIA, SOBRECARGA DIASTOLICA, SOBRECARGA SISTOLICA, LESION, ISQUEMIA, NECROSIS (text Sí/No), HALLAZGOS ELECTROCARDIOGRAFICOS (the cardiologist's findings as text); defaults to blood",
+    ),
 });
 
 export function registerTools(server: McpServer, auth: AuthInfo | undefined, collections: () => Promise<Collections>, push: PushSender | undefined) {
@@ -564,11 +569,12 @@ export function registerTools(server: McpServer, auth: AuthInfo | undefined, col
     {
       title: "Add a lab study",
       description:
-        "Saves a lab study (blood and urine tests, e.g. from Salud Digna) with every result, then returns it judged. Read the results from the PDF or photo the person shares and pass each test with its value, unit, the lab's reference range and whether the lab flagged it. Tests are matched to known ones by name; urinalysis results need group 'urine'. The same date and lab saved again replaces the study.",
+        "Saves a lab study (blood and urine tests and electrocardiograms, e.g. from Salud Digna) with every result, then returns it judged. Read the results from the PDF or photo the person shares and pass each test with its value, unit, the lab's reference range and whether the lab flagged it. Tests are matched to known ones by name; urinalysis results need group 'urine' and electrocardiogram results group 'ecg'. The same date and lab saved again replaces the study, unless merge is true: then the results join it, replacing only the same tests (use it for an electrocardiogram or any part done the same day as a study already saved).",
       inputSchema: {
         takenAt: isoDate.describe("Day the samples were taken, YYYY-MM-DD"),
         lab: z.string().min(1).max(60).optional().describe("Lab name, default Salud Digna"),
         results: z.array(labResultInput).min(1).max(250),
+        merge: z.boolean().optional().describe("Add these results to the study already saved for this date and lab instead of replacing it"),
       },
       annotations: WRITE,
     },
@@ -588,7 +594,7 @@ export function registerTools(server: McpServer, auth: AuthInfo | undefined, col
         };
       });
       const input = labStudyInputSchema.parse({ takenAt: args.takenAt, lab: args.lab ?? "Salud Digna", results });
-      const saved = await saveLabStudy(ctx.c, ctx.user._id, input);
+      const saved = await saveLabStudy(ctx.c, ctx.user._id, input, { merge: args.merge });
       const previous = await ctx.c.labStudies.findOne({ userId: ctx.user._id, takenAt: { $lt: input.takenAt } }, { sort: { takenAt: -1 } });
       return presentLab(ctx, saved, previous);
     },

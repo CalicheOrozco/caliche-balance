@@ -60,7 +60,7 @@ export const api = {
     call<MeasurementDto>("PATCH", `/measurements/${id}/waist`, { waist, waistUnit }),
   setNote: (id: string, note: string | null) => call<MeasurementDto>("PATCH", `/measurements/${id}/note`, { note }),
   labs: () => call<LabStudyDto[]>("GET", "/labs"),
-  saveLab: (study: LabStudyInput) => call<LabStudyDto>("POST", "/labs", study),
+  saveLab: (study: LabStudyInput & { merge?: boolean }) => call<LabStudyDto>("POST", "/labs", study),
   deleteLab: (id: string) => call<void>("DELETE", `/labs/${id}`),
   zeppStatus: () => call<ZeppStatusDto>("GET", "/zepp"),
   zeppConnect: (appToken: string, zeppUserId: string) =>

@@ -1,21 +1,24 @@
 import { z } from "zod";
 
 /*
- * Lab studies (blood and urine tests done about once a year, such as Salud Digna's). Results are
+ * Lab studies (blood and urine tests, and an electrocardiogram when there is one, done about once
+ * a year, such as Salud Digna's). Results are
  * read from the lab's PDF on the phone (see src/labPdf.ts) or typed by hand, and judged two ways:
  * against the lab's own reference range, and for the markers that matter most, against published
  * North American guidelines. Feedback is information to take to a doctor, never a diagnosis.
  */
 
-export type LabGroup = "blood" | "urine";
+export type LabGroup = "blood" | "urine" | "ecg";
+export const LAB_GROUPS: readonly LabGroup[] = ["blood", "urine", "ecg"];
 
 /** One result as it is stored: the value, the lab's unit and range, and whether the lab flagged it. */
 export const labResultSchema = z.object({
   key: z.string().trim().min(1).max(60),
   name: z.string().trim().min(1).max(100),
-  group: z.enum(["blood", "urine"]),
+  group: z.enum(["blood", "urine", "ecg"]),
   value: z.number().finite().nullable(),
-  text: z.string().trim().max(60).nullable(),
+  /** A result in words; long only for a cardiologist's reading of an electrocardiogram. */
+  text: z.string().trim().max(400).nullable(),
   unit: z.string().trim().max(30).nullable(),
   ref: z.string().trim().max(80).nullable(),
   flagged: z.boolean(),
@@ -136,7 +139,27 @@ export const LAB_TESTS: LabTest[] = [
   t("uYeast", "urine", "Levaduras", "Yeast", "LEVADURAS"),
   t("uHyaline", "urine", "Cilindros hialinos", "Hyaline casts", "CILINDROS HIALINOS"),
   t("uCasts", "urine", "Cilindros patológicos", "Pathological casts", "CILINDROS PATOLOGICOS"),
+  // Electrocardiogram at rest.
+  t("ecgRhythm", "ecg", "Ritmo", "Rhythm", "RITMO", "RITMO CARDIACO"),
+  t("ecgHr", "ecg", "Frecuencia cardiaca", "Heart rate", "FRECUENCIA CARDIACA", "FRECUENCIA", "FREC. VENTRICULAR"),
+  t("ecgP", "ecg", "Duración de la onda P", "P wave duration", "ONDA P", "DURACION P"),
+  t("ecgPr", "ecg", "Intervalo PR", "PR interval", "INTERVALO PR", "PR"),
+  t("ecgQrs", "ecg", "Duración del QRS", "QRS duration", "COMPLEJO QRS", "DURACION QRS", "QRS"),
+  t("ecgQt", "ecg", "Intervalo QT", "QT interval", "INTERVALO QT", "INTERVALO QTM", "QT"),
+  t("ecgQtc", "ecg", "QT corregido (QTc)", "Corrected QT (QTc)", "QTC", "QT CORREGIDO", "INTERVALO QTC"),
+  t("ecgAxis", "ecg", "Eje eléctrico del QRS", "QRS axis", "EJE ELECTRICO DEL QRS (AQRS)", "EJE ELECTRICO", "EJE QRS"),
+  t("ecgSokolow", "ecg", "Índice de Sokolow-Lyon", "Sokolow-Lyon index", "SOKOLOW-LYON"),
+  t("ecgHypertrophy", "ecg", "Hipertrofia", "Hypertrophy", "HIPERTROFIA"),
+  t("ecgDiastolic", "ecg", "Sobrecarga diastólica", "Diastolic overload", "SOBRECARGA DIASTOLICA"),
+  t("ecgSystolic", "ecg", "Sobrecarga sistólica", "Systolic overload", "SOBRECARGA SISTOLICA"),
+  t("ecgInjury", "ecg", "Lesión", "Injury", "LESION"),
+  t("ecgIschemia", "ecg", "Isquemia", "Ischemia", "ISQUEMIA"),
+  t("ecgNecrosis", "ecg", "Necrosis", "Necrosis", "NECROSIS"),
+  t("ecgReading", "ecg", "Hallazgos del cardiólogo", "Cardiologist's findings", "HALLAZGOS ELECTROCARDIOGRAFICOS", "INTERPRETACION", "CONCLUSION"),
 ];
+
+/** Findings a cardiologist marks as present or not; "No" is the normal answer. */
+const ECG_FINDINGS = ["ecgHypertrophy", "ecgDiastolic", "ecgSystolic", "ecgInjury", "ecgIschemia", "ecgNecrosis"];
 
 /** Capitals without accents and with single spaces, to compare printed names. */
 export function normalizeName(name: string): string {
@@ -158,7 +181,7 @@ export function identify(name: string, group: LabGroup): { key: string; known: b
   const found = LAB_TESTS.find((x) => x.group === group && x.aliases.includes(n));
   if (found) return { key: found.key, known: true };
   const slug = n.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
-  return { key: `${group === "urine" ? "u-" : ""}${slug || "resultado"}`, known: false };
+  return { key: `${group === "urine" ? "u-" : group === "ecg" ? "ecg-" : ""}${slug || "resultado"}`, known: false };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -183,6 +206,13 @@ const MONTHS: Record<string, string> = {
   ENE: "01", FEB: "02", MAR: "03", ABR: "04", MAY: "05", JUN: "06", JUL: "07", AGO: "08", SEP: "09", SEPT: "09", OCT: "10", NOV: "11", DIC: "12",
   JAN: "01", APR: "04", AUG: "08", DEC: "12",
 };
+
+/** "6/Feb/2025", as electrocardiogram reports print it, as "2025-02-06". */
+function readNamedSlashDate(s: string): string | null {
+  const m = /(\d{1,2})\/([A-Za-z]{3,4})\.?\/(\d{4})/.exec(s);
+  const month = m ? MONTHS[normalizeName(m[2]!)] : undefined;
+  return m && month ? `${m[3]}-${month}-${m[1]!.padStart(2, "0")}` : null;
+}
 
 function toNumber(s: string): number | null {
   const n = Number(s.replace(/[<>≤≥\s]/g, "").replace(",", "."));
@@ -210,6 +240,7 @@ function urineSection(n: string): boolean {
  * the end, like Salud Digna's, comes back as `previous`.
  */
 export function parseLabReport(lines: string[]): ParsedStudy {
+  if (lines.some((l) => /INFORME DE RESULTADOS ELECTROCARDIOGRAMA/.test(normalizeName(l)))) return parseEcgReport(lines);
   let takenAt: string | null = null;
   let group: LabGroup = "blood";
   const results: LabResult[] = [];
@@ -311,6 +342,54 @@ export function parseLabReport(lines: string[]): ParsedStudy {
       results: list.map((r) => ({ ...r, unit: units.get(r.key) ?? r.unit })),
     })),
   };
+}
+
+/**
+ * Reads Salud Digna's electrocardiogram report: the cardiologist's values ("Ritmo: Sinusal",
+ * "Intervalo PR: 140 ms."), the findings marked "No" or "Sí", the written conclusion, and from the
+ * machine's page what the cardiologist does not repeat (QTc, Sokolow-Lyon). The cardiologist's
+ * reading wins where both give a value.
+ */
+export function parseEcgReport(lines: string[]): ParsedStudy {
+  const text = lines.join("\n");
+  const flat = text.replace(/\s+/g, " ");
+  const results: LabResult[] = [];
+  const num = (pattern: RegExp) => {
+    const m = pattern.exec(flat);
+    return m ? toNumber(m[1]!) : null;
+  };
+  const add = (key: string, value: number | null, unit: string | null, extra: Partial<LabResult> = {}) => {
+    if (value === null && !extra.text) return;
+    const test = labTest(key)!;
+    results.push({ key, name: test.es, group: "ecg", value, text: null, unit, ref: null, flagged: false, ...extra });
+  };
+  const rhythm = /Ritmo:\s*([^,\n]+?)\s+Frecuencia cardiaca/i.exec(text)?.[1]?.trim();
+  if (rhythm) add("ecgRhythm", null, null, { text: rhythm });
+  add("ecgHr", num(/Frecuencia cardiaca:\s*(\d+)/i) ?? num(/Frec\. ventricular\s*(\d+)/i), "lpm");
+  add("ecgP", num(/Onda p:\s*[\d.]+\s*mm\.?\s*(\d+)\s*ms/i) ?? num(/Duraci[oó]n P\s*(\d+)\s*ms/i), "ms");
+  add("ecgPr", num(/Intervalo PR:\s*(\d+)/i) ?? num(/Intervalo PR\s+(\d+)\s*ms/i), "ms");
+  add("ecgQrs", num(/Complejo QRS:\s*(\d+)/i) ?? num(/Duraci[oó]n QRS\s*(\d+)\s*ms/i), "ms");
+  const machineQt = /QT \/ QTc\(?B?\)?\s*(\d+)\s*\/\s*(\d+)\s*ms/i.exec(flat);
+  add("ecgQt", num(/Intervalo QTm?:\s*(\d+)/i) ?? (machineQt ? toNumber(machineQt[1]!) : null), "ms");
+  add("ecgQtc", machineQt ? toNumber(machineQt[2]!) : null, "ms");
+  add("ecgAxis", num(/\(aQRS\):\s*(-?\d+)/i) ?? num(/Ejes P-R-T\s*-?\d+\s*\/\s*(-?\d+)/i), "°");
+  add("ecgSokolow", num(/Sokolow-Lyon\s*([\d.]+)\s*mV/i), "mV", { ref: "<3.5" });
+  const findings: [string, RegExp][] = [
+    ["ecgHypertrophy", /Hipertrofia:\s*(S[ií]|No)(?![a-z])/i],
+    ["ecgDiastolic", /Sobrecarga diast[oó]lica:\s*(S[ií]|No)(?![a-z])/i],
+    ["ecgSystolic", /Sobrecarga sist[oó]lica:\s*(S[ií]|No)(?![a-z])/i],
+    ["ecgInjury", /Lesi[oó]n:\s*(S[ií]|No)(?![a-z])/i],
+    ["ecgIschemia", /Isquemia:\s*(S[ií]|No)(?![a-z])/i],
+    ["ecgNecrosis", /Necrosis:\s*(S[ií]|No)(?![a-z])/i],
+  ];
+  for (const [key, pattern] of findings) {
+    const answer = pattern.exec(flat)?.[1];
+    if (answer) add(key, null, null, { text: answer, ref: "No", flagged: normalizeName(answer) !== "NO" });
+  }
+  const reading = /HALLAZGOS ELECTROCARDIOGR[AÁ]FICOS\s*(.+?)\s*(?:\d\)\s*SUGERENCIAS|$)/i.exec(flat)?.[1]?.trim();
+  if (reading) add("ecgReading", null, null, { text: reading.slice(0, 400) });
+  const date = /Fecha toma:\s*([^\s]+)/i.exec(flat)?.[1];
+  return { takenAt: date ? (readNamedSlashDate(date) ?? readDate(date)) : null, results, previous: [] };
 }
 
 function titleCase(s: string): string {
@@ -456,6 +535,32 @@ export function assess(result: LabResult, person: LabPerson): LabAssessment {
       case "uGravity":
         if (v >= 1.025) return by("warn", "urineConcentrated", null);
         break;
+      // Electrocardiogram at rest: AHA/ACC/HRS recommendations for its interpretation (2007-2009).
+      case "ecgHr":
+        if (v < 50) return by("warn", "ecgHrLow", "AHA/ACC/HRS", { bpm: v });
+        if (v <= 100) return by("good", "ecgHrNormal", "AHA/ACC/HRS", { bpm: v });
+        return by("warn", "ecgHrHigh", "AHA/ACC/HRS", { bpm: v });
+      case "ecgP":
+        if (v >= 120) return by("warn", "ecgPLong", "AHA/ACC/HRS");
+        return by("good", "ecgPNormal", "AHA/ACC/HRS");
+      case "ecgPr":
+        if (v < 120 || v > 200) return by("warn", "ecgPrOff", "AHA/ACC/HRS");
+        return by("good", "ecgPrNormal", "AHA/ACC/HRS");
+      case "ecgQrs":
+        if (v >= 120) return by("warn", "ecgQrsWide", "AHA/ACC/HRS");
+        return by("good", "ecgQrsNormal", "AHA/ACC/HRS");
+      case "ecgQtc": {
+        const top = male ? 450 : 460;
+        if (v > 500) return by("bad", "ecgQtcLong", "AHA/ACC/HRS", { top });
+        if (v > top) return by("warn", "ecgQtcBorderline", "AHA/ACC/HRS", { top });
+        return by("good", "ecgQtcNormal", "AHA/ACC/HRS", { top });
+      }
+      case "ecgAxis":
+        if (v < -30 || v > 90) return by("warn", "ecgAxisOff", "AHA/ACC/HRS");
+        return by("good", "ecgAxisNormal", "AHA/ACC/HRS");
+      case "ecgSokolow":
+        if (v >= 3.5) return by("warn", "ecgSokolowHigh", "Sokolow-Lyon");
+        return by("good", "ecgSokolowNormal", "Sokolow-Lyon");
     }
   } else {
     switch (result.key) {
@@ -465,6 +570,16 @@ export function assess(result: LabResult, person: LabPerson): LabAssessment {
       case "uUrates":
         if (rangeStatus(result) === "off" || result.flagged || result.key === "uUrates") return by("warn", "urineSample", null);
         break;
+      case "ecgRhythm":
+        if (/SINUSAL|SINUS/.test(normalizeName(result.text ?? ""))) return by("good", "ecgSinus", null);
+        return by("warn", "ecgRhythmOther", null);
+      case "ecgReading":
+        if (result.flagged) return by("warn", "ecgReadingCheck", null);
+        if (/DENTRO DE PARAMETROS NORMALES|NORMAL/.test(normalizeName(result.text ?? ""))) return by("good", "ecgReadingNormal", null);
+        return by("good", null, null);
+    }
+    if (ECG_FINDINGS.includes(result.key)) {
+      return normalizeName(result.text ?? "") === "NO" ? by("good", "ecgFindingNone", null) : by("warn", "ecgFindingPresent", null);
     }
   }
   const status = rangeStatus(result);

@@ -51,10 +51,17 @@ export async function readLabPdf(file: File): Promise<ParsedStudy> {
   for (let n = 1; n <= pdf.numPages; n++) {
     const page = await pdf.getPage(n);
     const content = await page.getTextContent();
-    const items = content.items.flatMap((item) =>
-      "str" in item ? [{ str: item.str, x: item.transform[4] as number, y: item.transform[5] as number, width: item.width }] : [],
-    );
-    lines.push(...layoutLines(items));
+    const upright: PdfText[] = [];
+    const turned: PdfText[] = [];
+    for (const item of content.items) {
+      if (!("str" in item)) continue;
+      const [a, b, , , e, f] = item.transform as number[];
+      // Text turned 90° (an electrocardiograph's printout in landscape) runs along the page's
+      // height: read it in its own frame, where it is laid out like any other page.
+      if (Math.abs(b!) > Math.abs(a!)) turned.push({ str: item.str, x: f! * Math.sign(b!), y: -e! * Math.sign(b!), width: item.width });
+      else upright.push({ str: item.str, x: e!, y: f!, width: item.width });
+    }
+    lines.push(...layoutLines(upright), ...layoutLines(turned));
   }
   // Frees the worker and the file's memory.
   await task.destroy();

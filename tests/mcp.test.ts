@@ -136,6 +136,21 @@ describe("Claude connector (MCP)", () => {
     expect(lab.data.results.find((r: { key: string }) => r.key === "hdl").explanation).toContain("40 mg/dL");
     expect((await agent.get("/api/labs")).body).toHaveLength(1);
 
+    // An electrocardiogram from the same day joins the study instead of replacing it.
+    const ecg = await tool(access, "add_lab_study", {
+      takenAt: "2026-08-29",
+      merge: true,
+      results: [
+        { name: "RITMO", text: "Sinusal", group: "ecg" },
+        { name: "FRECUENCIA CARDIACA", value: 60, unit: "lpm", group: "ecg" },
+      ],
+    });
+    expect(ecg.isError).toBe(false);
+    const labs = (await agent.get("/api/labs")).body;
+    expect(labs).toHaveLength(1);
+    expect(labs[0].results).toHaveLength(6);
+    expect(labs[0].results.find((r: { key: string }) => r.key === "ecgHr").group).toBe("ecg");
+
     // Apple Health days from Claude, like the Shortcut sends them; a bad day is skipped, not the rest.
     const health = await tool(access, "add_health_days", {
       days: [

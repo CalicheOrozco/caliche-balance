@@ -122,3 +122,54 @@ describe("helpers", () => {
     expect(nextStudyDue("2026-08-29")).toBe("2027-08-29");
   });
 });
+
+describe("electrocardiogram", () => {
+  // The layout of Salud Digna's report, with made-up values.
+  const report = [
+    "                   INFORME DE RESULTADOS ELECTROCARDIOGRAMA",
+    "                       Fecha de nacimiento:      1/Ene/1990          Fecha toma:     6/Feb/2025 08:29 a. m.",
+    "2) INFORME DE RESULTADOS",
+    "Ritmo:                      Sinusal                               Frecuencia cardiaca:         58         latidos por minuto",
+    "Onda p:                               1.5             mm.                 90                 ms.",
+    "Intervalo PR:                         150             ms.",
+    "Complejo QRS:                 96",
+    "Intervalo QTm:                410                                                                   Eje eléctrico.",
+    "Eje eléctrico del QRS (aQRS):               120        grados.",
+    "Hipertrofia:                  No                      -",
+    "Isquemia:                     Sí                      -",
+    "3) HALLAZGOS ELECTROCARDIOGRÁFICOS",
+    "Ritmo: Sinusal, Frecuencia: 58 latidos por minuto, resto dentro de parámetros",
+    "normales.",
+    "4) SUGERENCIAS",
+    "        QT / QTc(B)           410 / 470 ms",
+    "        Sokolow-Lyon               2.10 mV",
+  ];
+
+  it("reads the cardiologist's values, the findings and the machine's QTc", () => {
+    const study = parseLabReport(report);
+    expect(study.takenAt).toBe("2025-02-06");
+    const get = (key: string) => study.results.find((r) => r.key === key);
+    expect(get("ecgRhythm")?.text).toBe("Sinusal");
+    expect(get("ecgHr")?.value).toBe(58);
+    expect(get("ecgP")?.value).toBe(90);
+    expect(get("ecgPr")?.value).toBe(150);
+    expect(get("ecgQt")?.value).toBe(410);
+    expect(get("ecgQtc")?.value).toBe(470);
+    expect(get("ecgAxis")?.value).toBe(120);
+    expect(get("ecgSokolow")?.value).toBe(2.1);
+    expect(get("ecgIschemia")).toMatchObject({ text: "Sí", flagged: true });
+    expect(get("ecgReading")?.text).toBe("Ritmo: Sinusal, Frecuencia: 58 latidos por minuto, resto dentro de parámetros normales.");
+    expect(study.results.every((r) => r.group === "ecg")).toBe(true);
+  });
+
+  it("judges it against the AHA/ACC/HRS cutoffs", () => {
+    const study = parseLabReport(report);
+    const judge = (key: string) => assess(study.results.find((r) => r.key === key)!, { sex: "male", age: 35 });
+    expect(judge("ecgHr")).toMatchObject({ status: "good", note: "ecgHrNormal" });
+    expect(judge("ecgQtc")).toMatchObject({ status: "warn", note: "ecgQtcBorderline" });
+    expect(judge("ecgAxis")).toMatchObject({ status: "warn", note: "ecgAxisOff" });
+    expect(judge("ecgHypertrophy")).toMatchObject({ status: "good", note: "ecgFindingNone" });
+    expect(judge("ecgIschemia")).toMatchObject({ status: "warn", note: "ecgFindingPresent" });
+    expect(judge("ecgReading")).toMatchObject({ status: "good", note: "ecgReadingNormal" });
+  });
+});

@@ -92,11 +92,21 @@ export async function saveGoals(c: Collections, user: UserDoc, raw: GoalsInput):
   return goals;
 }
 
-/** Saves a lab study; the same study (day and lab) saved again replaces the first copy. */
-export async function saveLabStudy(c: Collections, userId: ObjectId, input: LabStudyInput): Promise<LabStudyDoc> {
+/**
+ * Saves a lab study; the same study (day and lab) saved again replaces the first copy. With
+ * `merge`, the results join that study instead, each one replacing only the same test, so a part
+ * done the same day (an electrocardiogram) can come later without losing the rest.
+ */
+export async function saveLabStudy(c: Collections, userId: ObjectId, input: LabStudyInput, options: { merge?: boolean } = {}): Promise<LabStudyDoc> {
+  let results = input.results;
+  if (options.merge) {
+    const existing = await c.labStudies.findOne({ userId, takenAt: input.takenAt, lab: input.lab });
+    const added = new Set(results.map((r) => r.key));
+    results = [...(existing?.results ?? []).filter((r) => !added.has(r.key)), ...results];
+  }
   const saved = await c.labStudies.findOneAndUpdate(
     { userId, takenAt: input.takenAt, lab: input.lab },
-    { $set: { results: input.results }, $setOnInsert: { _id: new ObjectId(), userId, takenAt: input.takenAt, lab: input.lab, createdAt: new Date() } },
+    { $set: { results }, $setOnInsert: { _id: new ObjectId(), userId, takenAt: input.takenAt, lab: input.lab, createdAt: new Date() } },
     { upsert: true, returnDocument: "after" },
   );
   return saved!;
