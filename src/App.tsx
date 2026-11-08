@@ -3,6 +3,7 @@ import { FiActivity, FiPlus, FiSun } from "react-icons/fi";
 import { Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router";
 import type { UserDto } from "../shared/schemas.ts";
 import { useMe, useMeasurements } from "./api.ts";
+import { useRememberPage } from "./backTo.ts";
 import { Controls } from "./Controls.tsx";
 import { MedalIcon, ScaleIcon } from "./icons.tsx";
 import { useOnline } from "./offline.ts";
@@ -83,6 +84,7 @@ function Shell({ children }: { children: ReactNode }) {
   const { t } = useI18n();
   const online = useOnline();
   const { pathname } = useLocation();
+  useRememberPage();
   const pushed = PUSHED.some((p) => pathname.startsWith(p));
   return (
     <div className="mx-auto min-h-dvh max-w-md">

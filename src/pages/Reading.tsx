@@ -9,6 +9,7 @@ import { healthyWeightRange, type Status } from "../../shared/reference.ts";
 import { CM_PER_IN, fromKilograms, type MeasurementDto, NOTE_MAX_LENGTH, type ProfileDto } from "../../shared/schemas.ts";
 import { scoreOf } from "../../shared/score.ts";
 import { api } from "../api.ts";
+import { backFromReading } from "../backTo.ts";
 import { convertWaist, useWaistUnit, WaistUnitToggle } from "../units.tsx";
 import { useAdvice } from "../advice.ts";
 import { Spark } from "../charts.tsx";
@@ -118,6 +119,7 @@ export function ReadingPage({ profile, measurements }: { profile: ProfileDto; me
   const { t, tf } = useI18n();
   const f = useFormat();
   const navigate = useNavigate();
+  const back = backFromReading();
   const queryClient = useQueryClient();
   const [compare] = useCompareXiaomi();
   const itemText = useItemText(profile);
@@ -137,7 +139,7 @@ export function ReadingPage({ profile, measurements }: { profile: ProfileDto; me
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["measurements"] });
   const leave = () => {
-    navigate("/cuerpo/pesadas", { replace: true });
+    navigate(back.to, { replace: true });
     void refresh();
   };
   const remove = useMutation({ mutationFn: api.deleteMeasurement, onSuccess: leave });
@@ -153,7 +155,7 @@ export function ReadingPage({ profile, measurements }: { profile: ProfileDto; me
   if (!reading) {
     return (
       <div className="flex flex-col gap-3.5">
-        <BackLink to="/cuerpo" label={t("nav.body")} />
+        <BackLink to={back.to} label={t(back.label)} />
         <Card className="text-center">
           <p className="font-semibold text-ink-2">{t("readingNotFound")}</p>
         </Card>
@@ -211,7 +213,7 @@ export function ReadingPage({ profile, measurements }: { profile: ProfileDto; me
 
   return (
     <div className="flex flex-col gap-3.5">
-      <BackLink to="/cuerpo" label={t("nav.body")}>
+      <BackLink to={back.to} label={t(back.label)}>
         <div className="flex gap-2">
           <IconButton label={t("olderReading")} disabled={!older} onClick={() => older && navigate(`/medicion/${older.id}`, { replace: true })}>
             <FiChevronLeft size={18} strokeWidth={2.4} aria-hidden />
