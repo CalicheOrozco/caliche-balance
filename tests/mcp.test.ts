@@ -180,6 +180,21 @@ describe("Claude connector (MCP)", () => {
     expect(night.sleep.asleepMin).toBe(420);
     expect((await agent.get("/api/me")).body.appleHealth).toBeTruthy();
 
+    // Food Claude worked out, against what Apple Health says was spent that day.
+    const food = await tool(access, "add_food", {
+      entries: [
+        { date: "2026-11-06", meal: "lunch", name: "Tacos al pastor", amount: "3 tacos", kcal: 450, proteinG: 24, carbsG: 45, fatG: 18, note: "Tortilla de maíz, con piña" },
+        { date: "2026-11-06", meal: "lunch", name: "Coca-Cola", amount: "600 ml", kcal: 252, carbsG: 63 },
+      ],
+    });
+    expect(food.isError).toBe(false);
+    expect(food.data.days).toEqual([{ date: "2026-11-06", totals: { kcal: 702, proteinG: 24, carbsG: 108, fatG: 18, fiberG: 0, entries: 2 } }]);
+    const eaten = await tool(access, "list_food", { to: "2026-11-07", days: 2 });
+    const day = eaten.data.find((d: { date: string }) => d.date === "2026-11-06");
+    expect(day.entries[0].source).toBe("claude");
+    expect(day.spentKcal).toBeNull();
+    expect((await agent.get("/api/food").query({ from: "2026-11-06", to: "2026-11-06" })).body).toHaveLength(2);
+
     const bad = await tool(access, "get_weigh_in", { id: "not-an-id" });
     expect(bad.isError).toBe(true);
 

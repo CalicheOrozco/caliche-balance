@@ -2,7 +2,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
+import { localDay } from "../../shared/achievements.ts";
 import { metabolicAge } from "../../shared/bodyAge.ts";
+import { foodTotals, MEALS } from "../../shared/food.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
 import { dailyTrend, estimateEta, goalProgress } from "../../shared/goals.ts";
 import { assess as assessLab, egfr, identify, type LabResult, labStudyInputSchema, labTest, nextStudyDue, nonHdl } from "../../shared/labs.ts";
@@ -11,13 +13,25 @@ import { readingReport, recentChanges } from "../../shared/report.ts";
 import { type MeasurementDto, type ProfileDto, waistToCm } from "../../shared/schemas.ts";
 import { periodReport, trendNow, weightTrend } from "../../shared/trend.ts";
 import { labsCopy } from "../../src/copy/labs.ts";
-import { achievementsFor } from "../achievementCheck.ts";
+import { achievementsFor, DEFAULT_TIME_ZONE } from "../achievementCheck.ts";
 import { toHealthDayDto } from "../appleHealthRoutes.ts";
 import type { Collections, LabStudyDoc, UserDoc } from "../db.ts";
 import { toMeasurementDto } from "../http.ts";
 import type { PushSender } from "../push.ts";
 import { healthDayInput, readHealthDaysInput } from "../healthDays.ts";
-import { createMeasurement, markHealthImported, saveGoals, saveHealthDays, saveLabStudy, setNote, setWaist } from "../services.ts";
+import {
+  addFoodEntries,
+  createMeasurement,
+  foodBetween,
+  markHealthImported,
+  saveGoals,
+  saveHealthDays,
+  saveLabStudy,
+  setNote,
+  setWaist,
+  toFoodEntryDto,
+  updateFoodEntry,
+} from "../services.ts";
 
 /*
  * The tools Claude can use, signed in as the person (see oauth.ts). Reads return the same numbers
@@ -196,6 +210,21 @@ const labResultInput = z.object({
     .describe(
       "urine for the urinalysis (examen general de orina); ecg for an electrocardiogram: RITMO (text), FRECUENCIA CARDIACA (lpm), ONDA P, INTERVALO PR, COMPLEJO QRS, INTERVALO QT, QTC (ms), EJE ELECTRICO (°), SOKOLOW-LYON (mV), HIPERTROFIA, SOBRECARGA DIASTOLICA, SOBRECARGA SISTOLICA, LESION, ISQUEMIA, NECROSIS (text Sí/No), HALLAZGOS ELECTROCARDIOGRAFICOS (the cardiologist's findings as text); defaults to blood",
     ),
+});
+
+const nutrient = (what: string) => z.number().min(0).max(1_000).optional().describe(`${what}, grams`);
+const foodInput = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use the format YYYY-MM-DD").optional().describe("The person's local day, YYYY-MM-DD; defaults to today"),
+  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use HH:MM").optional().describe("Local time eaten, HH:MM, when known"),
+  meal: z.enum(MEALS).describe("breakfast, lunch (comida), dinner (cena) or snack"),
+  name: z.string().min(1).max(120).describe("The food or dish in the person's language, e.g. 'Tacos al pastor'"),
+  amount: z.string().max(60).optional().describe("How much, as the person said it: '3 tacos', '1 taza', '250 g'"),
+  kcal: z.number().min(0).max(10_000).describe("Calories of this amount, your best estimate"),
+  proteinG: nutrient("Protein"),
+  carbsG: nutrient("Carbohydrates"),
+  fatG: nutrient("Fat"),
+  fiberG: nutrient("Fiber"),
+  note: z.string().max(280).optional().describe("Anything worth keeping: how it was cooked, a brand, what the estimate assumed"),
 });
 
 export function registerTools(server: McpServer, auth: AuthInfo | undefined, collections: () => Promise<Collections>, push: PushSender | undefined) {
@@ -611,6 +640,85 @@ export function registerTools(server: McpServer, auth: AuthInfo | undefined, col
     async (args, ctx) => {
       const result = await ctx.c.labStudies.deleteOne({ _id: new ObjectId(args.id), userId: ctx.user._id });
       if (!result.deletedCount) throw new ToolProblem("No lab study with that id.");
+      return { deleted: args.id };
+    },
+  );
+
+  /** The person's today, in their time zone. */
+  const todayOf = (ctx: Context) => new Date(localDay(Date.now(), ctx.user.timeZone ?? DEFAULT_TIME_ZONE) * 86_400_000).toISOString().slice(0, 10);
+
+  tool(
+    "add_food",
+    {
+      title: "Log food eaten",
+      description:
+        "Saves what the person ate, one entry per food or dish, with your estimate of its calories and macronutrients (protein, carbohydrates, fat, fiber in grams) for the amount eaten. Use it when the person describes a meal or shares a photo: split a plate into its parts (tortillas, meat, sauce, drink) when that makes the estimate better, use typical Mexican portions and recipes unless told otherwise, and say what you assumed in the note. The app adds them up per day and compares them with the calories Apple Health says were spent.",
+      inputSchema: { entries: z.array(foodInput).min(1).max(50) },
+      annotations: WRITE,
+    },
+    async (args, ctx) => {
+      const today = todayOf(ctx);
+      const docs = await addFoodEntries(ctx.c, ctx.user._id, args.entries.map((e) => ({ ...e, date: e.date ?? today })), "claude");
+      const dates = [...new Set(docs.map((d) => d.date))].sort();
+      const days = await Promise.all(dates.map(async (date) => ({ date, totals: foodTotals((await foodBetween(ctx.c, ctx.user._id, date, date)).map(toFoodEntryDto)) })));
+      return { saved: docs.map(toFoodEntryDto), days };
+    },
+  );
+
+  tool(
+    "list_food",
+    {
+      title: "Food eaten",
+      description:
+        "What the person ate, day by day, newest first: every entry with its calories and macronutrients, the day's totals, and the calories spent that day according to Apple Health (active plus resting energy; today's is only so far) with the difference.",
+      inputSchema: {
+        days: z.number().int().min(1).max(90).optional().describe("How many days back from `to`, default 7"),
+        to: isoDate.optional().describe("Last day, YYYY-MM-DD; default today"),
+      },
+      annotations: READ,
+    },
+    async (args, ctx) => {
+      const to = args.to ?? todayOf(ctx);
+      const from = new Date(Date.parse(`${to}T12:00:00Z`) - ((args.days ?? 7) - 1) * 86_400_000).toISOString().slice(0, 10);
+      const entries = (await foodBetween(ctx.c, ctx.user._id, from, to)).map(toFoodEntryDto);
+      const health = await ctx.c.healthDays.find({ userId: ctx.user._id, date: { $gte: from, $lte: to } }).toArray();
+      const spentOn = new Map(health.map((h) => [h.date, h.activeKcal != null || h.restingKcal != null ? Math.round((h.activeKcal ?? 0) + (h.restingKcal ?? 0)) : null]));
+      const dates = [...new Set([...entries.map((e) => e.date), ...health.map((h) => h.date)])].sort().reverse();
+      return dates.map((date) => {
+        const list = entries.filter((e) => e.date === date);
+        const totals = foodTotals(list);
+        const spent = spentOn.get(date) ?? null;
+        return { date, entries: list, totals, spentKcal: spent, balanceKcal: spent !== null && list.length ? totals.kcal - spent : null };
+      });
+    },
+  );
+
+  tool(
+    "update_food_entry",
+    {
+      title: "Correct a food entry",
+      description: "Replaces one food entry (its id comes from list_food or add_food) with corrected values; send every field, not only the changed ones.",
+      inputSchema: { id: objectId, entry: foodInput },
+      annotations: WRITE,
+    },
+    async (args, ctx) => {
+      const saved = await updateFoodEntry(ctx.c, ctx.user._id, new ObjectId(args.id), { ...args.entry, date: args.entry.date ?? todayOf(ctx) });
+      if (!saved) throw new ToolProblem("No food entry with that id.");
+      return toFoodEntryDto(saved);
+    },
+  );
+
+  tool(
+    "delete_food_entry",
+    {
+      title: "Delete a food entry",
+      description: "Deletes one food entry.",
+      inputSchema: { id: objectId },
+      annotations: DESTROY,
+    },
+    async (args, ctx) => {
+      const result = await ctx.c.foodEntries.deleteOne({ _id: new ObjectId(args.id), userId: ctx.user._id });
+      if (!result.deletedCount) throw new ToolProblem("No food entry with that id.");
       return { deleted: args.id };
     },
   );

@@ -1,4 +1,5 @@
 import { type Collection, type Db, MongoClient, type ObjectId } from "mongodb";
+import type { FoodSource, Meal } from "../shared/food.ts";
 import type { LabResult } from "../shared/labs.ts";
 import type { HealthAttempt, HealthMetric, HealthSymptom, SleepSummary } from "../shared/health.ts";
 import type { BodyFatGoal, MaintainGoal, ProfileDto, RewardKind, WeightGoal } from "../shared/schemas.ts";
@@ -131,6 +132,26 @@ export interface LabStudyDoc {
   createdAt: Date;
 }
 
+/** One food or dish eaten, with its calories and the macronutrients that are known. */
+export interface FoodEntryDoc {
+  _id: ObjectId;
+  userId: ObjectId;
+  /** The person's local day, YYYY-MM-DD. */
+  date: string;
+  time: string | null;
+  meal: Meal;
+  name: string;
+  amount: string | null;
+  kcal: number;
+  proteinG: number | null;
+  carbsG: number | null;
+  fatG: number | null;
+  fiberG: number | null;
+  note: string | null;
+  source: FoodSource;
+  createdAt: Date;
+}
+
 /** A client Claude registered for the MCP connector (OAuth Dynamic Client Registration). */
 export interface OAuthClientDoc {
   client_id: string;
@@ -177,6 +198,7 @@ export interface Collections {
   pushSubscriptions: Collection<PushSubscriptionDoc>;
   healthDays: Collection<HealthDayDoc>;
   labStudies: Collection<LabStudyDoc>;
+  foodEntries: Collection<FoodEntryDoc>;
   oauthClients: Collection<OAuthClientDoc>;
   oauthCodes: Collection<OAuthCodeDoc>;
   oauthTokens: Collection<OAuthTokenDoc>;
@@ -193,6 +215,7 @@ export function collections(db: Db): Collections {
     pushSubscriptions: db.collection("pushSubscriptions"),
     healthDays: db.collection("healthDays"),
     labStudies: db.collection("labStudies"),
+    foodEntries: db.collection("foodEntries"),
     oauthClients: db.collection("oauthClients"),
     oauthCodes: db.collection("oauthCodes"),
     oauthTokens: db.collection("oauthTokens"),
@@ -220,6 +243,7 @@ export async function ensureIndexes(c: Collections): Promise<void> {
     // One row per person per local day; the Shortcut's key is looked up by its hash.
     c.healthDays.createIndex({ userId: 1, date: 1 }, { unique: true }),
     c.labStudies.createIndex({ userId: 1, takenAt: -1 }),
+    c.foodEntries.createIndex({ userId: 1, date: -1, time: 1 }),
     // The MCP connector's sign-in: everything expires on its own.
     c.oauthClients.createIndex({ client_id: 1 }, { unique: true }),
     c.oauthClients.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),

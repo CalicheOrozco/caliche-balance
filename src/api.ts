@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { FoodEntryDto, FoodEntryInput } from "../shared/food.ts";
 import type { LabStudyDto, LabStudyInput } from "../shared/labs.ts";
 import type { Achievements } from "../shared/achievements.ts";
 import type { AppleHealthStatus, HealthDayDto } from "../shared/health.ts";
@@ -60,6 +61,10 @@ export const api = {
     call<MeasurementDto>("PATCH", `/measurements/${id}/waist`, { waist, waistUnit }),
   setNote: (id: string, note: string | null) => call<MeasurementDto>("PATCH", `/measurements/${id}/note`, { note }),
   labs: () => call<LabStudyDto[]>("GET", "/labs"),
+  food: (from: string, to: string) => call<FoodEntryDto[]>("GET", `/food?from=${from}&to=${to}`),
+  addFood: (entries: FoodEntryInput[]) => call<FoodEntryDto[]>("POST", "/food", entries),
+  updateFood: (id: string, entry: FoodEntryInput) => call<FoodEntryDto>("PUT", `/food/${id}`, entry),
+  deleteFood: (id: string) => call<void>("DELETE", `/food/${id}`),
   saveLab: (study: LabStudyInput & { merge?: boolean }) => call<LabStudyDto>("POST", "/labs", study),
   deleteLab: (id: string) => call<void>("DELETE", `/labs/${id}`),
   zeppStatus: () => call<ZeppStatusDto>("GET", "/zepp"),

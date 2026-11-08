@@ -27,6 +27,7 @@ const LabStudyPage = lazy(() => import("./pages/Labs.tsx").then((m) => ({ defaul
 const AddLabPage = lazy(() => import("./pages/Labs.tsx").then((m) => ({ default: m.AddLabPage })));
 const HistoryPage = lazy(() => import("./pages/History.tsx").then((m) => ({ default: m.HistoryPage })));
 const ActivityPage = lazy(() => import("./pages/Activity.tsx").then((m) => ({ default: m.ActivityPage })));
+const FoodPage = lazy(() => import("./pages/Food.tsx").then((m) => ({ default: m.FoodPage })));
 const StepsHistoryPage = lazy(() => import("./pages/Activity.tsx").then((m) => ({ default: m.StepsHistoryPage })));
 
 type Tab = { to: string; key: MessageKey; Icon: (props: { size?: number; strokeWidth?: number }) => ReactNode };
@@ -43,7 +44,7 @@ const TABS_RIGHT: Tab[] = [
 ];
 
 /** Pages opened from somewhere else: they have a way back instead of the tab bar. */
-const PUSHED = ["/agregar", "/medicion/", "/yo", "/ajustes", "/actividad/pasos", "/historial", "/estudios/"];
+const PUSHED = ["/agregar", "/medicion/", "/yo", "/ajustes", "/actividad/pasos", "/historial", "/estudios/", "/comida"];
 
 function TabLink({ tab }: { tab: Tab }) {
   const { t } = useI18n();
@@ -210,6 +211,14 @@ function SignedIn({ user }: { user: UserDto }) {
             element={
               <Suspense fallback={<p className="py-10 text-center text-muted">…</p>}>
                 <ActivityPage user={user} />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/comida"
+            element={
+              <Suspense fallback={<p className="py-10 text-center text-muted">…</p>}>
+                <FoodPage user={user} profile={profile} measurements={list} />
               </Suspense>
             }
           />

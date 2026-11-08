@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, type ReactNode, useState } from "react";
-import { FiArrowDown, FiArrowUp, FiAward, FiCheck, FiChevronDown, FiChevronRight, FiGift, FiGrid, FiSliders, FiTarget } from "react-icons/fi";
+import { FiArrowDown, FiArrowUp, FiAward, FiCheck, FiChevronDown, FiChevronRight, FiGift, FiGrid, FiPlus, FiSliders, FiTarget } from "react-icons/fi";
 import { Link } from "react-router";
 import { type Achievements, type ChallengeStatus, STREAK_UNLOCKS, type StreakUnlock, TARGETS } from "../../shared/achievements.ts";
 import { bodyFatOf } from "../../shared/composition.ts";
 import type { HealthDayDto } from "../../shared/health.ts";
 import { ageAt, assess, bodyFatBands, healthyWeightRange } from "../../shared/reference.ts";
 import { scoreOf } from "../../shared/score.ts";
+import { foodTotals } from "../../shared/food.ts";
 import { sleepScoreOf } from "../../shared/sleepScore.ts";
 import { periodReport, trendNow, weightTrend } from "../../shared/trend.ts";
 import {
@@ -23,6 +24,7 @@ import {
 import { fromKilograms, type GoalsDto, type StreakReward, type MeasurementDto, type ProfileDto } from "../../shared/schemas.ts";
 import { BadgeMedal, RewardProgress, useBadgeNames, useNewLevels } from "../achievements.tsx";
 import { api, useAchievementsQuery } from "../api.ts";
+import { localIso, spentOf, useFood } from "../foodData.ts";
 import { FlameIcon, BulbIcon } from "../icons.tsx";
 import { type MessageKey, useI18n } from "../i18n.tsx";
 import { ReportCard } from "../reports.tsx";
@@ -334,6 +336,47 @@ function WeightChart({ measurements, unit, trendUnlocked }: { measurements: Meas
         ))}
       </div>
     </div>
+  );
+}
+
+// ---- Food -----------------------------------------------------------------------------------
+
+/** Today's calories eaten against those spent so far, opening the Food page. */
+function FoodCard({ connected }: { connected: boolean }) {
+  const { t, tf } = useI18n();
+  const f = useFormat();
+  const today = localIso(Date.now());
+  const entries = (useFood(today).data ?? []).filter((e) => e.date === today);
+  const spent = spentOf(useHealthDays(connected).data?.find((d) => d.date === today));
+  const totals = foodTotals(entries);
+  const balance = spent !== null && entries.length > 0 ? totals.kcal - spent : null;
+  return (
+    <Link to="/comida" className="flex items-center gap-3 rounded-3xl border border-line bg-surface p-4 text-ink shadow-card">
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="text-[13px] font-bold text-ink-2">{t("home.foodTitle")}</span>
+        {entries.length === 0 ? (
+          <span className="text-sm font-semibold text-ink-2">{t("home.foodNone")}</span>
+        ) : (
+          <>
+            <span className="text-[22px] leading-7 font-extrabold">
+              {f.number(totals.kcal, 0)} kcal
+              {spent !== null && <span className="ml-1.5 text-sm font-bold text-muted">/ {f.number(spent, 0)}</span>}
+            </span>
+            <span className="text-xs font-semibold text-muted">
+              {[
+                `${t("food.protein")} ${f.number(totals.proteinG, 0)} g`,
+                balance !== null ? (balance < 0 ? tf("food.deficit", { kcal: f.number(-balance, 0) }) : balance > 0 ? tf("food.surplus", { kcal: f.number(balance, 0) }) : t("food.even")) : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          </>
+        )}
+      </span>
+      <span className="flex h-10 shrink-0 items-center gap-1 rounded-full bg-brand px-3.5 text-sm font-extrabold text-brand-ink">
+        <FiPlus size={16} strokeWidth={2.6} aria-hidden /> {t("home.foodAdd")}
+      </span>
+    </Link>
   );
 }
 
@@ -932,7 +975,7 @@ function GoalsCard({ goals, measurements, profile }: { goals: GoalsDto; measurem
 // ---- The page --------------------------------------------------------------------------------
 
 /** The cards of Today that can be hidden or moved, in their original order. */
-const SECTIONS = ["days", "balance", "weight", "today", "minis", "news", "weekly", "goals"] as const;
+const SECTIONS = ["days", "balance", "food", "weight", "today", "minis", "news", "weekly", "goals"] as const;
 type Section = (typeof SECTIONS)[number];
 type Layout = { order: Section[]; hidden: Section[] };
 const LAYOUT_KEY = "home-layout";
@@ -1089,6 +1132,7 @@ export function HomePage({
   const cards: Record<Section, ReactNode> = {
     days: <DayStrip measurements={measurements} />,
     balance: <BalanceCard profile={profile} measurements={measurements} connected={appleHealthConnected} achievements={achievements} />,
+    food: <FoodCard connected={appleHealthConnected} />,
     weight: <WeightCard profile={profile} measurements={measurements} goals={goals} trendUnlocked={best !== null && best >= STREAK_UNLOCKS.trend} />,
     today: <ForToday measurements={measurements} unit={profile.unit} connected={appleHealthConnected} achievements={achievements} />,
     minis: (

@@ -275,6 +275,40 @@ describe("Caliche Balance API", () => {
     expect((await agent.get("/api/labs")).body).toHaveLength(0);
   });
 
+  it("logs, lists, corrects and deletes food, only for its owner", async () => {
+    const agent = request.agent(app);
+    await agent.post("/api/auth/register").send({ username: "comida", password: "contraseña-comida" });
+    await agent.put("/api/me/profile").send(profile);
+
+    const added = await agent.post("/api/food").send([
+      { date: "2026-11-07", time: "14:30", meal: "lunch", name: "Tacos al pastor", amount: "3 tacos", kcal: 450, proteinG: 24, carbsG: 45, fatG: 18 },
+      { date: "2026-11-07", meal: "lunch", name: "Agua de jamaica", kcal: 90.4 },
+    ]);
+    expect(added.status).toBe(201);
+    expect(added.body).toHaveLength(2);
+    expect(added.body[0]).toMatchObject({ name: "Tacos al pastor", source: "manual", time: "14:30", proteinG: 24 });
+    expect(added.body[1]).toMatchObject({ kcal: 90, proteinG: null, time: null });
+
+    // Days outside the window are not returned.
+    await agent.post("/api/food").send({ date: "2026-10-01", meal: "dinner", name: "Pozole", kcal: 600 });
+    const listed = await agent.get("/api/food").query({ from: "2026-11-01", to: "2026-11-08" });
+    expect(listed.body.map((e: { name: string }) => e.name)).toEqual(["Tacos al pastor", "Agua de jamaica"]);
+
+    const id = added.body[0].id as string;
+    const fixed = await agent.put(`/api/food/${id}`).send({ date: "2026-11-07", time: "14:30", meal: "lunch", name: "Tacos al pastor", amount: "4 tacos", kcal: 600 });
+    expect(fixed.body).toMatchObject({ amount: "4 tacos", kcal: 600, proteinG: null });
+
+    expect((await agent.post("/api/food").send({ date: "2026-11-07", meal: "lunch", name: "", kcal: -1 })).status).toBe(400);
+
+    const other = request.agent(app);
+    await other.post("/api/auth/register").send({ username: "otro-comida", password: "contraseña-otro" });
+    expect((await other.get("/api/food").query({ from: "2026-11-01", to: "2026-11-08" })).body).toEqual([]);
+    expect((await other.delete(`/api/food/${id}`)).status).toBe(404);
+
+    expect((await agent.delete(`/api/food/${id}`)).status).toBe(204);
+    expect((await agent.get("/api/food").query({ from: "2026-11-01", to: "2026-11-08" })).body).toHaveLength(1);
+  });
+
   it("stores, trims and removes a note on a reading", async () => {
     const agent = request.agent(app);
     await agent.post("/api/auth/register").send({ username: "nora", password: "contraseña-nora" });

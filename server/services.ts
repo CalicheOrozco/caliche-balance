@@ -1,12 +1,13 @@
 import { ObjectId } from "mongodb";
 import { bodyFatOf } from "../shared/composition.ts";
 import { maintainRange } from "../shared/goals.ts";
+import { type FoodEntryDto, type FoodEntryInput, foodEntryInputSchema, type FoodSource } from "../shared/food.ts";
 import type { LabStudyInput } from "../shared/labs.ts";
 import { type GoalsInput, goalsInputSchema, measurementInputSchema, type MeasurementInput, toKilograms, waistToCm } from "../shared/schemas.ts";
 import type { HealthDayInput } from "../shared/health.ts";
 import { checkAchievements } from "./achievementCheck.ts";
 import { hashSecret, newSecret } from "./auth.ts";
-import type { Collections, HealthDayDoc, LabStudyDoc, MeasurementDoc, UserDoc } from "./db.ts";
+import type { Collections, FoodEntryDoc, HealthDayDoc, LabStudyDoc, MeasurementDoc, UserDoc } from "./db.ts";
 import { checkGoals } from "./goalCheck.ts";
 import type { PushSender } from "./push.ts";
 
@@ -159,4 +160,60 @@ export async function markHealthImported(c: Collections, user: UserDoc): Promise
   } else {
     await c.users.updateOne({ _id: user._id }, { $set: { appleHealth: { keyHash: hashSecret(newSecret()), since: now, lastSyncAt: now } } });
   }
+}
+
+/** The same entry without the database's own fields. */
+export function toFoodEntryDto(d: FoodEntryDoc): FoodEntryDto {
+  return {
+    id: d._id.toHexString(),
+    date: d.date,
+    time: d.time,
+    meal: d.meal,
+    name: d.name,
+    amount: d.amount,
+    kcal: d.kcal,
+    proteinG: d.proteinG,
+    carbsG: d.carbsG,
+    fatG: d.fatG,
+    fiberG: d.fiberG,
+    note: d.note,
+    source: d.source,
+  };
+}
+
+function foodFields(raw: FoodEntryInput) {
+  const e = foodEntryInputSchema.parse(raw);
+  const round = (n: number | null | undefined) => (n == null ? null : Math.round(n * 10) / 10);
+  return {
+    date: e.date,
+    time: e.time ?? null,
+    meal: e.meal,
+    name: e.name,
+    amount: e.amount || null,
+    kcal: Math.round(e.kcal),
+    proteinG: round(e.proteinG),
+    carbsG: round(e.carbsG),
+    fatG: round(e.fatG),
+    fiberG: round(e.fiberG),
+    note: e.note || null,
+  };
+}
+
+/** Saves foods eaten, each one checked; nothing is saved if one is not valid. */
+export async function addFoodEntries(c: Collections, userId: ObjectId, entries: FoodEntryInput[], source: FoodSource): Promise<FoodEntryDoc[]> {
+  const now = new Date();
+  const docs: FoodEntryDoc[] = entries.map((raw) => ({ _id: new ObjectId(), userId, ...foodFields(raw), source, createdAt: now }));
+  if (docs.length) await c.foodEntries.insertMany(docs);
+  return docs;
+}
+
+/** Replaces one of the person's entries; null when it is not theirs. */
+export async function updateFoodEntry(c: Collections, userId: ObjectId, id: ObjectId, raw: FoodEntryInput): Promise<FoodEntryDoc | null> {
+  return c.foodEntries.findOneAndUpdate({ _id: id, userId }, { $set: foodFields(raw) }, { returnDocument: "after" });
+}
+
+/** The person's entries between two days, inclusive, oldest first; within a day by time, those without one last. */
+export async function foodBetween(c: Collections, userId: ObjectId, from: string, to: string): Promise<FoodEntryDoc[]> {
+  const docs = await c.foodEntries.find({ userId, date: { $gte: from, $lte: to } }).sort({ date: 1, createdAt: 1 }).toArray();
+  return docs.sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? "99:99").localeCompare(b.time ?? "99:99"));
 }

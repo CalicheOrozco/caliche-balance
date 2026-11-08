@@ -30,7 +30,7 @@ import { type LabStudyDto, labStudyInputSchema } from "../shared/labs.ts";
 import { isTimeZone } from "../shared/achievements.ts";
 import { achievementsFor, latestBody, remindStreaks, toRewardDto } from "./achievementCheck.ts";
 import { appleHealthRoutes, toAppleHealthStatus } from "./appleHealthRoutes.ts";
-import { createMeasurement, saveGoals, saveLabStudy, setNote, setWaist } from "./services.ts";
+import { addFoodEntries, createMeasurement, foodBetween, saveGoals, saveLabStudy, setNote, setWaist, toFoodEntryDto, updateFoodEntry } from "./services.ts";
 import { mcpRouter } from "./mcp/index.ts";
 import { messages, notifyUser, type PushSender } from "./push.ts";
 import { asyncRoute, clientIp, fieldProblems, hitRateLimit, isCronRequest, peekRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
@@ -261,6 +261,7 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
         collections.pushSubscriptions.deleteMany({ userId }),
         collections.healthDays.deleteMany({ userId }),
         collections.labStudies.deleteMany({ userId }),
+        collections.foodEntries.deleteMany({ userId }),
         collections.oauthTokens.deleteMany({ userId }),
         collections.oauthCodes.deleteMany({ userId }),
       ]);
@@ -346,6 +347,49 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
       const merge = z.boolean().optional().parse(req.body?.merge);
       const saved = await saveLabStudy(collections, req.user!._id, input, { merge });
       res.status(201).json(toLabStudyDto(saved));
+    }),
+  );
+
+  // What the person eats: by day, from the app or from Claude.
+  const isoDay = z.iso.date();
+  const objectId = z.string().regex(/^[0-9a-f]{24}$/);
+  router.get(
+    "/food",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const to = isoDay.catch(new Date().toISOString().slice(0, 10)).parse(req.query.to);
+      const from = isoDay.catch(new Date(Date.parse(`${to}T12:00:00Z`) - 29 * 86_400_000).toISOString().slice(0, 10)).parse(req.query.from);
+      res.json((await foodBetween(collections, req.user!._id, from, to)).map(toFoodEntryDto));
+    }),
+  );
+
+  router.post(
+    "/food",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const list = Array.isArray(req.body) ? req.body : [req.body];
+      if (list.length < 1 || list.length > 50) return res.status(400).json({ error: "invalid" });
+      const docs = await addFoodEntries(collections, req.user!._id, list, "manual");
+      res.status(201).json(docs.map(toFoodEntryDto));
+    }),
+  );
+
+  router.put(
+    "/food/:id",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const saved = await updateFoodEntry(collections, req.user!._id, new ObjectId(objectId.parse(req.params.id)), req.body);
+      if (!saved) return res.status(404).json({ error: "not-found" });
+      res.json(toFoodEntryDto(saved));
+    }),
+  );
+
+  router.delete(
+    "/food/:id",
+    withUser(),
+    asyncRoute(async (req, res) => {
+      const result = await collections.foodEntries.deleteOne({ _id: new ObjectId(objectId.parse(req.params.id)), userId: req.user!._id });
+      res.status(result.deletedCount ? 204 : 404).end();
     }),
   );
 

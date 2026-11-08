@@ -189,6 +189,10 @@ Entre esos puntos la puntuación baja en línea recta. Las referencias son publi
 
 `shared/percentiles.ts` usa las tablas 14 y 15 de *Anthropometric Reference Data for Children and Adults: United States, 2015-2018* (CDC, Vital Health Stat 3(46), 2021, NHANES): percentiles 5 a 95 de IMC por sexo y edad, para toda la población y para mexicoamericanos. Entre percentiles publicados se interpola en línea recta; fuera del 5 al 95 se dice "menos de 5 %" o "más de 95 %". No se usan datos de Canadá porque no se encontró una tabla equivalente publicada.
 
+## Comida
+
+En **Hoy > Comida de hoy** (`/comida`) registras lo que comes: qué, cuánto, a qué comida del día pertenece, la hora, las calorías y, si los sabes, proteína, carbohidratos, grasa y fibra (sin calorías se calculan con 4/4/9 kcal por gramo). Las comidas recientes llenan el formulario con un toque. Cada día compara lo comido con lo gastado según Apple Salud (energía activa más en reposo) y muestra el déficit o superávit, la proteína contra ~1.6 g por kg de peso (ISSN) y la fibra contra 38 g (hombres) o 25 g (mujeres). Con el conector, Claude estima y guarda las comidas que le describes o le mandas en foto (`add_food`), y las marca como suyas. Todo vive en `foodEntries` (`shared/food.ts`, `server/services.ts`, `src/pages/Food.tsx`).
+
 ## Apple Salud (con un Atajo)
 
 Apple Salud no tiene una conexión web: solo una app en el iPhone puede leerlo. Por eso Caliche Balance usa un **Atajo de iOS** que cada noche lee los totales del día y los manda con una llave personal.
@@ -292,8 +296,8 @@ La app tiene un servidor MCP en `/mcp` para que Claude (claude.ai, las apps de C
 
 | Para | Herramientas |
 |---|---|
-| Leer | `get_profile`, `get_body_summary`, `list_weigh_ins`, `get_weigh_in`, `get_trends`, `list_health_days`, `get_achievements`, `list_lab_studies`, `get_lab_study` |
-| Guardar | `add_weigh_in`, `set_weigh_in_waist`, `set_weigh_in_note`, `set_goals`, `add_lab_study`, `add_health_days` |
+| Leer | `get_profile`, `get_body_summary`, `list_weigh_ins`, `get_weigh_in`, `get_trends`, `list_health_days`, `get_achievements`, `list_lab_studies`, `get_lab_study`, `list_food` |
+| Guardar | `add_weigh_in`, `set_weigh_in_waist`, `set_weigh_in_note`, `set_goals`, `add_lab_study`, `add_health_days`, `add_food`, `update_food_entry` |
 | Borrar | `delete_weigh_in`, `delete_lab_study` (Claude pide confirmación) |
 
 Los números son los mismos que muestra la app (grasa con la ecuación de pie a pie, edad metabólica, reporte de cada pesada, evaluación de estudios), porque salen de `shared/`. Lo que Claude guarda pasa por `server/services.ts`, igual que la API de la app, así que revisa metas y logros de la misma forma. Puedes compartirle a Claude el PDF de un estudio y pedirle que lo guarde con `add_lab_study` (sangre, orina y electrocardiograma; con `merge` un ECG se une al estudio del mismo día sin borrar lo demás), y pasarle datos de tu exportación de Apple Salud para que los guarde con `add_health_days` (los mismos datos que manda el Atajo, hasta 400 días por llamada).
