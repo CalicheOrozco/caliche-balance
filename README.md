@@ -195,7 +195,7 @@ Apple Salud no tiene una conexión web: solo una app en el iPhone puede leerlo. 
 
 1. En **Ajustes > Apple Salud** creas tu llave (se muestra una sola vez; solo se guarda su huella).
 2. **Agregar el Atajo** descarga `public/shortcuts/caliche-salud.shortcut`. Al agregarlo, el Atajo te pide la llave.
-3. La primera vez que corre pide permiso para leer Salud. Después, una automatización diaria (11:30 p.m.) lo corre sola.
+3. La primera vez que corre pide permiso para leer Salud. Después, una automatización diaria (11:59 p.m., para que entre el ejercicio de la noche) lo corre sola.
 
 Cada noche manda a `POST /api/apple-health/ingest` (con `Authorization: Bearer <llave>`):
 
