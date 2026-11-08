@@ -131,6 +131,42 @@ export interface LabStudyDoc {
   createdAt: Date;
 }
 
+/** A client Claude registered for the MCP connector (OAuth Dynamic Client Registration). */
+export interface OAuthClientDoc {
+  client_id: string;
+  redirect_uris: string[];
+  client_name?: string;
+  [field: string]: unknown;
+  createdAt: Date;
+  /** Clients nobody signs in with for 90 days are removed. */
+  expiresAt: Date;
+}
+
+/** A single-use sign-in code, stored as a hash, waiting to be exchanged for tokens. */
+export interface OAuthCodeDoc {
+  hash: string;
+  clientId: string;
+  redirectUri: string;
+  codeChallenge: string;
+  scopes: string[];
+  resource?: string;
+  userId: ObjectId;
+  expiresAt: Date;
+}
+
+/** An MCP access or refresh token, stored as a hash. Tokens from one sign-in share a family. */
+export interface OAuthTokenDoc {
+  hash: string;
+  kind: "access" | "refresh";
+  clientId: string;
+  userId: ObjectId;
+  scopes: string[];
+  resource?: string;
+  family: string;
+  used?: boolean;
+  expiresAt: Date;
+}
+
 export interface Collections {
   users: Collection<UserDoc>;
   sessions: Collection<SessionDoc>;
@@ -141,6 +177,9 @@ export interface Collections {
   pushSubscriptions: Collection<PushSubscriptionDoc>;
   healthDays: Collection<HealthDayDoc>;
   labStudies: Collection<LabStudyDoc>;
+  oauthClients: Collection<OAuthClientDoc>;
+  oauthCodes: Collection<OAuthCodeDoc>;
+  oauthTokens: Collection<OAuthTokenDoc>;
 }
 
 export function collections(db: Db): Collections {
@@ -154,6 +193,9 @@ export function collections(db: Db): Collections {
     pushSubscriptions: db.collection("pushSubscriptions"),
     healthDays: db.collection("healthDays"),
     labStudies: db.collection("labStudies"),
+    oauthClients: db.collection("oauthClients"),
+    oauthCodes: db.collection("oauthCodes"),
+    oauthTokens: db.collection("oauthTokens"),
   };
 }
 
@@ -178,6 +220,15 @@ export async function ensureIndexes(c: Collections): Promise<void> {
     // One row per person per local day; the Shortcut's key is looked up by its hash.
     c.healthDays.createIndex({ userId: 1, date: 1 }, { unique: true }),
     c.labStudies.createIndex({ userId: 1, takenAt: -1 }),
+    // The MCP connector's sign-in: everything expires on its own.
+    c.oauthClients.createIndex({ client_id: 1 }, { unique: true }),
+    c.oauthClients.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+    c.oauthCodes.createIndex({ hash: 1 }, { unique: true }),
+    c.oauthCodes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+    c.oauthTokens.createIndex({ hash: 1 }, { unique: true }),
+    c.oauthTokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+    c.oauthTokens.createIndex({ family: 1 }),
+    c.oauthTokens.createIndex({ userId: 1 }),
     c.users.createIndex({ "appleHealth.keyHash": 1 }, { unique: true, partialFilterExpression: { "appleHealth.keyHash": { $type: "string" } } }),
   ]);
 }

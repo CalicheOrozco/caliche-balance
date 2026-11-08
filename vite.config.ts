@@ -54,8 +54,9 @@ export default defineConfig(({ command }) => ({
         navigateFallback: "/index.html",
         // API responses are never cached by the service worker: they carry personal data and
         // the app persists only what it needs (see src/offline.ts).
-        // The Apple Health Shortcut is a file to download, not a screen of the app.
-        navigateFallbackDenylist: [/^\/api\//, /\.shortcut$/],
+        // The Apple Health Shortcut is a file to download, not a screen of the app. The Claude
+        // connector's sign-in pages come from the server, not from the app.
+        navigateFallbackDenylist: [/^\/api\//, /\.shortcut$/, /^\/(mcp|mcp-login|authorize|token|register|revoke)(\/|$)/, /^\/\.well-known\//],
         cleanupOutdatedCaches: true,
         // Shows push notifications and opens the app when one is tapped.
         importScripts: ["/push-sw.js"],

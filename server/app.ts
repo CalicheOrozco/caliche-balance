@@ -31,6 +31,7 @@ import { isTimeZone } from "../shared/achievements.ts";
 import { achievementsFor, latestBody, remindStreaks, toRewardDto } from "./achievementCheck.ts";
 import { appleHealthRoutes, toAppleHealthStatus } from "./appleHealthRoutes.ts";
 import { createMeasurement, saveGoals, saveLabStudy, setNote, setWaist } from "./services.ts";
+import { mcpRouter } from "./mcp/index.ts";
 import { messages, notifyUser, type PushSender } from "./push.ts";
 import { asyncRoute, clientIp, fieldProblems, hitRateLimit, isCronRequest, peekRateLimit, sendRateLimited, toMeasurementDto } from "./http.ts";
 import { type ZeppClient, ZeppError, zeppClient } from "./zepp.ts";
@@ -87,6 +88,8 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
   const app = express();
   app.set("trust proxy", true);
   app.disable("x-powered-by");
+  // The Claude connector (MCP and its OAuth sign-in) lives at the root, outside /api, with its own body parsers.
+  app.use(mcpRouter(getCollections, push));
   // The Shortcut sends a week of Health readings (one line each), or a whole year once; Vercel
   // takes up to 4.5 MB. Everything else is small.
   app.use("/api/apple-health/ingest", express.json({ limit: "4mb" }));
@@ -180,6 +183,7 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
         { $set: { passwordHash: await hashPassword(body.newPassword), recoveryHash: hashSecret(recoveryCode) } },
       );
       await collections.sessions.deleteMany({ userId: user._id });
+      await collections.oauthTokens.deleteMany({ userId: user._id });
       await startSession(collections, res, user._id, secureCookies);
       res.json({ user: toUserDto(user), recoveryCode });
     }),
@@ -204,7 +208,9 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
       }
       await collections.users.updateOne({ _id: user._id }, { $set: { passwordHash: await hashPassword(body.newPassword) } });
       // Every other device signs out, in case the old password was known to someone; this one stays.
+      // Claude connectors too: they sign in again with the new password.
       await collections.sessions.deleteMany({ userId: user._id });
+      await collections.oauthTokens.deleteMany({ userId: user._id });
       await startSession(collections, res, user._id, secureCookies);
       res.json(toUserDto(user));
     }),
@@ -255,6 +261,8 @@ export function createApp({ getCollections, secureCookies, zepp = zeppClient, cr
         collections.pushSubscriptions.deleteMany({ userId }),
         collections.healthDays.deleteMany({ userId }),
         collections.labStudies.deleteMany({ userId }),
+        collections.oauthTokens.deleteMany({ userId }),
+        collections.oauthCodes.deleteMany({ userId }),
       ]);
       await collections.users.deleteOne({ _id: userId });
       res.clearCookie("cb_session", { path: "/" });

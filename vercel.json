@@ -6,6 +6,34 @@
       "destination": "/api"
     },
     {
+      "source": "/mcp",
+      "destination": "/api"
+    },
+    {
+      "source": "/mcp-login",
+      "destination": "/api"
+    },
+    {
+      "source": "/authorize",
+      "destination": "/api"
+    },
+    {
+      "source": "/token",
+      "destination": "/api"
+    },
+    {
+      "source": "/register",
+      "destination": "/api"
+    },
+    {
+      "source": "/revoke",
+      "destination": "/api"
+    },
+    {
+      "source": "/.well-known/(.*)",
+      "destination": "/api"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

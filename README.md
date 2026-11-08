@@ -269,6 +269,26 @@ Si Zepp asigna una pesada a la persona equivocada (pasa cuando dos personas pesa
 
 Las pesadas no se duplican.
 
+## Conectar con Claude (MCP)
+
+La app tiene un servidor MCP en `/mcp` para que Claude (claude.ai, las apps de Claude y Claude Code) lea y guarde tus datos como tú.
+
+1. En Vercel agrega la variable `MCP_SECRET` (32 caracteres o más: `openssl rand -base64 48`, márcala como Sensitive) y vuelve a publicar. Sin ella el conector queda apagado.
+2. En Claude: Configuración > Conectores > Agregar conector personalizado, con `https://caliche-balance.vercel.app/mcp`.
+3. Toca Conectar: se abre la página de Caliche Balance, entras con tu usuario y contraseña y permites el acceso.
+
+**Lo que Claude puede hacer:**
+
+| Para | Herramientas |
+|---|---|
+| Leer | `get_profile`, `get_body_summary`, `list_weigh_ins`, `get_weigh_in`, `get_trends`, `list_health_days`, `get_achievements`, `list_lab_studies`, `get_lab_study` |
+| Guardar | `add_weigh_in`, `set_weigh_in_waist`, `set_weigh_in_note`, `set_goals`, `add_lab_study` |
+| Borrar | `delete_weigh_in`, `delete_lab_study` (Claude pide confirmación) |
+
+Los números son los mismos que muestra la app (grasa con la ecuación de pie a pie, edad metabólica, reporte de cada pesada, evaluación de estudios), porque salen de `shared/`. Lo que Claude guarda pasa por `server/services.ts`, igual que la API de la app, así que revisa metas y logros de la misma forma. Puedes compartirle a Claude el PDF de un estudio y pedirle que lo guarde con `add_lab_study`.
+
+**Seguridad:** Claude se registra solo (OAuth con registro dinámico) y solo puede regresar a claude.ai, claude.com o a tu propia computadora (Claude Code). Los tokens se guardan solo como hash; el de acceso dura una hora y el de renovación 30 días, y cambia en cada uso (si uno viejo se vuelve a usar, se cancela esa conexión). Los intentos de contraseña tienen el mismo límite que la app. Cambiar o recuperar tu contraseña, o borrar tu cuenta, desconecta a Claude. Código en `server/mcp/`.
+
 ## Cuentas y seguridad
 
 - Registro abierto con nombre de usuario y contraseña (mínimo 8 caracteres). No se pide correo.
