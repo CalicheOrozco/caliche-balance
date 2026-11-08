@@ -24,8 +24,10 @@ import { registerTools } from "./tools.ts";
 
 const REGISTRATIONS_PER_HOUR = 20;
 // The SDK's own per-address limits stay on. The app trusts the proxy headers on purpose (Vercel
-// sets them), which the limiter would otherwise warn about on every request.
-const sdkLimit = { validate: { trustProxy: false } };
+// sets them), which the limiter would otherwise warn about on every request. Its handlers are built
+// on the first request (the public URL comes from the environment), once per server instance,
+// which the limiter would also log as an error each time; that check is off for the same reason.
+const sdkLimit = { validate: { trustProxy: false, creationStack: false } };
 
 /*
  * The two pages a browser opens (the sign-in page and its form) live under /api/oauth. The app's
