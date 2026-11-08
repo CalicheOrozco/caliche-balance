@@ -3,7 +3,7 @@ import { type FormEvent, type ReactNode, useState } from "react";
 import type { IconType } from "react-icons";
 import { FiActivity, FiBarChart2, FiCalendar, FiChevronDown, FiClock, FiDroplet, FiMoon, FiPieChart, FiTarget, FiTrendingDown } from "react-icons/fi";
 import { Link } from "react-router";
-import { type AgeGroup, type BodyFatAge, bodyFatAge } from "../../shared/bodyAge.ts";
+import { type AgeGroup, type BodyFatAge, metabolicAge } from "../../shared/bodyAge.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
 import { lossPlan, SAFE_LOSS_KG_PER_WEEK } from "../../shared/fatLoss.ts";
 import { bmiPercentile, type PercentileResult } from "../../shared/percentiles.ts";
@@ -99,12 +99,12 @@ function BodyAgeCard({ profile, reading }: { profile: ProfileDto; reading: Measu
   const [compare] = useCompareXiaomi();
   const fat = bodyFatOf(profile, reading);
   if (!fat) return null;
+  const age = ageAt(birthOf(profile), new Date(reading.measuredAt));
   const groups: Record<AgeGroup, BodyFatAge> = {
-    "mexican-american": bodyFatAge(fat.value, profile.sex, "mexican-american"),
-    white: bodyFatAge(fat.value, profile.sex, "white"),
+    "mexican-american": metabolicAge({ fatPct: fat.value, weightKg: reading.weightKg, age, sex: profile.sex, group: "mexican-american" }),
+    white: metabolicAge({ fatPct: fat.value, weightKg: reading.weightKg, age, sex: profile.sex, group: "white" }),
   };
   const main = groups["mexican-american"];
-  const age = ageAt(birthOf(profile), new Date(reading.measuredAt));
   const diff = main.age - age;
   const older = main.kind !== "under" && diff > 0;
   const versus =
@@ -311,7 +311,7 @@ function ComparisonCard({ profile, reading }: { profile: ProfileDto; reading: Me
   if (!na) return null;
   const x = xiaomiComparable(reading);
   const unit = profile.unit;
-  const fatAge = bodyFatAge(na.bodyFatPct, profile.sex, "mexican-american");
+  const fatAge = metabolicAge({ fatPct: na.bodyFatPct, weightKg: reading.weightKg, age: ageAt(birthOf(profile), new Date(reading.measuredAt)), sex: profile.sex });
   const rows: { label: string; c: string; x: string | null }[] = [
     { label: t("bodyFat"), c: `${f.number(na.bodyFatPct)} %`, x: x.bodyFatPct === null ? null : `${f.number(x.bodyFatPct)} %` },
     { label: t("fatFreeMass"), c: f.weight(na.fatFreeMassKg, unit), x: x.fatFreeMassKg === null ? null : f.weight(x.fatFreeMassKg, unit) },
@@ -321,7 +321,7 @@ function ComparisonCard({ profile, reading }: { profile: ProfileDto; reading: Me
     ...(na.proteinPct === null
       ? []
       : [{ label: t("proteinExperimental"), c: `${f.number(na.proteinPct)} %`, x: x.proteinPct === null ? null : `${f.number(x.proteinPct)} %` }]),
-    ...(reading.bodyAge === null ? [] : [{ label: t("me.age"), c: String(fatAge.age), x: f.number(reading.bodyAge, 0) }]),
+    ...(reading.bodyAge === null ? [] : [{ label: t("me.age"), c: fatAge.kind === "over" ? `${fatAge.age}+` : fatAge.kind === "under" ? `<${fatAge.age}` : String(fatAge.age), x: f.number(reading.bodyAge, 0) }]),
   ];
   const grid = "grid grid-cols-[1.5fr_1fr_1fr] items-center gap-2";
   return (
@@ -523,7 +523,7 @@ export function MePage({ profile, measurements, goals }: { profile: ProfileDto; 
   );
   const sources: SourceId[] = ["who-bmi", ...(compare ? (["who-asian-bmi"] as const) : []), ...(na ? [] : (["mifflin-st-jeor"] as const))];
   if (result.bodyFat) sources.splice(1, 0, "gallagher-2000", "ace");
-  if (na) sources.splice(1, 0, "sun-2003", "janssen", "katch-mcardle");
+  if (na) sources.splice(1, 0, "jaffrin-2011", "sun-2003", "janssen", "mifflin-st-jeor");
   const v = (n: number | null | undefined) => n !== null && n !== undefined;
   const xiaomi = comp
     ? [

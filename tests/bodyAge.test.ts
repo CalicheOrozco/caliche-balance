@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bodyFatAge } from "../shared/bodyAge.ts";
+import { bodyFatAge, metabolicAge } from "../shared/bodyAge.ts";
 import { assessWaist } from "../shared/waist.ts";
 
 describe("bodyFatAge (Kelly 2009, NHANES DXA medians)", () => {
@@ -26,5 +26,22 @@ describe("assessWaist", () => {
     expect(a.mexico).toEqual({ cutoffCm: 90, above: true });
     expect(assessWaist(80, 170, "female").band.key).toBe("whtr-low");
     expect(assessWaist(110, 170, "female").band.key).toBe("whtr-high");
+  });
+});
+
+describe("metabolicAge", () => {
+  it("gives a typical person their own age", () => {
+    // Mexican American men: median 26.72 % at 28.
+    expect(metabolicAge({ fatPct: 26.72, weightKg: 80, age: 28, sex: "male" })).toEqual({ kind: "age", age: 28 });
+  });
+
+  it("adds about 4 years per kg of fat above typical, with no ceiling at the median curve", () => {
+    // 100.7 kg at 31.8 %: 28 + 21.6 / 5 x 100.7 x (31.8 - 26.72) / 100 = 50.1.
+    expect(metabolicAge({ fatPct: 31.8, weightKg: 100.7, age: 28, sex: "male" })).toEqual({ kind: "age", age: 50 });
+  });
+
+  it("keeps very lean and very fat bodies inside 18 to 80", () => {
+    expect(metabolicAge({ fatPct: 12, weightKg: 70, age: 28, sex: "male" })).toEqual({ kind: "under", age: 18 });
+    expect(metabolicAge({ fatPct: 45, weightKg: 130, age: 50, sex: "male" })).toEqual({ kind: "over", age: 80 });
   });
 });

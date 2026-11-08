@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { FiCheck, FiChevronLeft, FiChevronRight, FiEdit3 } from "react-icons/fi";
 import { useNavigate, useParams } from "react-router";
-import { bodyFatAge } from "../../shared/bodyAge.ts";
+import { metabolicAge } from "../../shared/bodyAge.ts";
 import { MUSCLE_INDEX_CUTOFFS, xiaomiComparable } from "../../shared/composition.ts";
 import { type Change, type ReadingReport, type ReportItem, readingReport, recentChanges } from "../../shared/report.ts";
 import { healthyWeightRange, type Status } from "../../shared/reference.ts";
@@ -179,7 +179,7 @@ export function ReadingPage({ profile, measurements }: { profile: ProfileDto; me
     na && {
       label: t("reportFatAge"),
       value: (() => {
-        const r = bodyFatAge(na.bodyFatPct, profile.sex, "mexican-american");
+        const r = metabolicAge({ fatPct: na.bodyFatPct, weightKg: reading.weightKg, age: report.age, sex: profile.sex });
         return r.kind === "over" ? tf("bodyAgeOver", { age: r.age }) : r.kind === "under" ? tf("bodyAgeUnder", { age: r.age }) : tf("bodyAgeYears", { age: r.age });
       })(),
       xiaomi: xiaomiLine(reading.bodyAge === null ? null : tf("bodyAgeYears", { age: reading.bodyAge })),

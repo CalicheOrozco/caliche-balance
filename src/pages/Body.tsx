@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { FiChevronRight, FiDownload, FiTrendingUp } from "react-icons/fi";
 import { Link } from "react-router";
-import { bodyFatAge } from "../../shared/bodyAge.ts";
+import { metabolicAge } from "../../shared/bodyAge.ts";
 import { bodyFatOf, compositionOf } from "../../shared/composition.ts";
 import { toCsv } from "../../shared/csv.ts";
 import { scoreOf } from "../../shared/score.ts";
@@ -383,8 +383,8 @@ export function BodyPage({ profile, measurements }: { profile: ProfileDto; measu
   const comp = report.composition;
   const to = `/medicion/${reading.id}`;
   const watch = report.items.filter((i) => i.band.status !== "good").length;
-  const fatAge = report.bodyFat ? bodyFatAge(report.bodyFat.value, profile.sex, "mexican-american") : null;
   const realAge = ageAt(new Date(`${profile.birthDate}T00:00:00Z`), new Date());
+  const fatAge = report.bodyFat ? metabolicAge({ fatPct: report.bodyFat.value, weightKg: reading.weightKg, age: report.age, sex: profile.sex }) : null;
   const fatAgeText = fatAge
     ? fatAge.kind === "over"
       ? tf("bodyAgeOver", { age: fatAge.age })

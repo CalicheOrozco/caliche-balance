@@ -22,7 +22,7 @@ Cada persona tiene su propia cuenta (nombre de usuario y contraseña) y sus dato
 - **Tú comparado con Norteamérica:** en qué percentil de IMC estás entre adultos de tu sexo y edad en EE. UU. y entre mexicoamericanos (CDC, NHANES 2015-2018).
 - **Composición recalculada con ecuaciones de Norteamérica:** con la impedancia que mide la báscula se recalculan el % de grasa, la masa libre de grasa, el agua corporal, el músculo esquelético y el metabolismo basal, en lugar de usar las fórmulas de Xiaomi. También la masa magra sin minerales (comparable con el "músculo" de Xiaomi) y la proteína (experimental).
 - **Cintura y riesgo visceral:** la báscula no ve la grasa del abdomen, así que puedes anotar tu cintura al agregar una medición a mano o en cualquier pesada que ya exista (Inicio o Historial). Se calcula la relación cintura entre estatura y se compara con los cortes de EE. UU./Canadá y de México.
-- **Edad de tu grasa corporal:** la edad a la que un adulto típico de Norteamérica de tu sexo tiene tu % de grasa, comparando con mexicoamericanos y con estadounidenses blancos (NHANES, DXA), en lugar de la "edad corporal" de Xiaomi.
+- **Edad metabólica:** la edad cuya quema típica en reposo es igual a la tuya, con fórmulas publicadas (Katch-McArdle, medianas de grasa de NHANES y Mifflin-St Jeor), junto a la "edad corporal" de Xiaomi.
 - **Consejos para bajar grasa:** si tu peso o tu grasa están arriba del rango saludable, Inicio te dice cuánto te falta para tu meta (o para el máximo de tu peso saludable), cuántas semanas tomaría a un ritmo seguro y consejos generales con fuente (calorías, proteína, plato, bebidas, fuerza, actividad, sueño y cómo pesarte).
 - **Logros y retos:** tu racha de días seguidos, retos de la semana y del mes (pesarte, pesadas completas, medir tu cintura, bajar grasa) y 47 logros: 17 de constancia, salud y metas, y 30 de Apple Salud en movimiento, ejercicio, sueño, corazón y días completos (con rachas, semanas y meses, contra recomendaciones publicadas). Cada logro se puede ganar muchas veces y sube de nivel (Bronce, Plata, Oro, Platino y Diamante) según cuántas veces lo logras en el año; cada 1 de enero empieza de nuevo y los años anteriores quedan guardados con su nivel. Los de progreso a largo plazo (Menos 5 %, Grasa a la baja, Recomposición y Meta cumplida) cuentan todo el historial. La app guarda cada fecha. El servidor los calcula con todo tu historial, en la zona horaria de tu teléfono, y te avisa cuando uno sube de nivel. Las imágenes se generan con los prompts de [docs/badges.md](docs/badges.md).
 - **Recompensas de la racha:**
@@ -51,22 +51,22 @@ Toda la lógica está en `shared/reference.ts`:
 
 ### Composición recalculada (Norteamérica)
 
-La báscula solo mide peso e **impedancia**; todo lo demás lo calcula Zepp Life con fórmulas de Xiaomi. Caliche Balance recalcula la composición con la impedancia y ecuaciones hechas en población de EE. UU. (todo en `shared/composition.ts`):
+La báscula solo mide peso e **impedancia**; todo lo demás lo calcula Zepp Life con fórmulas de Xiaomi. Caliche Balance recalcula la composición con la impedancia y ecuaciones publicadas, y la califica con rangos de Norteamérica (todo en `shared/composition.ts`):
 
 | Medida | Ecuación | Población |
 |---|---|---|
-| % de grasa, masa libre de grasa, masa grasa | Sun y col., Am J Clin Nutr 2003 (ecuaciones NHANES III) | 734 hombres y 1,095 mujeres de EE. UU. (blancos y afroamericanos), 12 a 94 años |
-| Agua corporal | Sun y col., 2003 | Igual |
+| % de grasa, masa libre de grasa, masa grasa | Bousbiat, Jaffrin y Dongmo, Med Biol Eng Comput 2011; coeficientes de Jaffrin y Bousbiat, J Healthc Eng 2014, ecuaciones 12 y 13 ("L2"). Hecha para resistencia **de pie a pie**, como mide la báscula | 127 hombres y 129 mujeres de 20 a 74 años (Francia), contra DXA; validada en un grupo aparte |
+| Agua corporal | Sun y col., Am J Clin Nutr 2003 (ecuaciones NHANES III) | 734 hombres y 1,095 mujeres de EE. UU. (blancos y afroamericanos), 12 a 94 años |
 | Músculo esquelético | Janssen y col., J Appl Physiol 2000 | 388 adultos, 18 a 86 años, medidos con resonancia magnética |
 | Índice de músculo (kg/m²) y su clasificación | Janssen y col., Am J Epidemiol 2004 | NHANES III, 4,449 adultos de 60 años o más (por eso solo se clasifica desde los 60) |
-| Metabolismo basal por masa magra | Katch-McArdle: 370 + 21.6 × masa libre de grasa | |
+| Metabolismo basal | Mifflin-St Jeor (peso, estatura, edad y sexo); no depende de la impedancia | Recomendada por la Academia de Nutrición y Dietética de EE. UU. |
 | Masa magra sin minerales | Masa libre de grasa menos minerales (6.5 % de la masa libre de grasa, Hombre de Referencia ICRP; Heymsfield y col., J Endocr Soc 2024) | |
 | Proteína (experimental) | Masa libre de grasa menos agua menos minerales | Resta de dos estimaciones: el error se acumula |
 
-Los coeficientes de Sun se verificaron contra la tabla de ecuaciones de ESPEN (Kyle y col., Clin Nutr 2004).
+Los coeficientes de Sun se verificaron contra la tabla de ecuaciones de ESPEN (Kyle y col., Clin Nutr 2004). Los de Bousbiat/Jaffrin se comprobaron con las medias de su cohorte masculina (177 cm, 467 Ω, 81.47 kg, 45.7 años): dan 61.05 kg de masa libre de grasa contra 61.02 kg por DXA, con la estatura en cm. Antes la grasa usaba Sun 2003, pero esa ecuación se hizo con resistencia de mano a pie y con esta báscula sobrestimaba la grasa (unos 2 puntos).
 
 - **El % de grasa que usa toda la app** (clasificación, metas, gráficas) es el recalculado cuando la pesada tiene impedancia; si no la tiene (por ejemplo, una medición agregada a mano), se usa el valor de Xiaomi. Inicio dice cuál se usó y muestra el de Xiaomi como comparación.
-- **Limitaciones:** estas ecuaciones se hicieron con aparatos que miden de mano a pie a 50 kHz, y la báscula Xiaomi mide de pie a pie. Los resultados son estimaciones para seguir tendencias, no un diagnóstico. La muestra de Sun no incluyó población mexicana; no hay una ecuación equivalente validada para México y Canadá juntos.
+- **Limitaciones:** la ecuación de grasa es de pie a pie pero se hizo con otra báscula (Tefal) y en población francesa; no hay una ecuación de pie a pie validada en población mexicana ni norteamericana con coeficientes publicados. El agua y el músculo esquelético siguen con ecuaciones de mano a pie, más aproximadas con esta báscula. Los resultados son estimaciones para seguir tendencias, no un diagnóstico.
 - **Por qué Xiaomi da "músculo" y aquí no:** el "músculo" de Xiaomi es masa libre de grasa menos hueso (incluye órganos, piel y agua), no músculo esquelético. Su equivalente aquí es la masa magra sin minerales; el músculo esquelético (Janssen) es otra medida, mucho menor.
 - Masa ósea y grasa visceral no tienen ecuación de Norteamérica equivalente con impedancia de pie a pie; se muestran como las calcula Xiaomi. Para el riesgo visceral, usa la cintura.
 
@@ -96,9 +96,13 @@ Todo está en `shared/waist.ts`:
 
 Se mide de pie, con la cinta horizontal justo arriba del hueso de la cadera, al final de una exhalación normal.
 
-### Edad de tu grasa corporal
+### Edad metabólica
 
-`shared/bodyAge.ts` usa la mediana de % de grasa por edad medida con DXA en NHANES 1999-2004 (Kelly, Wilson y Heymsfield, PLoS ONE 2009, tabla S2), para mexicoamericanos y para estadounidenses blancos. Tu edad de grasa es la edad en la que la mediana es igual a tu % de grasa (interpolando entre grupos de edad). La mediana deja de subir cerca de los 65 a 75 años; si tu % es mayor, se dice "esa edad o más". Es una aproximación: compara tu grasa estimada por impedancia con valores de DXA.
+`shared/bodyAge.ts`, `metabolicAge`. Lo que quemas en reposo depende de tu masa libre de grasa (Katch-McArdle: 370 + 21.6 × masa libre de grasa), así que cada kilo de grasa en lugar de masa magra quema 21.6 kcal menos al día. Se compara contigo una persona típica de tu sexo, edad y peso, con la mediana de % de grasa de NHANES 1999-2004 medida con DXA (Kelly, Wilson y Heymsfield, PLoS ONE 2009, tabla S2; mexicoamericanos, o estadounidenses blancos como comparación). La diferencia en kcal se pasa a años con Mifflin-St Jeor, donde la quema en reposo baja 5 kcal al día por cada año de edad:
+
+`edad metabólica = edad + 21.6 × peso × (tu % de grasa − % típico a tu edad) / 100 / 5`
+
+Una persona típica obtiene exactamente su edad. Es sensible (unos 4 años por cada kilo de grasa arriba o abajo de lo típico), así que se muestra entre 18 y 80 años. Antes se usaba la "edad de tu grasa" (la edad cuya mediana iguala tu % de grasa), pero esa mediana deja de subir en unos 30.7 % en hombres, y con más grasa solo podía decir "70 o más".
 
 No existe una tabla oficial única para todo el continente; estas son las referencias más usadas en la región. Caliche Balance es una herramienta personal, no un dispositivo médico.
 

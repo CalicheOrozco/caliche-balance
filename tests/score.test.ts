@@ -39,7 +39,7 @@ describe("Caliche body score", () => {
     const expected =
       0.5 * bodyFatPart(composition.bodyFatPct, "male", 28) + 0.3 * bmiPart(99.55 / 1.85 ** 2) + 0.2 * musclePart(composition.skeletalMuscleIndex, "male");
     expect(result.score).toBe(Math.round(expected));
-    expect(result.score).toBe(43);
+    expect(result.score).toBe(48);
     expect(result.parts.map((p) => p.part)).toEqual(["bodyFat", "bmi", "muscle"]);
   });
 

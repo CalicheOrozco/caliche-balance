@@ -16,6 +16,7 @@ export type SourceId =
   | "gallagher-2000"
   | "ace"
   | "mifflin-st-jeor"
+  | "jaffrin-2011"
   | "sun-2003"
   | "janssen"
   | "katch-mcardle";

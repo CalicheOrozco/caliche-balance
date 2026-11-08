@@ -1,10 +1,19 @@
-import { ageAt, type Band, type Sex } from "./reference.ts";
+import { ageAt, basalMetabolicRate, type Band, type Sex } from "./reference.ts";
 
 /**
- * Body composition recalculated from the scale's raw impedance with equations developed in
- * North American populations, instead of the values Zepp Life computes with its own formulas.
+ * Body composition recalculated from the scale's raw impedance with published equations, instead
+ * of the values Zepp Life computes with its own formulas, and judged with North American ranges.
  *
- * - Fat-free mass and total body water: Sun SS, Chumlea WC, Heymsfield SB, et al. Development of
+ * - Fat-free mass (and so body fat): Bousbiat S, Jaffrin MY, Dongmo E. Comparison of body fat-free
+ *   masses calculated from hand-to-foot and foot-to-foot resistances with DXA measurements. Med
+ *   Biol Eng Comput 2011;49:1329-36; equations as given in Jaffrin MY, Bousbiat S. J Healthc Eng
+ *   2014;5(2):123-44, eq. 12 (women) and 13 (men), "L2". Built for FOOT-TO-FOOT resistance (R34),
+ *   the way this scale measures, against DXA in 127 men and 129 women aged 20 to 74 (France), and
+ *   validated in a separate group (mean difference with DXA 0.06 kg in men, 0.05 kg in women).
+ *   Height in cm: with the male cohort's means (177 cm, 467 ohm, 81.47 kg, 45.7 years) it gives
+ *   61.05 kg against 61.02 kg by DXA. Sun 2003 (below) was used before, but it was built with
+ *   hand-to-foot resistance and overestimated fat with this scale.
+ * - Total body water: Sun SS, Chumlea WC, Heymsfield SB, et al. Development of
  *   bioelectrical impedance analysis prediction equations for body composition with the use of a
  *   multicomponent model for use in epidemiologic surveys. Am J Clin Nutr 2003;77:331-40.
  *   The NHANES III equations: 734 men and 1,095 women, 12 to 94 years, white and African American
@@ -14,13 +23,15 @@ import { ageAt, type Band, type Sex } from "./reference.ts";
  *   388 adults, 18 to 86 years, multiethnic).
  * - Skeletal muscle index cut points: Janssen I et al. Am J Epidemiol 2004;159:413-21 (NHANES III,
  *   4,449 adults aged 60 or more).
- * - Basal metabolic rate from fat-free mass: Katch-McArdle, 370 + 21.6 x FFM.
+ * - Basal metabolic rate: Mifflin-St Jeor (weight, height, age, sex), the equation the Academy of
+ *   Nutrition and Dietetics recommends. It does not use the impedance, so a foot-to-foot reading
+ *   that skews fat-free mass cannot skew it too (Katch-McArdle from that fat-free mass did).
  * - Protein and lean soft mass (experimental): fat-free mass is water, protein and minerals; minerals
  *   taken as 6.5 % of it, after ICRP Reference Man as cited by Heymsfield SB et al., J Endocr Soc
  *   2024;8:bvae164. Protein is what remains after water and minerals, so errors add up.
  *
- * Limitation: these equations were built with hand-to-foot resistance at 50 kHz. The Xiaomi scale
- * measures foot to foot, so results are estimates, not a validated measurement for this device.
+ * Limitation: water and skeletal muscle still come from hand-to-foot equations, and no equation was
+ * validated with this exact scale or in Mexican adults; results are estimates for following a trend.
  */
 
 export interface CompositionInput {
@@ -85,8 +96,8 @@ export function recalculate(input: CompositionInput): Composition | null {
   const male = sex === "male";
 
   const fatFreeMassKg = male
-    ? -10.678 + 0.652 * index + 0.262 * weightKg + 0.015 * r
-    : -9.529 + 0.696 * index + 0.168 * weightKg + 0.016 * r;
+    ? 0.528 * index + 0.306 * weightKg - 0.0698 * age + 0.0353 * r - 12.6
+    : 0.354 * index + 0.229 * weightKg - 0.043 * age + 0.0177 * r + 1.91;
   const bodyWaterL = male ? 1.203 + 0.449 * index + 0.176 * weightKg : 3.747 + 0.45 * index + 0.113 * weightKg;
   const skeletalMuscleKg = 0.401 * index + (male ? 3.825 : 0) - 0.071 * age + 5.102;
 
@@ -118,7 +129,7 @@ export function recalculate(input: CompositionInput): Composition | null {
     skeletalMuscleKg,
     skeletalMuscleIndex,
     muscleClass,
-    bmrKcal: 370 + 21.6 * fatFreeMassKg,
+    bmrKcal: basalMetabolicRate(weightKg, heightCm, age, sex),
   };
 }
 

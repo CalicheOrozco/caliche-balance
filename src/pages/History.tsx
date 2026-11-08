@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { FiChevronRight, FiInfo } from "react-icons/fi";
 import { Link } from "react-router";
 import { STREAK_UNLOCKS } from "../../shared/achievements.ts";
-import { bodyFatAge } from "../../shared/bodyAge.ts";
+import { metabolicAge } from "../../shared/bodyAge.ts";
 import { bodyFatOf, compositionOf, xiaomiComparable } from "../../shared/composition.ts";
 import { ageAt, bmi, bodyFatBands, healthyWeightRange } from "../../shared/reference.ts";
 import { type ReportItemKey, readingReport } from "../../shared/report.ts";
@@ -145,8 +145,8 @@ export function TrendsPage({ profile, measurements, goals }: Props) {
           "lean.x": mass(x.muscleKg),
           "protein.c": na?.proteinPct ?? null,
           "protein.x": x.proteinPct,
-          // Body fat age against Mexican American medians; "or older" readings chart at the peak age.
-          "age.c": fat ? bodyFatAge(fat.value, profile.sex, "mexican-american").age : null,
+          // Metabolic age; readings outside 18 to 80 chart at that limit.
+          "age.c": fat ? metabolicAge({ fatPct: fat.value, weightKg: m.weightKg, age: ageAt(new Date(`${profile.birthDate}T00:00:00Z`), new Date(m.measuredAt)), sex: profile.sex }).age : null,
           "age.x": m.bodyAge,
           waist: m.waistCm === null ? null : waistUnit === "in" ? m.waistCm / CM_PER_IN : m.waistCm,
           visceral: m.visceralFat,
@@ -189,7 +189,10 @@ export function TrendsPage({ profile, measurements, goals }: Props) {
       })
     : null;
   const latestFat = latestFull ? bodyFatOf(profile, latestFull) : null;
-  const fatAge = latestFat ? bodyFatAge(latestFat.value, profile.sex, "mexican-american") : null;
+  const fatAge =
+    latestFat && latestFull
+      ? metabolicAge({ fatPct: latestFat.value, weightKg: latestFull.weightKg, age: ageAt(new Date(`${profile.birthDate}T00:00:00Z`), new Date(latestFull.measuredAt)), sex: profile.sex })
+      : null;
   const fatAgeText = fatAge
     ? fatAge.kind === "over"
       ? tf("bodyAgeOver", { age: fatAge.age })
