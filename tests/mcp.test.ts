@@ -39,17 +39,21 @@ async function connect(username: string, password: string) {
 
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
+  // The sign-in page lives under /api/oauth, where no version of the app's service worker answers.
+  const meta = await request(app).get("/.well-known/oauth-authorization-server");
+  expect(meta.body.authorization_endpoint).toBe("http://127.0.0.1/api/oauth/authorize");
   const page = await request(app)
-    .get("/authorize")
+    .get("/api/oauth/authorize")
     .query({ response_type: "code", client_id: clientId, redirect_uri: REDIRECT, code_challenge: challenge, code_challenge_method: "S256", state: "xyz" });
   expect(page.status).toBe(200);
   expect(page.text).toContain("Conectar con Claude");
   const signIn = /name="request" value="([^"]+)"/.exec(page.text)![1]!;
 
-  const wrong = await request(app).post("/mcp-login").type("form").send({ request: signIn, username, password: "no-es-esta", action: "allow" });
+  expect(page.text).toContain('action="/api/oauth/login"');
+  const wrong = await request(app).post("/api/oauth/login").type("form").send({ request: signIn, username, password: "no-es-esta", action: "allow" });
   expect(wrong.status).toBe(401);
 
-  const login = await request(app).post("/mcp-login").type("form").send({ request: signIn, username, password, action: "allow" });
+  const login = await request(app).post("/api/oauth/login").type("form").send({ request: signIn, username, password, action: "allow" });
   expect(login.status).toBe(302);
   const back = new URL(login.headers.location as string);
   expect(back.origin + back.pathname).toBe(REDIRECT);
@@ -83,7 +87,7 @@ describe("Claude connector (MCP)", () => {
   it("publishes its OAuth metadata and asks for a token", async () => {
     const meta = await request(app).get("/.well-known/oauth-authorization-server");
     expect(meta.status).toBe(200);
-    expect(meta.body.authorization_endpoint).toBe("http://127.0.0.1/authorize");
+    expect(meta.body.authorization_endpoint).toBe("http://127.0.0.1/api/oauth/authorize");
     expect((await request(app).post("/mcp").send({})).status).toBe(401);
     // Only Claude's hosts may register.
     expect((await request(app).post("/register").send({ redirect_uris: ["https://evil.example/cb"] })).status).toBe(400);
@@ -95,6 +99,11 @@ describe("Claude connector (MCP)", () => {
     await agent.put("/api/me/profile").send({ sex: "male", birthDate: "1997-12-14", heightCm: 180, language: "es", unit: "kg" });
 
     const { access, refresh, clientId } = await connect("clau", "contraseña-clau");
+
+    // Claude shows the connector with the app's icon and site.
+    const init = await call(access, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } });
+    expect(init.body.result.serverInfo).toMatchObject({ title: "Caliche Balance", websiteUrl: "http://127.0.0.1" });
+    expect(init.body.result.serverInfo.icons[0].src).toBe("http://127.0.0.1/icon-512.png");
 
     const list = await call(access, "tools/list", {});
     const names = list.body.result.tools.map((t: { name: string }) => t.name);

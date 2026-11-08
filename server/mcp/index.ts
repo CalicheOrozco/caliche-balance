@@ -1,6 +1,10 @@
 import express, { type NextFunction, type Request, type Response, Router } from "express";
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
-import { getOAuthProtectedResourceMetadataUrl, mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
+import { authorizationHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/authorize.js";
+import { clientRegistrationHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/register.js";
+import { revocationHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/revoke.js";
+import { tokenHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/token.js";
+import { createOAuthMetadata, getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Collections } from "../db.ts";
@@ -23,8 +27,17 @@ const REGISTRATIONS_PER_HOUR = 20;
 // sets them), which the limiter would otherwise warn about on every request.
 const sdkLimit = { validate: { trustProxy: false } };
 
+/*
+ * The two pages a browser opens (the sign-in page and its form) live under /api/oauth. The app's
+ * service worker answers every other page on this domain with the app itself, and a phone or
+ * browser that has the app installed may still run an older worker that does not know about the
+ * connector; every version has always left /api alone.
+ */
+export const AUTHORIZE_PATH = "/api/oauth/authorize";
+export const LOGIN_PATH = "/api/oauth/login";
+
 /** Every path the connector answers; anything else goes on to the app untouched. */
-const PATHS = ["/mcp", "/mcp-login", "/authorize", "/token", "/register", "/revoke", "/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource"];
+const PATHS = ["/mcp", "/api/oauth", "/mcp-login", "/authorize", "/token", "/register", "/revoke", "/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource"];
 // Checked by hand: mounting on these paths would strip them from the URL the OAuth router reads.
 const isConnectorPath = (path: string) => PATHS.some((p) => path === p || path.startsWith(`${p}/`));
 
@@ -50,27 +63,30 @@ export function mcpRouter(collections: () => Promise<Collections>, push: PushSen
 
   const provider = createProvider(collections);
   // Built on the first request: the public URL comes from the environment.
-  type Auth = { routes: ReturnType<typeof mcpAuthRouter>; bearer: ReturnType<typeof requireBearerAuth>; mcpUrl: URL };
+  type Auth = { routes: Router; bearer: ReturnType<typeof requireBearerAuth>; mcpUrl: URL };
   let auth: Auth | null = null;
   const setup = (): Auth => {
     if (auth) return auth;
     const baseUrl = new URL(mcpConfig.baseUrl);
     const mcpUrl = new URL("/mcp", baseUrl);
+    // The SDK's metadata, with the sign-in page moved under /api/oauth (see AUTHORIZE_PATH).
+    const metadata = {
+      ...createOAuthMetadata({ provider, issuerUrl: baseUrl, baseUrl, scopesSupported: ["caliche-balance"] }),
+      authorization_endpoint: new URL(AUTHORIZE_PATH, baseUrl).href,
+    };
+    const routes = Router();
+    const authorize = authorizationHandler({ provider, rateLimit: sdkLimit });
+    routes.use(AUTHORIZE_PATH, authorize);
+    // The old address keeps working for a sign-in already in progress.
+    routes.use("/authorize", authorize);
+    routes.use("/token", tokenHandler({ provider, rateLimit: sdkLimit }));
+    // Client secrets never expire, so a connector Claude registered keeps working.
+    routes.use("/register", clientRegistrationHandler({ clientsStore: provider.clientsStore, clientSecretExpirySeconds: 0, rateLimit: sdkLimit }));
+    routes.use("/revoke", revocationHandler({ provider, rateLimit: sdkLimit }));
+    routes.use(mcpAuthMetadataRouter({ oauthMetadata: metadata, resourceServerUrl: mcpUrl, scopesSupported: ["caliche-balance"], resourceName: "Caliche Balance" }));
     auth = {
       mcpUrl,
-      routes: mcpAuthRouter({
-        provider,
-        issuerUrl: baseUrl,
-        baseUrl,
-        resourceServerUrl: mcpUrl,
-        resourceName: "Caliche Balance",
-        scopesSupported: ["caliche-balance"],
-        // Client secrets never expire, so a connector Claude registered keeps working.
-        clientRegistrationOptions: { clientSecretExpirySeconds: 0, rateLimit: sdkLimit },
-        authorizationOptions: { rateLimit: sdkLimit },
-        tokenOptions: { rateLimit: sdkLimit },
-        revocationOptions: { rateLimit: sdkLimit },
-      }),
+      routes,
       bearer: requireBearerAuth({ verifier: provider, resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpUrl) }),
     };
     return auth;
@@ -79,7 +95,7 @@ export function mcpRouter(collections: () => Promise<Collections>, push: PushSen
   // /.well-known metadata, /authorize, /token, /register and /revoke.
   router.use((req, res, next) => (isConnectorPath(req.path) ? setup().routes(req, res, next) : next()));
 
-  router.post("/mcp-login", express.urlencoded({ extended: false }), (req, res, next) => {
+  router.post([LOGIN_PATH, "/mcp-login"], express.urlencoded({ extended: false }), (req, res, next) => {
     handleLogin(collections, req, res).catch(next);
   });
 
@@ -87,7 +103,18 @@ export function mcpRouter(collections: () => Promise<Collections>, push: PushSen
 
   // Stateless: every request gets its own server bound to the caller's account.
   router.post("/mcp", bearer, express.json({ limit: "4mb" }), async (req, res) => {
-    const server = new McpServer({ name: "caliche-balance", title: "Caliche Balance", version: "1.0.0" });
+    const base = mcpConfig.baseUrl;
+    // The icon and site Claude shows for the connector.
+    const server = new McpServer({
+      name: "caliche-balance",
+      title: "Caliche Balance",
+      version: "1.0.0",
+      websiteUrl: base,
+      icons: [
+        { src: `${base}/icon-512.png`, mimeType: "image/png", sizes: ["512x512"] },
+        { src: `${base}/icon-192.png`, mimeType: "image/png", sizes: ["192x192"] },
+      ],
+    });
     registerTools(server, req.auth, collections, push);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on("close", () => {

@@ -104,7 +104,7 @@ export function renderLogin(input: {
       <p class="lead">${t.lead(escape(input.clientName))}</p>
       <p class="host">${t.back(escape(input.redirectHost))}</p>
       ${input.error ? `<p class="error" role="alert">${escape(input.error)}</p>` : ""}
-      <form method="post" action="/mcp-login">
+      <form method="post" action="/api/oauth/login">
         <input type="hidden" name="request" value="${escape(input.request)}">
         <label>${t.username}<input name="username" autocomplete="username" autocapitalize="none" value="${escape(input.username)}" required></label>
         <label>${t.password}
@@ -123,6 +123,7 @@ export function renderLogin(input: {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${t.title}</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
 <style>
   @font-face{font-family:Manrope;font-weight:200 800;font-display:swap;src:url("/fonts/manrope-latin.woff2") format("woff2")}
   *{box-sizing:border-box}
