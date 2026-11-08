@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sleepScoreOf } from "../shared/sleepScore.ts";
-import { type HealthDayDto, type HealthMetric, HEALTH_METRIC_SPECS, HEALTH_METRICS, healthAverages, healthDaySchema, parseHealthNumber, parseHealthValue, readHealthSend, sleepNights, sleepStage, summarizeSleep } from "../shared/health.ts";
+import { dedupeSources, type HealthDayDto, type HealthMetric, HEALTH_METRIC_SPECS, HEALTH_METRICS, healthAverages, healthDaySchema, parseHealthNumber, parseHealthValue, readHealthSend, sleepNights, sleepStage, summarizeSleep } from "../shared/health.ts";
 
 describe("parseHealthNumber", () => {
   const steps = { min: 0, max: 200_000 };
@@ -301,3 +301,59 @@ describe("columns from the year Shortcuts", () => {
   });
 });
 
+
+describe("samples from several sources", () => {
+  const at = (hhmm: string) => Date.parse(`2026-10-27T${hhmm}:00-04:00`);
+  const s = (from: string, to: string, value: number, source: string) => ({ start: at(from), end: at(to), value, source });
+
+  it("counts each hour once: the Watch or the iPhone, whichever has more, and Zepp Life only alone", () => {
+    const total = dedupeSources([
+      s("09:00", "09:30", 500, "Apple Watch de Caliche"),
+      s("09:10", "09:40", 300, "iPhone"),
+      s("09:10", "09:40", 300, "Zepp Life"),
+      // A walk without the Watch: the iPhone has more that hour.
+      s("21:00", "21:30", 1600, "iPhone"),
+      s("21:00", "21:30", 800, "Apple Watch de Caliche"),
+      s("21:00", "21:30", 1600, "Zepp Life"),
+      // An hour only Zepp Life recorded.
+      s("23:10", "23:20", 40, "Zepp Life"),
+    ]);
+    expect(total).toBe(500 + 1600 + 40);
+  });
+
+  it("splits a sample between the hours it covers", () => {
+    expect(dedupeSources([s("09:30", "10:30", 100, "iPhone"), s("10:00", "10:10", 80, "Apple Watch")])).toBe(50 + 80);
+  });
+
+  it("reads the daily Shortcut's columns with sources into one total per day", () => {
+    const rows = [
+      ["2026-10-27T09:00:00-04:00", "2026-10-27T09:30:00-04:00", "6,366", "count", "Apple Watch"],
+      ["2026-10-27T09:05:00-04:00", "2026-10-27T09:35:00-04:00", "3,014", "count", "iPhone"],
+      ["2026-10-27T09:05:00-04:00", "2026-10-27T09:35:00-04:00", "3,014", "count", "Zepp Life"],
+      ["2026-10-27T10:00:00-04:00", "2026-10-27T10:05:00-04:00", "1,332", "kcal", "Apple Watch"],
+    ];
+    const col = (i: number, which: number[]) => which.map((r) => rows[r]![i]).join("\n");
+    const { days } = readHealthSend(
+      {
+        steps__start: col(0, [0, 1, 2]),
+        steps__end: col(1, [0, 1, 2]),
+        steps__value: col(2, [0, 1, 2]),
+        steps__unit: col(3, [0, 1, 2]),
+        steps__source: col(4, [0, 1, 2]),
+        // A minute of energy: "1,332" kcal is 1.332, not a thousand.
+        activeKcal__start: col(0, [3]),
+        activeKcal__end: col(1, [3]),
+        activeKcal__value: col(2, [3]),
+        activeKcal__unit: col(3, [3]),
+        activeKcal__source: col(4, [3]),
+      },
+      Date.parse("2026-10-28T00:00:00Z"),
+    );
+    expect(days).toHaveLength(1);
+    expect(days[0]!.values).toEqual({ steps: 6366, activeKcal: 1.33 });
+  });
+
+  it("reads tiny readings in scientific notation", () => {
+    expect(parseHealthValue("4.30102e-06 km", HEALTH_METRIC_SPECS.distanceKm)).toBeCloseTo(0.0000043);
+  });
+});

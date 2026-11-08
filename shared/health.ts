@@ -20,13 +20,15 @@ export interface HealthMetricSpec {
    * grouped value is a sum of decibels rather than an average.
    */
   groupByDay?: boolean;
+  /**
+   * Written by more than one source (Watch, iPhone, apps like Zepp Life that copy the iPhone's
+   * steps). The Health app counts every moment once, but a Shortcut's "Group By: Day" adds every
+   * source up. So these come one sample at a time with
+   * their source, and the server picks the sources itself (dedupeSources).
+   */
+  sources?: boolean;
   /** Days back the Shortcut looks; fewer for types with hundreds of readings a day. Defaults to 7. */
   days?: number;
-  /**
-   * The most days the one-time year Shortcut can ask for. Energy is recorded about every minute,
-   * and a year of it made Shortcuts fail ("There was a problem running the shortcut").
-   */
-  yearDays?: number;
   min: number;
   max: number;
   group: "activity" | "energy" | "heart" | "body";
@@ -43,9 +45,9 @@ export interface HealthMetricSpec {
  * "sum" metrics are a day's total; "mean" metrics are readings averaged per day.
  */
 export const HEALTH_METRIC_SPECS = {
-  steps: { type: "Steps", unit: "count", kind: "sum", min: 0, max: 200_000, group: "activity" },
-  distanceKm: { type: "Walking + Running Distance", unit: "km", kind: "sum", min: 0, max: 500, group: "activity" },
-  flightsClimbed: { type: "Flights Climbed", unit: "count", kind: "sum", min: 0, max: 2_000, group: "activity" },
+  steps: { type: "Steps", unit: "count", kind: "sum", sources: true, min: 0, max: 200_000, group: "activity" },
+  distanceKm: { type: "Walking + Running Distance", unit: "km", kind: "sum", sources: true, min: 0, max: 500, group: "activity" },
+  flightsClimbed: { type: "Flights Climbed", unit: "count", kind: "sum", sources: true, min: 0, max: 2_000, group: "activity" },
   exerciseMin: { type: "Exercise Time", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity" },
   standMin: { type: "Stand Time", unit: "min", kind: "sum", min: 0, max: 1_440, group: "activity" },
   walkingSpeedKmh: { type: "Walking Speed", unit: "km/h", kind: "mean", min: 0.5, max: 15, group: "activity" },
@@ -53,8 +55,8 @@ export const HEALTH_METRIC_SPECS = {
   walkingAsymmetryPct: { type: "Walking Asymmetry", unit: "%", kind: "mean", min: 0, max: 100, group: "activity" },
   stairSpeedUpMs: { type: "Stair Speed: Up", unit: "m/s", kind: "mean", min: 0.05, max: 3, group: "activity" },
   stairSpeedDownMs: { type: "Stair Speed: Down", unit: "m/s", kind: "mean", min: 0.05, max: 3, group: "activity" },
-  activeKcal: { type: "Active Calories", unit: "kcal", kind: "sum", min: 0, max: 20_000, group: "energy", yearDays: 60 },
-  restingKcal: { type: "Resting Calories", unit: "kcal", kind: "sum", min: 0, max: 10_000, group: "energy", yearDays: 60 },
+  activeKcal: { type: "Active Calories", unit: "kcal", kind: "sum", sources: true, days: 3, min: 0, max: 20_000, group: "energy" },
+  restingKcal: { type: "Resting Calories", unit: "kcal", kind: "sum", min: 0, max: 10_000, group: "energy" },
   restingHr: { type: "Resting Heart Rate", unit: "count/min", kind: "mean", min: 20, max: 250, group: "heart" },
   hrvMs: { type: "Heart Rate Variability", unit: "ms", kind: "mean", min: 1, max: 500, group: "heart" },
   walkingHr: { type: "Walking Heart Rate Average", unit: "count/min", kind: "mean", min: 30, max: 250, group: "heart" },
@@ -88,6 +90,8 @@ export const dateField = (field: string) => `${field}_date` as const;
  */
 export function parseHealthNumber(value: unknown, range: { min: number; max: number }): unknown {
   if (typeof value !== "string") return value;
+  // Tiny readings can come in scientific notation ("4.30102e-06" km).
+  if (/^\s*-?\d+(?:\.\d+)?e[+-]?\d+\s*$/i.test(value)) return Number(value);
   const text = value.replace(/[\s  ]/g, "").replace(/[^\d.,-]/g, "");
   if (!/\d/.test(text)) return value;
   const commas = text.split(",").length - 1;
@@ -139,7 +143,7 @@ const UNIT_CONVERSIONS: Record<HealthUnit, Record<string, (n: number) => number>
  */
 export function parseHealthValue(value: unknown, spec: Pick<HealthMetricSpec, "unit" | "min" | "max">): unknown {
   if (typeof value !== "string") return value;
-  const match = /^\s*(-?[\d.,\s\u00a0\u202f]*\d)\s*(.*)$/.exec(value);
+  const match = /^\s*(-?[\d.,\s\u00a0\u202f]*\d(?:e[+-]?\d+)?)\s*(.*)$/i.exec(value);
   if (!match) return value;
   const n = parseHealthNumber(match[1] ?? "", spec);
   if (typeof n !== "number") return value;
@@ -372,6 +376,41 @@ const isEmpty = (value: unknown) => value === null || (typeof value === "string"
  */
 const DATA_FIELDS = new Set<string>([...HEALTH_METRICS, ...HEALTH_SYMPTOM_KEYS.map(symptomField), "sleep"]);
 
+const HOUR_MS = 60 * 60 * 1000;
+
+/** The Apple Watch and the iPhone measure; other apps (Zepp Life) mostly copy what the iPhone measured. */
+const isAppleDevice = (source: string) => /watch|iphone/i.test(source);
+
+/**
+ * A day's total from samples of several sources, counting every hour once, close to what the Health
+ * app shows: each hour takes the Watch or the iPhone, whichever recorded more, and sources are never
+ * added together. So the Watch counts while it is worn and the iPhone still counts a walk made
+ * without it. Other apps count only in hours with nothing from either: Zepp Life copies the
+ * iPhone's steps, sometimes an hour off. A sample that runs over several hours is split by time.
+ */
+export function dedupeSources(samples: { start: number; end: number; value: number; source: string }[]): number {
+  const byHour = new Map<number, Map<string, number>>();
+  const add = (hour: number, source: string, value: number) => {
+    const sources = byHour.get(hour) ?? new Map<string, number>();
+    sources.set(source, (sources.get(source) ?? 0) + value);
+    byHour.set(hour, sources);
+  };
+  for (const s of samples) {
+    if (s.end <= s.start) {
+      add(Math.floor(s.start / HOUR_MS), s.source, s.value);
+      continue;
+    }
+    for (let h = Math.floor(s.start / HOUR_MS); h * HOUR_MS < s.end; h++) {
+      const inHour = Math.min(s.end, (h + 1) * HOUR_MS) - Math.max(s.start, h * HOUR_MS);
+      add(h, s.source, (s.value * inHour) / (s.end - s.start));
+    }
+  }
+  return [...byHour.values()].reduce((sum, sources) => {
+    const apple = [...sources].filter(([source]) => isAppleDevice(source)).map(([, value]) => value);
+    return sum + Math.max(...(apple.length ? apple : sources.values()));
+  }, 0);
+}
+
 /**
  * One value per day from a metric's "day|value|unit" lines: the day's total for "sum" metrics, the
  * average of its readings for "mean" ones. A line that cannot be read is passed on as text so the
@@ -380,6 +419,8 @@ const DATA_FIELDS = new Set<string>([...HEALTH_METRICS, ...HEALTH_SYMPTOM_KEYS.m
  * first sample), and any 0 where 0 cannot be a real value (a pulse).
  */
 function metricByDay(spec: HealthMetricSpec, rows: string[][], now: number): Map<string, number | string> {
+  // One sample per line with its source: "start|end|value|unit|source".
+  if (rows.some((r) => r.length >= 5)) return sourcedByDay(spec, rows, now);
   const byDay = new Map<string, number[]>();
   const out = new Map<string, number | string>();
   for (const [when = "", amount = "", unit = ""] of rows) {
@@ -403,20 +444,52 @@ function metricByDay(spec: HealthMetricSpec, rows: string[][], now: number): Map
   return out;
 }
 
+/**
+ * A day's total from single samples with their source ("start|end|value|unit|source"), each filed
+ * on the day it started, every hour counted once (dedupeSources).
+ */
+function sourcedByDay(spec: HealthMetricSpec, rows: string[][], now: number): Map<string, number | string> {
+  const byDay = new Map<string, Parameters<typeof dedupeSources>[0]>();
+  const out = new Map<string, number | string>();
+  // One sample is minutes long: "1,234" kcal or km in it is 1.234, never a thousand; counts (steps)
+  // are whole numbers, so there it is a thousand.
+  const sample = spec.unit === "count" ? spec : { ...spec, max: spec.max / 20 };
+  for (const [startText = "", endText = "", amount = "", unit = "", source = ""] of rows) {
+    const day = shortcutDay(startText);
+    const start = Date.parse(startText);
+    const end = Date.parse(endText);
+    if (!day || isEmpty(amount) || !Number.isFinite(start) || start > now) continue;
+    const value = parseHealthValue(`${amount} ${unit}`.trim(), sample);
+    if (typeof value !== "number") {
+      out.set(day, `${amount} ${unit}`.trim());
+      continue;
+    }
+    byDay.set(day, [...(byDay.get(day) ?? []), { start, end: Number.isFinite(end) ? end : start, value, source }]);
+  }
+  for (const [day, samples] of byDay) if (!out.has(day)) out.set(day, Math.round(dedupeSources(samples) * 100) / 100);
+  return out;
+}
+
 /** The columns each kind of field can come in, in the order their lines put them. */
-const COLUMNS = { metric: ["start", "value", "unit"], symptom: ["start", "value"], sleep: ["start", "end", "value"] } as const;
+const COLUMNS = {
+  metric: ["start", "value", "unit"],
+  sourced: ["start", "end", "value", "unit", "source"],
+  symptom: ["start", "value"],
+  sleep: ["start", "end", "value"],
+} as const;
 
 /**
- * The year Shortcuts send each field as columns, one text per property ("steps__start",
- * "steps__value", "steps__unit"), each with one item per line in the same order. They are zipped
- * back into the usual lines ("day|value|unit") here, so everything after reads one format.
+ * Fields with hundreds of samples (the ones with sources) come as columns, one text per property
+ * ("steps__start", "steps__end", "steps__value", "steps__unit", "steps__source"), each with one item
+ * per line in the same order; old copies of the year Shortcuts sent "start", "value" and "unit".
+ * They are zipped back into lines here, so everything after reads one format.
  */
 function zipColumns(body: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(body)) if (!key.includes("__")) out[key] = value;
   const symptomKeys = new Set<string>(HEALTH_SYMPTOM_KEYS.map(symptomField));
   for (const key of DATA_FIELDS) {
-    const cols = COLUMNS[key === "sleep" ? "sleep" : symptomKeys.has(key) ? "symptom" : "metric"];
+    const cols = COLUMNS[key === "sleep" ? "sleep" : symptomKeys.has(key) ? "symptom" : typeof body[`${key}__source`] === "string" ? "sourced" : "metric"];
     const lists = cols.map((c) => body[`${key}__${c}`]);
     if (!lists.some((l) => typeof l === "string")) continue;
     const rows = lists.map((l) => (typeof l === "string" ? l.split(/\r?\n/) : []));
@@ -521,7 +594,7 @@ export type HealthDayDto = { date: string; sleep: SleepSummary | null; symptoms:
  * from the current one. Bump it whenever scripts/build-health-shortcut.ts changes what it sends.
  * Copies from before versions existed send none.
  */
-export const HEALTH_SHORTCUT_VERSION = 14;
+export const HEALTH_SHORTCUT_VERSION = 15;
 
 /** A problem with one field of a run, with what the Shortcut sent for it. */
 export interface HealthProblem {

@@ -13,7 +13,6 @@ import { Button, Card, Modal, Progress, Rings, useFormat } from "./ui.tsx";
 /** The signed Shortcut built by scripts/build-health-shortcut.py. */
 const SHORTCUT_FILE = "/shortcuts/caliche-salud.shortcut";
 /** The one-time Shortcuts that bring in the last 12 months, in 4 parts so none runs out of memory. */
-const YEAR_SHORTCUTS = [1, 2, 3, 4] as const;
 /** Metrics the Shortcut sends today; sleep can be sent by hand-built Shortcuts. */
 const SENT: HealthMetric[] = ["steps", "activeKcal", "exerciseMin", "distanceKm", "restingHr"];
 
@@ -170,24 +169,6 @@ export function AppleHealthCard({ user }: { user: UserDto }) {
             >
               <FiDownload aria-hidden /> {tf("ahAddShortcut", { n: HEALTH_SHORTCUT_VERSION })}
             </a>
-            <details className="group rounded-2xl border border-line p-3.5">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 font-bold [&::-webkit-details-marker]:hidden">
-                {t("ahAddYearShortcut")} <FiChevronDown className="transition group-open:rotate-180" aria-hidden />
-              </summary>
-              <p className="mt-2 text-xs text-muted">{t("ahYearShortcutHint")}</p>
-              <div className="mt-3 flex flex-col gap-2">
-                {YEAR_SHORTCUTS.map((n) => (
-                  <a
-                    key={n}
-                    href={`/shortcuts/caliche-salud-anio-${n}.shortcut`}
-                    download={`${t(`ahYearPart.${n}` as MessageKey)}.shortcut`}
-                    className="flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-surface-2 px-4 py-2.5 font-bold text-ink"
-                  >
-                    <FiDownload aria-hidden /> {t(`ahYearPart.${n}` as MessageKey)}
-                  </a>
-                ))}
-              </div>
-            </details>
             <Button
               variant="secondary"
               disabled={create.isPending}
